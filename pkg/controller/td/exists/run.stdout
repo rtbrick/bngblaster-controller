@@ -1,0 +1,1 @@
+test -C td/exists/config.json -S td/exists/run.sock

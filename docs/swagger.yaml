@@ -1,0 +1,423 @@
+openapi: 3.0.3
+info:
+  title: RtBrick BNG Blaster Management API
+  description: >-
+    RtBrick BNG Blaster Management API is the management API for multiple BNG Blaster instances.
+
+    It allows to manage instances in the sense that new instances can be created, started, stopped 
+    and also controlled via command socket of the BNG Blaster.
+  contact:
+    email: bngblaster@rtbrick.com
+    url: https://github.com/rtbrick/bngblaster-controller/issues
+  version: 1.0.0
+servers:
+  - url: 'http://localhost:8001'
+
+paths:
+  /api/v1/instances/{instance_name}:
+    get:
+      summary: Status information of an instance.
+      description: >-
+        Get status information of an instance.
+      parameters:
+        - name: instance_name
+          description: instance name of the bngblaster
+          in: path
+          required: true
+          example: sample
+          schema:
+            type: string
+      responses:
+        200:
+          description: ok, the status object
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - started
+                      - stopped
+        204:
+          description: no content, the instance was updated
+        400:
+          description: bad request, body not parsable
+          content:
+            text/plain:
+              schema:
+                type: string
+        404:
+          description: not found, if instance does not exist
+          content:
+            text/plain:
+              schema:
+                type: string
+        412:
+          description: precondition failed, if instance is running
+          content:
+            text/plain:
+              schema:
+                type: string
+    put:
+      summary: Create or update an instance
+      description: >-
+        The bngblaster instance will be created if there is not already one.
+        If the instance already exists the configuration is replaced.
+        The instance will not be started only prepared.
+      parameters:
+        - name: instance_name
+          description: instance name of the bngblaster
+          in: path
+          required: true
+          example: sample
+          schema:
+            type: string
+      requestBody:
+        description: The config file for the bngblaster instance.
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties:
+                oneOf:
+                  - type: string
+                  - type: integer
+                  - type: object
+            example:
+              {
+                "interfaces": {
+                  "network": {
+                    "interface": "bblB",
+                    "address": "10.0.0.10",
+                    "gateway": "10.0.0.2",
+                    "address-ipv6": "fc66:1337:7331:8::10",
+                    "gateway-ipv6": "fc66:1337:7331:8::1"
+                  },
+                  "access": {
+                    "interface": "bblA",
+                    "outer-vlan-min": 1,
+                    "outer-vlan-max": 4049,
+                    "inner-vlan-min": 1,
+                    "inner-vlan-max": 4049
+                  }
+                }
+              }
+      responses:
+        201:
+          description: created, the instance was created
+        204:
+          description: no content, the instance was updated
+        400:
+          description: bad request, body not parsable
+          content:
+            text/plain:
+              schema:
+                type: string
+        412:
+          description: precondition failed, if instance is running
+          content:
+            text/plain:
+              schema:
+                type: string
+        500:
+          description: internal server error
+          content:
+            text/plain:
+              schema:
+                type: string
+    delete:
+      summary: Delete an instance.
+      description: >-
+        Deletes an instance. This does not stop a running instance, only cleans up everything if the instance is already stopped.
+      parameters:
+        - name: instance_name
+          description: instance name of the bngblaster
+          in: path
+          required: true
+          example: sample
+          schema:
+            type: string
+      responses:
+        204:
+          description: no content, the instance was deleted
+        412:
+          description: precondition failed, if instance is running
+          content:
+            text/plain:
+              schema:
+                type: string
+        500:
+          description: internal server error
+          content:
+            text/plain:
+              schema:
+                type: string
+  /api/v1/instances/{instance_name}/_start:
+    post:
+      summary: Start an instance
+      description: >-
+        The bngblaster instance will be started with the command line parameters provided in the body.
+      parameters:
+        - name: instance_name
+          description: instance name of the bngblaster
+          in: path
+          required: true
+          example: sample
+          schema:
+            type: string
+      requestBody:
+        description: The command line parameters for the bngblaster.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                report:
+                  description: specifies that a report should be generated
+                  type: boolean
+                report_flags:
+                  description: flags that allows to specify what is reported
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - sessions
+                      - streams
+                logging:
+                  description: specifies if logging is enabled
+                  type: boolean
+                logging_flags:
+                  description: flags that allows to specify what is logged
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - debug
+                      - error
+                      - igmp
+                      - io
+                      - pppoe
+                      - info
+                      - pcap
+                      - timer
+                      - timer-detail
+                      - ip
+                      - loss
+                      - l2tp
+                      - dhcp
+                      - isis
+                      - bgp
+                      - tcp
+                pcap_capture:
+                  description: allows to write a PCAP file
+                  type: boolean
+                session_count:
+                  description: overwrites the session count from config
+                  type: integer
+                pppoe_session_count:
+                  description: overwrites the session count from config
+                  type: integer
+                  deprecated: true
+                stream_config:
+                  description: specifies an optional stream configuration file (absolute path) 
+                  type: string
+            example:
+              {
+                "logging": true,
+                "logging_flags": [ "error","ip" ],
+                "pcap_capture": true,
+                "session_count": 1000
+              }
+      responses:
+        204:
+          description: no content, the instance was started
+        400:
+          description: bad request, body not parsable
+          content:
+            text/plain:
+              schema:
+                type: string
+        404:
+          description: not found, if instance does not exist
+          content:
+            text/plain:
+              schema:
+                type: string
+        412:
+          description: precondition failed, if instance is running
+          content:
+            text/plain:
+              schema:
+                type: string
+        500:
+          description: internal server error
+          content:
+            text/plain:
+              schema:
+                type: string
+  /api/v1/instances/{instance_name}/_stop:
+    post:
+      summary: Stop an instance
+      description: >-
+        Sends a stop signal to the instance
+      parameters:
+        - name: instance_name
+          description: instance name of the bngblaster
+          in: path
+          required: true
+          example: sample
+          schema:
+            type: string
+      responses:
+        202:
+          description: accepted
+  /api/v1/instances/{instance_name}/_kill:
+    post:
+      summary: Kill an instance
+      description: >-
+        Sends a kill signal to the instance
+      parameters:
+        - name: instance_name
+          description: instance name of the bngblaster
+          in: path
+          required: true
+          example: sample
+          schema:
+            type: string
+      responses:
+        202:
+          description: accepted
+  /api/v1/instances/{instance_name}/_command:
+    post:
+      summary: Send a command to the ctrl socket of the instance.
+      description: >-
+        The result of the command is a JSON datagram with a specific code field.
+        This code field, if set, specifies the http response code.
+      parameters:
+        - name: instance_name
+          description: instance name of the bngblaster
+          in: path
+          required: true
+          example: sample
+          schema:
+            type: string
+      requestBody:
+        description: The config file for the bngblaster instance.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                command:
+                  type: string
+                arguments:
+                  type: object
+                  additionalProperties:
+                    oneOf:
+                      - type: string
+                      - type: integer
+            example:
+              {
+                "command": "igmp-join",
+                "arguments": {
+                  "outer-vlan": 128,
+                  "inner-vlan": 7,
+                  "group": "232.1.1.3",
+                  "source1": "10.0.0.10",
+                  "source2": "10.0.0.11",
+                  "source3": "10.0.0.12"
+                }
+              }
+      responses:
+        200:
+          description: ok, if not other specified in the response of the bngblaster
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/commandResponse'
+        400:
+          description: bad request, body not parsable
+          content:
+            text/plain:
+              schema:
+                type: string
+        412:
+          description: precondition failed, if instance is not running or not existent
+          content:
+            text/plain:
+              schema:
+                type: string
+        500:
+          description: internal server error
+          content:
+            text/plain:
+              schema:
+                type: string
+  /api/v1/instances/{instance_name}/{file_name}:
+    get:
+      summary: Download one of the output files.
+      description: >-
+        This allows to download the output but also the config files of an instance.
+      parameters:
+        - name: instance_name
+          description: instance name of the parsable
+          in: path
+          required: true
+          example: sample
+          schema:
+            type: string
+        - name: file_name
+          description: name of the file to download
+          in: path
+          required: true
+          example: config.json
+          schema:
+            type: string
+            enum:
+              - config.json
+              - run.json
+              - run.log
+              - run_report.json
+              - run.pcap
+              - run.stdout
+              - run.stderr
+      responses:
+        200:
+          description: ok, with the content type applicable for the specific file ending.
+        404:
+          description: not found, file does not exist
+components:
+  schemas:
+    commandResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+        arguments:
+          type: object
+          additionalProperties:
+            oneOf:
+              - type: string
+              - type: integer
+              - type: object
+      example:
+        {
+          "status": "ok",
+          "code": 200,
+          "session-info": {
+            "username": "user1@rtbrick.com",
+            "agent-circuit_id": "0.0.0.0/0.0.0.0 eth 0:1",
+            "agent-remote-id": "DEU.RTBRICK.1",
+            "session-state": "PPP Established",
+            "lcp-state": "Opened",
+            "ipcp-state": "Opened",
+            "ipv4-address": "10.100.128.0",
+            "ip6cp-state": "Opened",
+            "ipv6-prefix": "fc66:1000:1::",
+            "ipv6-prefix-len": 64,
+            "ipv6-delegated-prefix": "fc66:2000::",
+            "ipv6-delegated-prefix-len": 56
+          }
+        }

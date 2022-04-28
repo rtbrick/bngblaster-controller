@@ -1,0 +1,11 @@
+/bin
+/vendor
+/pkg/controller/td/**/run*
+/test
+
+description-pak
+postinstall-pak
+postremove-pak
+preinstall-pak
+preremove-pak
+rtbrick-bngblasterctrl.service

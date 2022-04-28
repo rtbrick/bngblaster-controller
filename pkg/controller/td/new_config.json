@@ -1,0 +1,74 @@
+{
+  "interfaces": {
+    "network": {
+      "interface": "eth0",
+      "address": "100.0.0.10",
+      "gateway": "100.0.0.2",
+      "address-ipv6": "fc66:1337:7331::2",
+      "gateway-ipv6": "fc66:1337:7331::1"
+    },
+    "access": {
+      "interface": "eth1",
+      "outer-vlan-min": 1,
+      "outer-vlan-max": 4049,
+      "inner-vlan-min": 1,
+      "inner-vlan-max": 4049
+    }
+  },
+  "pppoe": {
+    "sessions": 10,
+    "session-time": 0,
+    "max-outstanding": 800,
+    "start-rate": 400,
+    "stop-rate": 400,
+    "reconnect": true,
+    "discovery-timeout": 5,
+    "discovery-retry": 5
+  },
+  "ppp": {
+    "mru": 1492,
+    "authentication": {
+      "username": "user{session}@rtbrick.com",
+      "password": "test",
+      "timeout": 5,
+      "retry": 30
+    },
+    "lcp": {
+      "conf-request-timeout": 5,
+      "conf-request-retry": 10,
+      "keepalive-interval": 30,
+      "keepalive-retry": 3
+    },
+    "ipcp": {
+      "enable": true,
+      "conf-request-timeout": 5,
+      "conf-request-retry": 10
+    },
+    "ip6cp": {
+      "enable": true,
+      "conf-request-timeout": 5,
+      "conf-request-retry": 10
+    }
+  },
+  "access-line": {
+    "agent-remote-id": "DEU.RTBRICK.{session}",
+    "agent-circuit-id": "0.0.0.0/0.0.0.0 eth 0:{session}",
+    "rate-up": 1024,
+    "rate-down": 16384
+  },
+  "igmp": {
+    "start-delay": 30,
+    "group": "232.1.1.1",
+    "group-iter": "0.0.0.1",
+    "source": "100.1.0.2",
+    "source-iter": "0.0.0.0",
+    "group-count": 3,
+    "zapping-interval": 5,
+    "send-multicast-traffic": true
+  },
+  "session-traffic": {
+    "ipv4-pps": 1,
+    "ipv6-pps": 1,
+    "ipv6pd-pps": 1
+  }
+}
