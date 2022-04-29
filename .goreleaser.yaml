@@ -6,7 +6,7 @@ before:
     - go test -v ./...
 builds:
   - main: ./cmd/bngblasterctrl/bngblasterctrld.go
-  - env:
+    env:
       - CGO_ENABLED=0
     goos:
       - linux
