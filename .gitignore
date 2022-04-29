@@ -2,4 +2,4 @@
 /vendor
 /pkg/controller/td/**/run*
 /test
-dist/
+/dist
