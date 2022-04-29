@@ -1,12 +1,13 @@
 # BNG Blaster Control Daemon
 
+![Build](https://github.com/rtbrick/bngblaster-controller/workflows/Build/badge.svg?branch=main)
+[![License](https://img.shields.io/badge/License-BSD-lightgrey)](https://github.com/rtbrick/bngblaster-controller/blob/main/LICENSE)
+[![API](https://img.shields.io/badge/Documentation-green)](https://rtbrick.github.io/bngblaster-controller)
 
 The [BNG Blaster](https://github.com/rtbrick/bngblaster) controller provides
 a REST API to start and stop multiple test instances. It exposes the
 BNG Blaster [JSON RPC API](https://rtbrick.github.io/bngblaster/api/index.html)
 as REST API and provides endpoints to download logs and reports. 
-
-[Open API Definition](https://rtbrick.github.io/bngblaster-controller)
 
 ## Usage
 
