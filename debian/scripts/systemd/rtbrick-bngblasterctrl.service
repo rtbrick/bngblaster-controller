@@ -1,11 +1,10 @@
 [Unit]
 Description=RtBrick BNG Blaster Controller
-StartLimitIntervalSec=420
+StartLimitIntervalSec=60
 StartLimitBurst=3
 
 [Service]
 Type=simple
-TimeOutSec=90
 User=root
 Group=root
 Environment="USER=root"
