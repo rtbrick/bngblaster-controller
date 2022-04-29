@@ -5,12 +5,14 @@ before:
     - go build -v ./...
     - go test -v ./...
 builds:
+  - main: ./cmd/bngblasterctrl/bngblasterctrld.go
   - env:
       - CGO_ENABLED=0
     goos:
       - linux
     goarch:
       - amd64
+
 nfpms:
   - file_name_template: '{{ .ProjectName }}_{{ .Arch }}'
     homepage: https://github.com/rtbrick/bngblaster-controller
