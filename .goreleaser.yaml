@@ -1,0 +1,43 @@
+before:
+  hooks:
+    # You may remove this if you don't use go modules.
+    - go mod tidy
+    # you may remove this if you don't need go generate
+    - go generate ./...
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+nfpms:
+  - file_name_template: '{{ .ProjectName }}_{{ .Arch }}'
+    homepage: https://github.com/rtbrick/bngblaster-controller
+    description: |-
+      BNG Blaster Control Daemon
+    vendor: RtBrick
+    maintainer: RtBrick <bngblaster@rtbrick.com>
+    license: BSD-3
+    formats:
+      - deb
+    bindir: /usr/local/bin
+    section: utils
+    contents:
+      - src: debian/scripts/systemd/rtbrick-bngblasterctrl.service
+        dst: /lib/systemd/system/rtbrick-bngblasterctrl.service
+        file_info:
+          mode: 0644
+    scripts:
+      postinstall: debian/scripts/postinstall.sh
+      preremove: debian/scripts/preremove.sh
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
