@@ -2,6 +2,7 @@
 
 [![Build](https://github.com/rtbrick/bngblaster-controller/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/rtbrick/bngblaster-controller/actions/workflows/build.yml)
 [![License](https://img.shields.io/badge/License-BSD-lightgrey)](https://github.com/rtbrick/bngblaster-controller/blob/main/LICENSE)
+[![Documentation](https://img.shields.io/badge/Documentation-lightgrey)](https://rtbrick.github.io/bngblaster/controller.html)
 [![API](https://img.shields.io/badge/API-green)](https://rtbrick.github.io/bngblaster-controller)
 
 The [BNG Blaster](https://github.com/rtbrick/bngblaster) controller provides
