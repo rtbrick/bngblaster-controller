@@ -86,8 +86,8 @@ func (s *Server) fileServing(directory string) http.HandlerFunc {
 
 func (s *Server) create() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		instance := mux.Vars(r)[instanceNameParameter]
-		instance = path.Clean(instance)
+		instanceVariable := mux.Vars(r)[instanceNameParameter]
+		instance := path.Clean(instanceVariable)
 		content, err := ioutil.ReadAll(r.Body)
 		if err != nil || len(content) == 0 {
 			http.Error(w, "body not readable", http.StatusBadRequest)
