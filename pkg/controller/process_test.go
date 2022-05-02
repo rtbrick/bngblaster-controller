@@ -7,8 +7,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
-	isTest "github.com/matryer/is"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -83,7 +82,6 @@ func TestApplication_ExecCommand(t *testing.T) {
 	}
 	for i, tt := range tcs {
 		t.Run(fmt.Sprintf("Number %d", i), func(t *testing.T) {
-			is := isTest.New(t)
 			defer func() {
 				_ = os.Remove(stderrFile)
 			}()
@@ -101,17 +99,14 @@ func TestApplication_ExecCommand(t *testing.T) {
 				<-done
 			}
 			got, err := ioutil.ReadFile(stdoutFile)
-			is.NoErr(err)
+			require.NoError(t, err)
 			want := tt.expOut
-			if diff := cmp.Diff(got, want); diff != "" {
-				t.Errorf("out mismatch (-want +got):\n%s", diff)
-			}
+			require.Equal(t, want, got)
 		})
 	}
 }
 
 func TestApplication_runCommandNoTimeOut(t *testing.T) {
-	is := isTest.New(t)
 	defer func() {
 		_ = os.Remove(stderrFile)
 	}()
@@ -119,7 +114,7 @@ func TestApplication_runCommandNoTimeOut(t *testing.T) {
 		_ = os.Remove(stdoutFile)
 	}()
 	_, err := RunCommand(pidFile, stdoutFile, stderrFile, "sleep", "10")
-	is.NoErr(err)
+	require.NoError(t, err)
 }
 
 func TestApplication_ExecCommand_Real(t *testing.T) {
@@ -154,9 +149,7 @@ func TestApplication_ExecCommand_Real(t *testing.T) {
 			}
 			got := mustRead(t, stdoutFile)
 			want := tt.expOut
-			if diff := cmp.Diff(string(got), string(want)); diff != "" {
-				t.Errorf("out mismatch (-want +got):\n%s", diff)
-			}
+			require.Equal(t, string(got), string(want))
 		})
 	}
 }

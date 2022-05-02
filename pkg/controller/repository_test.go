@@ -13,24 +13,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
-	isf "github.com/matryer/is"
 	"github.com/rs/zerolog/log"
+	"github.com/stretchr/testify/require"
 )
 
 func writePidFileForRunning(t *testing.T, rootFolder string) {
 	t.Helper()
-	is := isf.New(t)
 	pidFile := path.Join(rootFolder, "running", runPidFilename)
 	err := ioutil.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), permission)
-	is.NoErr(err)
+	require.NoError(t, err)
 }
 
 func mustRead(t *testing.T, filename string) []byte {
 	t.Helper()
-	is := isf.New(t)
 	data, err := ioutil.ReadFile(filename)
-	is.NoErr(err)
+	require.NoError(t, err)
 	return data
 }
 
@@ -61,12 +58,9 @@ func TestNewDefaultRepository(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			is := isf.New(t)
 			got := NewDefaultRepository(tt.opts...)
-			if diff := cmp.Diff(got, tt.want, cmp.AllowUnexported(DefaultRepository{})); diff != "" {
-				t.Errorf("mismatch (-want +got):\n%s", diff)
-			}
-			is.Equal(got.ConfigFolder(), got.configFolder)
+			require.Equal(t, tt.want, got)
+			require.Equal(t, got.ConfigFolder(), got.configFolder)
 		})
 	}
 }
@@ -103,7 +97,6 @@ func TestDefaultRepository_CreateBngBlasterInstance(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			is := isf.New(t)
 			folder := path.Join(rootFolder, tt.instance)
 			defer func() {
 				if tt.deleteAfterwards {
@@ -120,10 +113,8 @@ func TestDefaultRepository_CreateBngBlasterInstance(t *testing.T) {
 				t.Fatalf("%s does not exist", folder)
 			}
 			config, err := r.config(tt.instance)
-			is.NoErr(err)
-			if diff := cmp.Diff(config, tt.config); diff != "" {
-				t.Errorf("mismatch (-want +got):\n%s", diff)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.config, config)
 		})
 	}
 }
@@ -202,9 +193,7 @@ func TestDefaultRepository_commandlineParameters(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, want := r.commandlineParameters(tt.name, tt.runningConfig), tt.want
-			if diff := cmp.Diff(got, want); diff != "" {
-				t.Errorf("mismatch (-want +got):\n%s", diff)
-			}
+			require.Equal(t, want, got)
 		})
 	}
 }
@@ -251,9 +240,7 @@ func TestDefaultRepository_Start(t *testing.T) {
 			stdoutFile := path.Join(rootFolder, tt.name, RunStdOut)
 			got := mustRead(t, stdoutFile)
 			want := tt.expOut
-			if diff := cmp.Diff(string(got), want); diff != "" {
-				t.Errorf("out mismatch (-want +got):\n%s", diff)
-			}
+			require.Equal(t, want, string(got))
 		})
 	}
 }
@@ -342,12 +329,11 @@ func TestDefaultRepository_Command(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			is := isf.New(t)
 			if tt.startEchoServer {
 				// open socket
 				file := path.Join(r.ConfigFolder(), tt.name, RunSockFilename)
 				ln, err := net.Listen("unix", file)
-				is.NoErr(err)
+				require.NoError(t, err)
 				defer func() {
 					_ = ln.Close()
 					_ = os.Remove(file)
@@ -368,10 +354,8 @@ func TestDefaultRepository_Command(t *testing.T) {
 			}
 			var cr SocketCommand
 			err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
-			is.NoErr(err)
-			if diff := cmp.Diff(tt.command, cr); diff != "" {
-				t.Errorf("mismatch (-want +got):\n%s", diff)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.command, cr)
 		})
 	}
 }

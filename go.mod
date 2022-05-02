@@ -4,10 +4,9 @@ go 1.18
 
 require (
 	github.com/gavv/httpexpect/v2 v2.3.1
-	github.com/google/go-cmp v0.5.8
 	github.com/gorilla/mux v1.8.0
-	github.com/matryer/is v1.4.0
 	github.com/rs/zerolog v1.26.1
+	github.com/stretchr/testify v1.3.0
 )
 
 require (
@@ -19,10 +18,8 @@ require (
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/imkira/go-interpol v1.0.0 // indirect
 	github.com/klauspost/compress v1.12.2 // indirect
-	github.com/klauspost/cpuid v0.0.0-20180405133222-e7e905edc00e // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/sergi/go-diff v1.0.0 // indirect
-	github.com/stretchr/testify v1.3.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.27.0 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
