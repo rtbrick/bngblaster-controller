@@ -14,24 +14,26 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
-
-	isf "github.com/matryer/is"
-
-	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/require"
 )
 
-func writePidFileForrunning(t *testing.T, rootFolder string) {
-	is := isf.New(t)
+func writePidFileForRunning(t *testing.T, rootFolder string) {
+	t.Helper()
 	pidFile := path.Join(rootFolder, "running", runPidFilename)
 	err := ioutil.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), permission)
-	is.NoErr(err)
+	require.NoError(t, err)
+}
+
+func cleanupPidFileForRunning(t *testing.T, rootFolder string) {
+	t.Helper()
+	pidFile := path.Join(rootFolder, "running", runPidFilename)
+	_ = os.Remove(pidFile)
 }
 
 func mustRead(t *testing.T, filename string) []byte {
 	t.Helper()
-	is := isf.New(t)
 	data, err := ioutil.ReadFile(filename)
-	is.NoErr(err)
+	require.NoError(t, err)
 	return data
 }
 
@@ -62,19 +64,17 @@ func TestNewDefaultRepository(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			is := isf.New(t)
 			got := NewDefaultRepository(tt.opts...)
-			if diff := cmp.Diff(got, tt.want, cmp.AllowUnexported(DefaultRepository{})); diff != "" {
-				t.Errorf("mismatch (-want +got):\n%s", diff)
-			}
-			is.Equal(got.ConfigFolder(), got.configFolder)
+			require.Equal(t, tt.want, got)
+			require.Equal(t, got.ConfigFolder(), got.configFolder)
 		})
 	}
 }
 
 func TestDefaultRepository_CreateBngBlasterInstance(t *testing.T) {
 	const rootFolder = "td"
-	writePidFileForrunning(t, rootFolder)
+	writePidFileForRunning(t, rootFolder)
+	defer cleanupPidFileForRunning(t, rootFolder)
 
 	r := NewDefaultRepository(WithConfigFolder(rootFolder))
 	tests := []struct {
@@ -85,7 +85,6 @@ func TestDefaultRepository_CreateBngBlasterInstance(t *testing.T) {
 		deleteAfterwards bool
 	}{
 		{
-
 			instance:         "new_empty_config",
 			config:           []byte(""),
 			deleteAfterwards: true,
@@ -94,12 +93,10 @@ func TestDefaultRepository_CreateBngBlasterInstance(t *testing.T) {
 			config:           mustRead(t, "td/new_config.json"),
 			deleteAfterwards: true,
 		}, {
-
 			instance:         "new",
 			config:           mustRead(t, "td/new_second_config.json"),
 			deleteAfterwards: true,
 		}, {
-
 			instance: "running",
 			config:   mustRead(t, "td/new_second_config.json"),
 			wantErr:  ErrBlasterRunning,
@@ -107,7 +104,6 @@ func TestDefaultRepository_CreateBngBlasterInstance(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			is := isf.New(t)
 			folder := path.Join(rootFolder, tt.instance)
 			defer func() {
 				if tt.deleteAfterwards {
@@ -124,17 +120,16 @@ func TestDefaultRepository_CreateBngBlasterInstance(t *testing.T) {
 				t.Fatalf("%s does not exist", folder)
 			}
 			config, err := r.config(tt.instance)
-			is.NoErr(err)
-			if diff := cmp.Diff(config, tt.config); diff != "" {
-				t.Errorf("mismatch (-want +got):\n%s", diff)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.config, config)
 		})
 	}
 }
 
 func TestDefaultRepository_States(t *testing.T) {
 	const rootFolder = "td"
-	writePidFileForrunning(t, rootFolder)
+	writePidFileForRunning(t, rootFolder)
+	defer cleanupPidFileForRunning(t, rootFolder)
 
 	r := NewDefaultRepository(WithConfigFolder(rootFolder))
 	tests := []struct {
@@ -176,9 +171,11 @@ func TestDefaultRepository_commandlineParameters(t *testing.T) {
 		{
 			name:          "default",
 			runningConfig: RunningConfig{},
-			want: []string{"/usr/sbin/bngblaster",
+			want: []string{
+				"/usr/sbin/bngblaster",
 				"-C", "td/default/config.json",
-				"-S", "td/default/run.sock"},
+				"-S", "td/default/run.sock",
+			},
 		}, {
 			name: "all",
 			runningConfig: RunningConfig{
@@ -188,7 +185,8 @@ func TestDefaultRepository_commandlineParameters(t *testing.T) {
 				PCAPCapture:       true,
 				PPPoESessionCount: 1000,
 			},
-			want: []string{"/usr/sbin/bngblaster",
+			want: []string{
+				"/usr/sbin/bngblaster",
 				"-C", "td/all/config.json",
 				"-S", "td/all/run.sock",
 				"-J", "td/all/run_report.json",
@@ -196,15 +194,14 @@ func TestDefaultRepository_commandlineParameters(t *testing.T) {
 				"-l", "error",
 				"-l", "ip",
 				"-P", "td/all/run.pcap",
-				"-c", "1000"},
+				"-c", "1000",
+			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, want := r.commandlineParameters(tt.name, tt.runningConfig), tt.want
-			if diff := cmp.Diff(got, want); diff != "" {
-				t.Errorf("mismatch (-want +got):\n%s", diff)
-			}
+			require.Equal(t, want, got)
 		})
 	}
 }
@@ -215,7 +212,8 @@ func TestDefaultRepository_Start(t *testing.T) {
 	defer func() { ExecCommand = defaultExecCommand }()
 
 	const rootFolder = "td"
-	writePidFileForrunning(t, rootFolder)
+	writePidFileForRunning(t, rootFolder)
+	defer cleanupPidFileForRunning(t, rootFolder)
 
 	r := NewDefaultRepository(WithConfigFolder(rootFolder), WithExecutable("test"))
 	tests := []struct {
@@ -251,16 +249,15 @@ func TestDefaultRepository_Start(t *testing.T) {
 			stdoutFile := path.Join(rootFolder, tt.name, RunStdOut)
 			got := mustRead(t, stdoutFile)
 			want := tt.expOut
-			if diff := cmp.Diff(string(got), want); diff != "" {
-				t.Errorf("out mismatch (-want +got):\n%s", diff)
-			}
+			require.Equal(t, want, string(got))
 		})
 	}
 }
 
 func TestDefaultRepository_Delete(t *testing.T) {
 	const rootFolder = "td"
-	writePidFileForrunning(t, rootFolder)
+	writePidFileForRunning(t, rootFolder)
+	defer cleanupPidFileForRunning(t, rootFolder)
 
 	folder := path.Join(rootFolder, "exists_copy")
 	_ = os.Mkdir(folder, permission)
@@ -305,7 +302,8 @@ func TestDefaultRepository_Delete(t *testing.T) {
 
 func TestDefaultRepository_Command(t *testing.T) {
 	const rootFolder = "td"
-	writePidFileForrunning(t, rootFolder)
+	writePidFileForRunning(t, rootFolder)
+	defer cleanupPidFileForRunning(t, rootFolder)
 
 	r := NewDefaultRepository(WithConfigFolder(rootFolder), WithExecutable("test"))
 	tests := []struct {
@@ -342,12 +340,11 @@ func TestDefaultRepository_Command(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			is := isf.New(t)
 			if tt.startEchoServer {
-				//open socket
+				// open socket
 				file := path.Join(r.ConfigFolder(), tt.name, RunSockFilename)
 				ln, err := net.Listen("unix", file)
-				is.NoErr(err)
+				require.NoError(t, err)
 				defer func() {
 					_ = ln.Close()
 					_ = os.Remove(file)
@@ -368,13 +365,12 @@ func TestDefaultRepository_Command(t *testing.T) {
 			}
 			var cr SocketCommand
 			err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
-			is.NoErr(err)
-			if diff := cmp.Diff(tt.command, cr); diff != "" {
-				t.Errorf("mismatch (-want +got):\n%s", diff)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.command, cr)
 		})
 	}
 }
+
 func echoHandler(c net.Conn) {
 	for {
 		buf := make([]byte, 512)
@@ -392,23 +388,25 @@ func echoHandler(c net.Conn) {
 		_ = c.Close()
 	}
 }
+
 func TestDefaultRepository_Signal(t *testing.T) {
 	const rootFolder = "td"
-	writePidFileForrunning(t, rootFolder)
+	writePidFileForRunning(t, rootFolder)
+	defer cleanupPidFileForRunning(t, rootFolder)
+
 	r := NewDefaultRepository(WithConfigFolder(rootFolder))
 
 	// Ask for SIGHUP
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, os.Kill)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(c)
 
 	r.Stop("running")
 	waitSig(t, c, os.Interrupt)
 
-	//can't be tested because this kills the test :-)
-	//r.Kill("running")
-	//waitSig(t, c, os.Kill)
-
+	// can't be tested because this kills the test :-)
+	// r.Kill("running")
+	// waitSig(t, c, os.Kill)
 }
 
 func waitSig(t *testing.T, c <-chan os.Signal, sig os.Signal) {

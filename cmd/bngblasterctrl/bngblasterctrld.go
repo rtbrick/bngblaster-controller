@@ -7,14 +7,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/rtbrick/bngblaster-controller/pkg/daemonize"
-
-	"github.com/rtbrick/bngblaster-controller/pkg/server"
-
-	"github.com/rtbrick/bngblaster-controller/pkg/controller"
-
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
+	"github.com/rtbrick/bngblaster-controller/pkg/controller"
+	"github.com/rtbrick/bngblaster-controller/pkg/daemonize"
+	"github.com/rtbrick/bngblaster-controller/pkg/server"
 )
 
 func main() {
@@ -22,28 +20,33 @@ func main() {
 	directory := flag.String("d", controller.DefaultConfigFolder, "config folder")
 	executable := flag.String("e", controller.DefaultExecutable, "bngblaster executable")
 
-	//logging
+	// logging
 	debug := flag.Bool("debug", false, "turn on debug logging")
 	console := flag.Bool("console", true, "turn on pretty console logging")
 	color := flag.Bool("color", false, "turn on color of color output")
 
 	flag.Parse()
 
-	//setup logging
+	// setup logging
 	initializeLogger(*debug, *console, *color)
 
-	repo := controller.NewDefaultRepository(controller.WithConfigFolder(*directory), controller.WithExecutable(*executable))
+	repo := controller.NewDefaultRepository(
+		controller.WithConfigFolder(*directory),
+		controller.WithExecutable(*executable))
 	srv := server.NewServer(repo)
 	serve(*addr, srv)
 }
 
 func serve(addr string, handler http.Handler) {
+	const idleTimeout = time.Second * 80
+	const writeTimeout = time.Second * 40
+	const readHeaderTimeout = time.Second * 40
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           handler,
-		ReadHeaderTimeout: time.Second * 40,
-		WriteTimeout:      time.Second * 40,
-		IdleTimeout:       time.Second * 80,
+		ReadHeaderTimeout: readHeaderTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
 	}
 
 	log.Info().Msgf("Starting server on %s\n", addr)

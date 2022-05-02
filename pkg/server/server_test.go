@@ -6,11 +6,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	isf "github.com/matryer/is"
-
 	"github.com/gavv/httpexpect/v2"
+	"github.com/stretchr/testify/require"
 
 	"github.com/rtbrick/bngblaster-controller/pkg/controller"
+)
+
+const (
+	configFolder = "configs"
 )
 
 func TestServer_create(t *testing.T) {
@@ -52,10 +55,9 @@ func TestServer_create(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			is := isf.New(t)
 			repository := &controller.RepositoryMock{
 				ConfigFolderFunc: func() string {
-					return "configs"
+					return configFolder
 				},
 				CreateFunc: func(name string, config []byte) error {
 					return tt.resultCreate
@@ -80,7 +82,7 @@ func TestServer_create(t *testing.T) {
 				response.Text().Contains(tt.wantBody)
 			}
 			for _, call := range repository.ExistsCalls() {
-				is.Equal(call.Name, tt.name)
+				require.Equal(t, call.Name, tt.name)
 			}
 		})
 	}
@@ -116,10 +118,9 @@ func TestServer_status(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			is := isf.New(t)
 			repository := &controller.RepositoryMock{
 				ConfigFolderFunc: func() string {
-					return "configs"
+					return configFolder
 				},
 				RunningFunc: func(name string) bool {
 					return tt.resultRunning
@@ -146,7 +147,7 @@ func TestServer_status(t *testing.T) {
 				response.JSON().Object().ContainsKey("message").ValueEqual("message", tt.wantBody)
 			}
 			for _, call := range repository.ExistsCalls() {
-				is.Equal(call.Name, tt.name)
+				require.Equal(t, call.Name, tt.name)
 			}
 		})
 	}
@@ -181,10 +182,9 @@ func TestServer_delete(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			is := isf.New(t)
 			repository := &controller.RepositoryMock{
 				ConfigFolderFunc: func() string {
-					return "configs"
+					return configFolder
 				},
 				DeleteFunc: func(name string) error {
 					return tt.resultDelete
@@ -203,9 +203,9 @@ func TestServer_delete(t *testing.T) {
 			} else {
 				response.JSON().Object().ContainsKey("message").ValueEqual("message", tt.body)
 			}
-			is.Equal(len(repository.DeleteCalls()), 1)
+			require.Equal(t, len(repository.DeleteCalls()), 1)
 			for _, call := range repository.DeleteCalls() {
-				is.Equal(call.Name, tt.name)
+				require.Equal(t, call.Name, tt.name)
 			}
 		})
 	}
@@ -250,10 +250,9 @@ func TestServer_start(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			is := isf.New(t)
 			repository := &controller.RepositoryMock{
 				ConfigFolderFunc: func() string {
-					return "configs"
+					return configFolder
 				},
 				StartFunc: func(name string, config controller.RunningConfig) error {
 					return tt.resultStart
@@ -278,7 +277,7 @@ func TestServer_start(t *testing.T) {
 				response.JSON().Object().ContainsKey("message").ValueEqual("message", tt.wantBody)
 			}
 			for _, call := range repository.StartCalls() {
-				is.Equal(call.Name, tt.name)
+				require.Equal(t, call.Name, tt.name)
 			}
 		})
 	}
@@ -305,13 +304,11 @@ func TestServer_stop(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			is := isf.New(t)
 			repository := &controller.RepositoryMock{
 				ConfigFolderFunc: func() string {
-					return "configs"
+					return configFolder
 				},
 				StopFunc: func(name string) {
-
 				},
 			}
 
@@ -327,7 +324,7 @@ func TestServer_stop(t *testing.T) {
 			}
 			response.NoContent()
 			for _, call := range repository.StopCalls() {
-				is.Equal(call.Name, tt.name)
+				require.Equal(t, call.Name, tt.name)
 			}
 		})
 	}
@@ -354,13 +351,11 @@ func TestServer_kill(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			is := isf.New(t)
 			repository := &controller.RepositoryMock{
 				ConfigFolderFunc: func() string {
-					return "configs"
+					return configFolder
 				},
 				KillFunc: func(name string) {
-
 				},
 			}
 
@@ -376,7 +371,7 @@ func TestServer_kill(t *testing.T) {
 			}
 			response.NoContent()
 			for _, call := range repository.KillCalls() {
-				is.Equal(call.Name, tt.name)
+				require.Equal(t, call.Name, tt.name)
 			}
 		})
 	}
@@ -438,10 +433,9 @@ func TestServer_command(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			is := isf.New(t)
 			repository := &controller.RepositoryMock{
 				ConfigFolderFunc: func() string {
-					return "configs"
+					return configFolder
 				},
 				CommandFunc: func(name string, config controller.SocketCommand) ([]byte, error) {
 					return tt.resultStart, tt.resultError
@@ -468,7 +462,7 @@ func TestServer_command(t *testing.T) {
 				response.JSON().Equal(tt.wantBody)
 			}
 			for _, call := range repository.StartCalls() {
-				is.Equal(call.Name, tt.name)
+				require.Equal(t, call.Name, tt.name)
 			}
 		})
 	}

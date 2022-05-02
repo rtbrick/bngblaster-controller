@@ -7,9 +7,13 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/require"
+)
 
-	isTest "github.com/matryer/is"
+var (
+	pidFile    = "td/pid"
+	stdoutFile = "td/out"
+	stderrFile = "td/err"
 )
 
 func fakeExecCommand(command string, args ...string) *exec.Cmd {
@@ -20,8 +24,8 @@ func fakeExecCommand(command string, args ...string) *exec.Cmd {
 	return cmd
 }
 
-//TestHelperProcess isn't a real test. It's used as a helper process
-//for TestParameterRun.
+// TestHelperProcess isn't a real test. It's used as a helper process
+// for TestParameterRun.
 func TestHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
 		return
@@ -57,9 +61,6 @@ func TestHelperProcess(t *testing.T) {
 }
 
 func TestApplication_ExecCommand(t *testing.T) {
-	pidFile := "td/pid"
-	stdoutFile := "td/out"
-	stderrFile := "td/err"
 	defaultExecCommand := ExecCommand
 	ExecCommand = fakeExecCommand
 	defer func() { ExecCommand = defaultExecCommand }()
@@ -76,12 +77,11 @@ func TestApplication_ExecCommand(t *testing.T) {
 		{command: []string{"onlpdump"}, wantErr: false, expOut: []byte("onlpdump")},
 		{command: []string{"./onlpdump"}, wantErr: false, expOut: []byte("./onlpdump")},
 		{command: []string{"sleep", "5"}, wantErr: false, expOut: []byte("sleep 5")},
-		//error in this case not true because we are not checking the outcome of a long running process.
+		// error in this case not true because we are not checking the outcome of a long running process.
 		{command: []string{"error", "-la"}, wantErr: false, expOut: []byte("error -la")},
 	}
 	for i, tt := range tcs {
 		t.Run(fmt.Sprintf("Number %d", i), func(t *testing.T) {
-			is := isTest.New(t)
 			defer func() {
 				_ = os.Remove(stderrFile)
 			}()
@@ -99,20 +99,14 @@ func TestApplication_ExecCommand(t *testing.T) {
 				<-done
 			}
 			got, err := ioutil.ReadFile(stdoutFile)
-			is.NoErr(err)
+			require.NoError(t, err)
 			want := tt.expOut
-			if diff := cmp.Diff(got, want); diff != "" {
-				t.Errorf("out mismatch (-want +got):\n%s", diff)
-			}
+			require.Equal(t, want, got)
 		})
 	}
 }
 
 func TestApplication_runCommandNoTimeOut(t *testing.T) {
-	is := isTest.New(t)
-	pidFile := "td/pid"
-	stdoutFile := "td/out"
-	stderrFile := "td/err"
 	defer func() {
 		_ = os.Remove(stderrFile)
 	}()
@@ -120,13 +114,10 @@ func TestApplication_runCommandNoTimeOut(t *testing.T) {
 		_ = os.Remove(stdoutFile)
 	}()
 	_, err := RunCommand(pidFile, stdoutFile, stderrFile, "sleep", "10")
-	is.NoErr(err)
+	require.NoError(t, err)
 }
 
 func TestApplication_ExecCommand_Real(t *testing.T) {
-	pidFile := "td/pid"
-	stdoutFile := "td/out"
-	stderrFile := "td/err"
 	tcs := []struct {
 		command []string
 		expOut  []byte
@@ -158,9 +149,7 @@ func TestApplication_ExecCommand_Real(t *testing.T) {
 			}
 			got := mustRead(t, stdoutFile)
 			want := tt.expOut
-			if diff := cmp.Diff(string(got), string(want)); diff != "" {
-				t.Errorf("out mismatch (-want +got):\n%s", diff)
-			}
+			require.Equal(t, string(got), string(want))
 		})
 	}
 }

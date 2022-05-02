@@ -8,10 +8,10 @@ import (
 	"path"
 	"strings"
 
-	"github.com/rtbrick/bngblaster-controller/pkg/controller"
-
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
+
+	"github.com/rtbrick/bngblaster-controller/pkg/controller"
 )
 
 const (
@@ -21,15 +21,20 @@ const (
 	applicationJSON       = "application/json"
 )
 
-// Server implementation for the rest api.
-type Server struct {
-	router      *mux.Router
-	repository  controller.Repository
-	staticfiles string
-	upstream    string
+func cleanPathVariable(instanceVariable string) string {
+	instance := path.Clean(instanceVariable)
+	instance = strings.ReplaceAll(instance, ".", "")
+	instance = strings.ReplaceAll(instance, "/", "")
+	return instance
 }
 
-// NewServer is a constructor function for Server
+// Server implementation for the rest api.
+type Server struct {
+	router     *mux.Router
+	repository controller.Repository
+}
+
+// NewServer is a constructor function for Server.
 func NewServer(repository controller.Repository) *Server {
 	r := &Server{
 		router:     mux.NewRouter(),
@@ -52,6 +57,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
 func (s *Server) routes() {
 	s.router.Use(loggingMiddleware)
 
@@ -75,16 +81,20 @@ func (s *Server) routes() {
 	s.router.Path(instanceURL + "/_kill").Methods(http.MethodPost).Handler(s.kill())
 	s.router.Path(instanceURL + "/_command").Methods(http.MethodPost).Handler(s.command())
 }
+
 func (s *Server) fileServing(directory string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		instance := mux.Vars(r)[instanceNameParameter]
+		instanceVariable := mux.Vars(r)[instanceNameParameter]
+		instance := cleanPathVariable(instanceVariable)
 		file := mux.Vars(r)["file_name"]
 		http.ServeFile(w, r, path.Join(directory, instance, file))
 	}
 }
+
 func (s *Server) create() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		instance := mux.Vars(r)[instanceNameParameter]
+		instanceVariable := mux.Vars(r)[instanceNameParameter]
+		instance := cleanPathVariable(instanceVariable)
 		content, err := ioutil.ReadAll(r.Body)
 		if err != nil || len(content) == 0 {
 			http.Error(w, "body not readable", http.StatusBadRequest)
@@ -106,12 +116,14 @@ func (s *Server) create() http.HandlerFunc {
 		w.WriteHeader(status)
 	}
 }
+
 func (s *Server) status() http.HandlerFunc {
 	type response struct {
 		Status string `json:"status"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		instance := mux.Vars(r)[instanceNameParameter]
+		instanceVariable := mux.Vars(r)[instanceNameParameter]
+		instance := cleanPathVariable(instanceVariable)
 		if !s.repository.Exists(instance) {
 			JSONNotFound(w, r)
 			return
@@ -126,9 +138,11 @@ func (s *Server) status() http.HandlerFunc {
 		}
 	}
 }
+
 func (s *Server) delete() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		instance := mux.Vars(r)[instanceNameParameter]
+		instanceVariable := mux.Vars(r)[instanceNameParameter]
+		instance := cleanPathVariable(instanceVariable)
 		status := http.StatusNoContent
 		err := s.repository.Delete(instance)
 		if err == controller.ErrBlasterRunning {
@@ -142,9 +156,11 @@ func (s *Server) delete() http.HandlerFunc {
 		w.WriteHeader(status)
 	}
 }
+
 func (s *Server) start() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		instance := mux.Vars(r)[instanceNameParameter]
+		instanceVariable := mux.Vars(r)[instanceNameParameter]
+		instance := cleanPathVariable(instanceVariable)
 		var runningConfig controller.RunningConfig
 		err := json.NewDecoder(r.Body).Decode(&runningConfig)
 		if err != nil {
@@ -173,7 +189,8 @@ func (s *Server) start() http.HandlerFunc {
 
 func (s *Server) stop() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		instance := mux.Vars(r)[instanceNameParameter]
+		instanceVariable := mux.Vars(r)[instanceNameParameter]
+		instance := cleanPathVariable(instanceVariable)
 		status := http.StatusAccepted
 		s.repository.Stop(instance)
 		w.WriteHeader(status)
@@ -182,18 +199,21 @@ func (s *Server) stop() http.HandlerFunc {
 
 func (s *Server) kill() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		instance := mux.Vars(r)[instanceNameParameter]
+		instanceVariable := mux.Vars(r)[instanceNameParameter]
+		instance := cleanPathVariable(instanceVariable)
 		status := http.StatusAccepted
 		s.repository.Kill(instance)
 		w.WriteHeader(status)
 	}
 }
+
 func (s *Server) command() http.HandlerFunc {
 	type commandResponse struct {
 		Code int `json:"code"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		instance := mux.Vars(r)[instanceNameParameter]
+		instanceVariable := mux.Vars(r)[instanceNameParameter]
+		instance := cleanPathVariable(instanceVariable)
 		var command controller.SocketCommand
 		err := json.NewDecoder(r.Body).Decode(&command)
 		if err != nil {
@@ -246,7 +266,6 @@ func JSONError(w http.ResponseWriter, err interface{}, code int) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(m)
-
 }
 
 // JSONNotFound replies to the request with an HTTP 404 not found error.
