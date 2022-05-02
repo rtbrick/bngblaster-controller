@@ -1,0 +1,43 @@
+linters-settings:
+  gci:
+    sections:
+      - standard
+      - default
+      - prefix(github.com/rtbrick)
+  godot:
+    # list of regexps for excluding particular comment lines from check
+    exclude:
+    - '@.*'
+
+issues:
+  exclude-rules:
+    - linters:
+        - funlen
+        - dupl
+        - bodyclose
+        - gocritic
+        - unparam
+        - lll
+      path: _test.go
+
+linters:
+  enable-all: true
+  disable:
+    - scopelint
+    - golint
+    - interfacer
+    - maligned
+    - prealloc
+    - gochecknoglobals
+    - wrapcheck
+    - testpackage
+    - nlreturn
+    - exhaustivestruct
+    - wsl
+    - paralleltest
+    - varnamelen
+    - goerr113
+    - tagliatelle
+    - errorlint
+    - errchkjson
+    - nestif

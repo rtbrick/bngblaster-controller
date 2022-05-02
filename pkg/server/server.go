@@ -8,10 +8,10 @@ import (
 	"path"
 	"strings"
 
-	"github.com/rtbrick/bngblaster-controller/pkg/controller"
-
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
+
+	"github.com/rtbrick/bngblaster-controller/pkg/controller"
 )
 
 const (
@@ -23,13 +23,11 @@ const (
 
 // Server implementation for the rest api.
 type Server struct {
-	router      *mux.Router
-	repository  controller.Repository
-	staticfiles string
-	upstream    string
+	router     *mux.Router
+	repository controller.Repository
 }
 
-// NewServer is a constructor function for Server
+// NewServer is a constructor function for Server.
 func NewServer(repository controller.Repository) *Server {
 	r := &Server{
 		router:     mux.NewRouter(),
@@ -52,6 +50,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
 func (s *Server) routes() {
 	s.router.Use(loggingMiddleware)
 
@@ -75,6 +74,7 @@ func (s *Server) routes() {
 	s.router.Path(instanceURL + "/_kill").Methods(http.MethodPost).Handler(s.kill())
 	s.router.Path(instanceURL + "/_command").Methods(http.MethodPost).Handler(s.command())
 }
+
 func (s *Server) fileServing(directory string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		instance := mux.Vars(r)[instanceNameParameter]
@@ -82,6 +82,7 @@ func (s *Server) fileServing(directory string) http.HandlerFunc {
 		http.ServeFile(w, r, path.Join(directory, instance, file))
 	}
 }
+
 func (s *Server) create() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		instance := mux.Vars(r)[instanceNameParameter]
@@ -106,6 +107,7 @@ func (s *Server) create() http.HandlerFunc {
 		w.WriteHeader(status)
 	}
 }
+
 func (s *Server) status() http.HandlerFunc {
 	type response struct {
 		Status string `json:"status"`
@@ -126,6 +128,7 @@ func (s *Server) status() http.HandlerFunc {
 		}
 	}
 }
+
 func (s *Server) delete() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		instance := mux.Vars(r)[instanceNameParameter]
@@ -142,6 +145,7 @@ func (s *Server) delete() http.HandlerFunc {
 		w.WriteHeader(status)
 	}
 }
+
 func (s *Server) start() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		instance := mux.Vars(r)[instanceNameParameter]
@@ -188,6 +192,7 @@ func (s *Server) kill() http.HandlerFunc {
 		w.WriteHeader(status)
 	}
 }
+
 func (s *Server) command() http.HandlerFunc {
 	type commandResponse struct {
 		Code int `json:"code"`
@@ -246,7 +251,6 @@ func JSONError(w http.ResponseWriter, err interface{}, code int) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(m)
-
 }
 
 // JSONNotFound replies to the request with an HTTP 404 not found error.

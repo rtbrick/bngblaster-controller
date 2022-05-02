@@ -6,11 +6,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gavv/httpexpect/v2"
 	isf "github.com/matryer/is"
 
-	"github.com/gavv/httpexpect/v2"
-
 	"github.com/rtbrick/bngblaster-controller/pkg/controller"
+)
+
+const (
+	configFolder = "configs"
 )
 
 func TestServer_create(t *testing.T) {
@@ -55,7 +58,7 @@ func TestServer_create(t *testing.T) {
 			is := isf.New(t)
 			repository := &controller.RepositoryMock{
 				ConfigFolderFunc: func() string {
-					return "configs"
+					return configFolder
 				},
 				CreateFunc: func(name string, config []byte) error {
 					return tt.resultCreate
@@ -119,7 +122,7 @@ func TestServer_status(t *testing.T) {
 			is := isf.New(t)
 			repository := &controller.RepositoryMock{
 				ConfigFolderFunc: func() string {
-					return "configs"
+					return configFolder
 				},
 				RunningFunc: func(name string) bool {
 					return tt.resultRunning
@@ -184,7 +187,7 @@ func TestServer_delete(t *testing.T) {
 			is := isf.New(t)
 			repository := &controller.RepositoryMock{
 				ConfigFolderFunc: func() string {
-					return "configs"
+					return configFolder
 				},
 				DeleteFunc: func(name string) error {
 					return tt.resultDelete
@@ -253,7 +256,7 @@ func TestServer_start(t *testing.T) {
 			is := isf.New(t)
 			repository := &controller.RepositoryMock{
 				ConfigFolderFunc: func() string {
-					return "configs"
+					return configFolder
 				},
 				StartFunc: func(name string, config controller.RunningConfig) error {
 					return tt.resultStart
@@ -308,10 +311,9 @@ func TestServer_stop(t *testing.T) {
 			is := isf.New(t)
 			repository := &controller.RepositoryMock{
 				ConfigFolderFunc: func() string {
-					return "configs"
+					return configFolder
 				},
 				StopFunc: func(name string) {
-
 				},
 			}
 
@@ -357,10 +359,9 @@ func TestServer_kill(t *testing.T) {
 			is := isf.New(t)
 			repository := &controller.RepositoryMock{
 				ConfigFolderFunc: func() string {
-					return "configs"
+					return configFolder
 				},
 				KillFunc: func(name string) {
-
 				},
 			}
 
@@ -441,7 +442,7 @@ func TestServer_command(t *testing.T) {
 			is := isf.New(t)
 			repository := &controller.RepositoryMock{
 				ConfigFolderFunc: func() string {
-					return "configs"
+					return configFolder
 				},
 				CommandFunc: func(name string, config controller.SocketCommand) ([]byte, error) {
 					return tt.resultStart, tt.resultError

@@ -26,7 +26,7 @@ type Repository interface {
 	Command(name string, command SocketCommand) ([]byte, error)
 }
 
-// RunningConfig start configuration for the bngblaster
+// RunningConfig start configuration for the bngblaster.
 type RunningConfig struct {
 	// Report specifies that a report should be generated
 	Report bool `json:"report"`

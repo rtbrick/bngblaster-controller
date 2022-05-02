@@ -10,7 +10,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-//ExecCommand exposes the exec command and allows therefore to test
+// ExecCommand exposes the exec command and allows therefore to test.
 var ExecCommand = exec.Command
 
 // RunCommand runs the command
