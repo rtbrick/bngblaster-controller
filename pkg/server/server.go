@@ -21,6 +21,13 @@ const (
 	applicationJSON       = "application/json"
 )
 
+func cleanPathVariable(instanceVariable string) string {
+	instance := path.Clean(instanceVariable)
+	instance = strings.ReplaceAll(instance, ".", "")
+	instance = strings.ReplaceAll(instance, "/", "")
+	return instance
+}
+
 // Server implementation for the rest api.
 type Server struct {
 	router     *mux.Router
@@ -77,8 +84,8 @@ func (s *Server) routes() {
 
 func (s *Server) fileServing(directory string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		instance := mux.Vars(r)[instanceNameParameter]
-		instance = path.Clean(instance)
+		instanceVariable := mux.Vars(r)[instanceNameParameter]
+		instance := cleanPathVariable(instanceVariable)
 		file := mux.Vars(r)["file_name"]
 		http.ServeFile(w, r, path.Join(directory, instance, file))
 	}
@@ -87,8 +94,7 @@ func (s *Server) fileServing(directory string) http.HandlerFunc {
 func (s *Server) create() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		instanceVariable := mux.Vars(r)[instanceNameParameter]
-		instance := path.Clean(instanceVariable)
-		instance = strings.ReplaceAll(instance, ".", "")
+		instance := cleanPathVariable(instanceVariable)
 		content, err := ioutil.ReadAll(r.Body)
 		if err != nil || len(content) == 0 {
 			http.Error(w, "body not readable", http.StatusBadRequest)
@@ -116,8 +122,8 @@ func (s *Server) status() http.HandlerFunc {
 		Status string `json:"status"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		instance := mux.Vars(r)[instanceNameParameter]
-		instance = path.Clean(instance)
+		instanceVariable := mux.Vars(r)[instanceNameParameter]
+		instance := cleanPathVariable(instanceVariable)
 		if !s.repository.Exists(instance) {
 			JSONNotFound(w, r)
 			return
@@ -135,8 +141,8 @@ func (s *Server) status() http.HandlerFunc {
 
 func (s *Server) delete() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		instance := mux.Vars(r)[instanceNameParameter]
-		instance = path.Clean(instance)
+		instanceVariable := mux.Vars(r)[instanceNameParameter]
+		instance := cleanPathVariable(instanceVariable)
 		status := http.StatusNoContent
 		err := s.repository.Delete(instance)
 		if err == controller.ErrBlasterRunning {
@@ -153,8 +159,8 @@ func (s *Server) delete() http.HandlerFunc {
 
 func (s *Server) start() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		instance := mux.Vars(r)[instanceNameParameter]
-		instance = path.Clean(instance)
+		instanceVariable := mux.Vars(r)[instanceNameParameter]
+		instance := cleanPathVariable(instanceVariable)
 		var runningConfig controller.RunningConfig
 		err := json.NewDecoder(r.Body).Decode(&runningConfig)
 		if err != nil {
@@ -183,8 +189,8 @@ func (s *Server) start() http.HandlerFunc {
 
 func (s *Server) stop() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		instance := mux.Vars(r)[instanceNameParameter]
-		instance = path.Clean(instance)
+		instanceVariable := mux.Vars(r)[instanceNameParameter]
+		instance := cleanPathVariable(instanceVariable)
 		status := http.StatusAccepted
 		s.repository.Stop(instance)
 		w.WriteHeader(status)
@@ -193,8 +199,8 @@ func (s *Server) stop() http.HandlerFunc {
 
 func (s *Server) kill() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		instance := mux.Vars(r)[instanceNameParameter]
-		instance = path.Clean(instance)
+		instanceVariable := mux.Vars(r)[instanceNameParameter]
+		instance := cleanPathVariable(instanceVariable)
 		status := http.StatusAccepted
 		s.repository.Kill(instance)
 		w.WriteHeader(status)
@@ -206,8 +212,8 @@ func (s *Server) command() http.HandlerFunc {
 		Code int `json:"code"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		instance := mux.Vars(r)[instanceNameParameter]
-		instance = path.Clean(instance)
+		instanceVariable := mux.Vars(r)[instanceNameParameter]
+		instance := cleanPathVariable(instanceVariable)
 		var command controller.SocketCommand
 		err := json.NewDecoder(r.Body).Decode(&command)
 		if err != nil {
