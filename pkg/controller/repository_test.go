@@ -24,6 +24,12 @@ func writePidFileForRunning(t *testing.T, rootFolder string) {
 	require.NoError(t, err)
 }
 
+func cleanupPidFileForRunning(t *testing.T, rootFolder string) {
+	t.Helper()
+	pidFile := path.Join(rootFolder, "running", runPidFilename)
+	_ = os.Remove(pidFile)
+}
+
 func mustRead(t *testing.T, filename string) []byte {
 	t.Helper()
 	data, err := ioutil.ReadFile(filename)
@@ -68,6 +74,7 @@ func TestNewDefaultRepository(t *testing.T) {
 func TestDefaultRepository_CreateBngBlasterInstance(t *testing.T) {
 	const rootFolder = "td"
 	writePidFileForRunning(t, rootFolder)
+	defer cleanupPidFileForRunning(t, rootFolder)
 
 	r := NewDefaultRepository(WithConfigFolder(rootFolder))
 	tests := []struct {
@@ -122,6 +129,7 @@ func TestDefaultRepository_CreateBngBlasterInstance(t *testing.T) {
 func TestDefaultRepository_States(t *testing.T) {
 	const rootFolder = "td"
 	writePidFileForRunning(t, rootFolder)
+	defer cleanupPidFileForRunning(t, rootFolder)
 
 	r := NewDefaultRepository(WithConfigFolder(rootFolder))
 	tests := []struct {
@@ -205,6 +213,7 @@ func TestDefaultRepository_Start(t *testing.T) {
 
 	const rootFolder = "td"
 	writePidFileForRunning(t, rootFolder)
+	defer cleanupPidFileForRunning(t, rootFolder)
 
 	r := NewDefaultRepository(WithConfigFolder(rootFolder), WithExecutable("test"))
 	tests := []struct {
@@ -248,6 +257,7 @@ func TestDefaultRepository_Start(t *testing.T) {
 func TestDefaultRepository_Delete(t *testing.T) {
 	const rootFolder = "td"
 	writePidFileForRunning(t, rootFolder)
+	defer cleanupPidFileForRunning(t, rootFolder)
 
 	folder := path.Join(rootFolder, "exists_copy")
 	_ = os.Mkdir(folder, permission)
@@ -293,6 +303,7 @@ func TestDefaultRepository_Delete(t *testing.T) {
 func TestDefaultRepository_Command(t *testing.T) {
 	const rootFolder = "td"
 	writePidFileForRunning(t, rootFolder)
+	defer cleanupPidFileForRunning(t, rootFolder)
 
 	r := NewDefaultRepository(WithConfigFolder(rootFolder), WithExecutable("test"))
 	tests := []struct {
@@ -381,6 +392,8 @@ func echoHandler(c net.Conn) {
 func TestDefaultRepository_Signal(t *testing.T) {
 	const rootFolder = "td"
 	writePidFileForRunning(t, rootFolder)
+	defer cleanupPidFileForRunning(t, rootFolder)
+
 	r := NewDefaultRepository(WithConfigFolder(rootFolder))
 
 	// Ask for SIGHUP
