@@ -88,6 +88,7 @@ func (s *Server) create() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		instanceVariable := mux.Vars(r)[instanceNameParameter]
 		instance := path.Clean(instanceVariable)
+		instance = strings.ReplaceAll(instance, ".", "")
 		content, err := ioutil.ReadAll(r.Body)
 		if err != nil || len(content) == 0 {
 			http.Error(w, "body not readable", http.StatusBadRequest)
