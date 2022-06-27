@@ -1,11 +1,16 @@
 package controller
 
 import (
+	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
+	"strings"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -90,8 +95,63 @@ func (p *Prom) Collect(ch chan<- prometheus.Metric) {
 	wg.Wait()
 }
 
+func (p *Prom) collectInstanceSessionCounters(instance string, ch chan<- prometheus.Metric) {
+	type commandResponse struct {
+		Code            int `json:"code"`
+		SessionCounters struct {
+			Sessions               int `json:"sessions"`
+			SessionsPPPoE          int `json:"sessions-pppoe"`
+			SessionsIPoE           int `json:"sessions-ipoe"`
+			SessionsEstablished    int `json:"sessions-established"`
+			SessionsEstablishedMax int `json:"sessions-established-max"`
+			SessionsTerminated     int `json:"sessions-terminated"`
+			SessionsFlapped        int `json:"sessions-flapped"`
+		} `json:"session-counters"`
+	}
+
+	command := SocketCommand{
+		Command: "session-counters",
+	}
+	result, err := p.repository.Command(instance, command)
+	if err != nil {
+		return
+	}
+
+	var cr commandResponse
+	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
+	if err != nil {
+		log.Warn().Msgf("failed to decode session-counters: %s", err.Error())
+		return
+	}
+
+	ch <- prometheus.MustNewConstMetric(p.sessions, prometheus.GaugeValue, float64(cr.SessionCounters.Sessions), instance)
+}
+
 func (p *Prom) collectInstance(wg *sync.WaitGroup, instance string, ch chan<- prometheus.Metric) {
 	defer wg.Done()
 
-	ch <- prometheus.MustNewConstMetric(p.sessions, prometheus.GaugeValue, 1337, instance)
+	folder := path.Join(p.repository.ConfigFolder(), instance)
+	path := path.Join(folder, RunConfigFilename)
+	file, err := os.Open(path)
+	if err != nil {
+		log.Warn().Msgf("failed to open %s: %s", path, err.Error())
+		fmt.Println(err)
+		return
+	}
+
+	var runningConfig RunningConfig
+	err = json.NewDecoder(file).Decode(&runningConfig)
+	if err != nil {
+		log.Warn().Msgf("failed to decode %s: %s", path, err.Error())
+		return
+	}
+
+	for _, flag := range runningConfig.MetricFlags {
+		switch flag {
+		case "session_counters":
+			p.collectInstanceSessionCounters(instance, ch)
+		default:
+			log.Warn().Msgf("unknown metrics flag: %s", flag)
+		}
+	}
 }

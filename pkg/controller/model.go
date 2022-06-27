@@ -46,6 +46,9 @@ type RunningConfig struct {
 	SessionCount int `json:"session_count"`
 	// StreamConfig specifies an optional stream configuration file (absolute path)
 	StreamConfig string `json:"stream_config"`
+	// MetricFlags flags that allows to specify instance metrics to be reported
+	// Allowed values: session_counters|interfaces
+	MetricFlags []string `json:"metric_flags"`
 }
 
 // SocketCommand request for a sock command.
