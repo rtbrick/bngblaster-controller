@@ -12,6 +12,8 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/rtbrick/bngblaster-controller/pkg/controller"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
@@ -31,6 +33,7 @@ func cleanPathVariable(instanceVariable string) string {
 // Server implementation for the rest api.
 type Server struct {
 	router     *mux.Router
+	prom       *controller.Prom
 	repository controller.Repository
 }
 
@@ -38,6 +41,7 @@ type Server struct {
 func NewServer(repository controller.Repository) *Server {
 	r := &Server{
 		router:     mux.NewRouter(),
+		prom:       controller.NewProm(repository),
 		repository: repository,
 	}
 	r.routes()
@@ -51,7 +55,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Do stuff here
+		// Do stuff here.
 		log.Info().Str("method", r.Method).Msg(r.RequestURI)
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
 		next.ServeHTTP(w, r)
@@ -59,11 +63,19 @@ func loggingMiddleware(next http.Handler) http.Handler {
 }
 
 func (s *Server) routes() {
+	const instanceURL = "/api/v1/instances/{instance_name}"
 	s.router.Use(loggingMiddleware)
-
+	// Expose the registered metrics via HTTP.
+	s.router.Path("/metrics").Methods(http.MethodGet).Handler(promhttp.HandlerFor(
+		s.prom.Registry,
+		promhttp.HandlerOpts{
+			EnableOpenMetrics: true,
+		},
+	))
 	s.router.
 		Path(
-			fmt.Sprintf("/api/v1/instances/{instance_name}/{file_name:%s|%s|%s|%s|%s|%s|%s}",
+			fmt.Sprintf("%s/{file_name:%s|%s|%s|%s|%s|%s|%s}",
+				instanceURL,
 				controller.ConfigFilename,
 				controller.RunConfigFilename,
 				controller.RunLogFilename,
@@ -72,7 +84,6 @@ func (s *Server) routes() {
 				controller.RunStdErr,
 				controller.RunStdOut)).
 		Methods(http.MethodGet).Handler(s.fileServing(s.repository.ConfigFolder()))
-	const instanceURL = "/api/v1/instances/{instance_name}"
 	s.router.Path(instanceURL).Methods(http.MethodGet).Handler(s.status())
 	s.router.Path(instanceURL).Methods(http.MethodPut).Handler(s.create())
 	s.router.Path(instanceURL).Methods(http.MethodDelete).Handler(s.delete())
