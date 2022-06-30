@@ -66,7 +66,7 @@ func (s *Server) routes() {
 	const instanceURL = "/api/v1/instances/{instance_name}"
 	s.router.Use(loggingMiddleware)
 	// Expose the registered metrics via HTTP.
-	s.router.Path("/api/v1/metrics").Methods(http.MethodGet).Handler(promhttp.HandlerFor(
+	s.router.Path("/metrics").Methods(http.MethodGet).Handler(promhttp.HandlerFor(
 		s.prom.Registry,
 		promhttp.HandlerOpts{
 			EnableOpenMetrics: true,
