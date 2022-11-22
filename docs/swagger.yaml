@@ -243,6 +243,10 @@ paths:
                     enum:
                       - session_counters
                       - interfaces
+                      - access_interfaces
+                      - network_interfaces
+                      - a10nsp_interfaces
+                      - streams
             example:
               {
                 "logging": true,

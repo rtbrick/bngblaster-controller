@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -49,31 +50,45 @@ const (
 	metricIfRxKbps                     = "interfaces_rx_kbps"
 	metricIfTxPacketsMulticast         = "interfaces_tx_packets_multicast"
 	metricIfTxPPSMulticast             = "interfaces_tx_pps_multicast"
+	metricIfRxPacketsMulticast         = "interfaces_rx_packets_multicast"
+	metricIfRxPPSMulticast             = "interfaces_rx_pps_multicast"
+	metricIfRxLossPacketsMulticast     = "interfaces_rx_loss_packets_multicast"
 	metricIfTxPacketsSessionIPv4       = "interfaces_tx_packets_session_ipv4"
 	metricIfTxPPSSessionIPv4           = "interfaces_tx_pps_session_ipv4"
 	metricIfRxPacketsSessionIPv4       = "interfaces_rx_packets_session_ipv4"
 	metricIfRxPPSSessionIPv4           = "interfaces_rx_pps_session_ipv4"
-	metricIfLossPacketsSessionIPv4     = "interfaces_loss_packets_ipv4"
+	metricIfRxLossPacketsSessionIPv4   = "interfaces_rx_loss_packets_ipv4"
 	metricIfTxPacketsSessionIPv6       = "interfaces_tx_packets_session_ipv6"
 	metricIfTxPPSSessionIPv6           = "interfaces_tx_pps_session_ipv6"
 	metricIfRxPacketsSessionIPv6       = "interfaces_rx_packets_session_ipv6"
 	metricIfRxPPSSessionIPv6           = "interfaces_rx_pps_session_ipv6"
-	metricIfLossPacketsSessionIPv6     = "interfaces_loss_packets_ipv6"
+	metricIfRxLossPacketsSessionIPv6   = "interfaces_rx_loss_packets_ipv6"
 	metricIfTxPacketsSessionIPv6PD     = "interfaces_tx_packets_session_ipv6pd"
 	metricIfTxPPSSessionIPv6PD         = "interfaces_tx_pps_session_ipv6pd"
 	metricIfRxPacketsSessionIPv6PD     = "interfaces_rx_packets_session_ipv6pd"
 	metricIfRxPPSSessionIPv6PD         = "interfaces_rx_pps_session_ipv6pd"
-	metricIfLossPacketsSessionIPv6PD   = "interfaces_loss_packets_ipv6pd"
+	metricIfRxLossPacketsSessionIPv6PD = "interfaces_rx_loss_packets_ipv6pd"
 	metricIfTxPacketsStreams           = "interfaces_tx_packets_streams"
 	metricIfTxPPSStreams               = "interfaces_tx_pps_streams"
 	metricIfRxPacketsStreams           = "interfaces_rx_packets_streams"
 	metricIfRxPPSStreams               = "interfaces_rx_pps_streams"
-	metricIfLossPacketsStreams         = "interfaces_loss_packets_streams"
+	metricIfRxLossPacketsStreams       = "interfaces_rx_loss_packets_streams"
+	metricStreamTxPackets              = "stream_tx_packets"
+	metricStreamTxBytes                = "stream_tx_bytes"
+	metricStreamRxPackets              = "stream_rx_packets"
+	metricStreamRxBytes                = "stream_rx_bytes"
+	metricStreamRxLoss                 = "stream_rx_loss"
 
-	labelHostname      = "hostname"
-	labelInstanceName  = "instance_name"
-	labelInterfaceName = "interface_name"
-	labelInterfaceType = "interface_type"
+	labelHostname        = "hostname"
+	labelInstanceName    = "instance_name"
+	labelInterfaceName   = "interface_name"
+	labelInterfaceType   = "interface_type"
+	labelSessionId       = "session_id"
+	labelFlowId          = "flow_id"
+	labelStreamName      = "stream_name"
+	labelStreamDirection = "stream_direction"
+	labelStreamType      = "stream_type"
+	labelStreamSubType   = "stream_sub_type"
 )
 
 // Prom defines a prometheus export object.
@@ -108,36 +123,45 @@ type Prom struct {
 	StreamTrafficFlows           *prometheus.Desc
 	StreamTrafficFlowsVerified   *prometheus.Desc
 	// Interfaces.
-	IfTxPackets                *prometheus.Desc
-	IfTxBytes                  *prometheus.Desc
-	IfTxPPS                    *prometheus.Desc
-	IfTxKbps                   *prometheus.Desc
-	IfRxPackets                *prometheus.Desc
-	IfRxBytes                  *prometheus.Desc
-	IfRxPPS                    *prometheus.Desc
-	IfRxKbps                   *prometheus.Desc
-	IfTxPacketsMulticast       *prometheus.Desc
-	IfTxPPSMulticast           *prometheus.Desc
-	IfTxPacketsSessionIPv4     *prometheus.Desc
-	IfTxPPSSessionIPv4         *prometheus.Desc
-	IfRxPacketsSessionIPv4     *prometheus.Desc
-	IfRxPPSSessionIPv4         *prometheus.Desc
-	IfLossPacketsSessionIPv4   *prometheus.Desc
-	IfTxPacketsSessionIPv6     *prometheus.Desc
-	IfTxPPSSessionIPv6         *prometheus.Desc
-	IfRxPacketsSessionIPv6     *prometheus.Desc
-	IfRxPPSSessionIPv6         *prometheus.Desc
-	IfLossPacketsSessionIPv6   *prometheus.Desc
-	IfTxPacketsSessionIPv6PD   *prometheus.Desc
-	IfTxPPSSessionIPv6PD       *prometheus.Desc
-	IfRxPacketsSessionIPv6PD   *prometheus.Desc
-	IfRxPPSSessionIPv6PD       *prometheus.Desc
-	IfLossPacketsSessionIPv6PD *prometheus.Desc
-	IfTxPacketsStreams         *prometheus.Desc
-	IfTxPPSStreams             *prometheus.Desc
-	IfRxPacketsStreams         *prometheus.Desc
-	IfRxPPSStreams             *prometheus.Desc
-	IfLossPacketsStreams       *prometheus.Desc
+	IfTxPackets                  *prometheus.Desc
+	IfTxBytes                    *prometheus.Desc
+	IfTxPPS                      *prometheus.Desc
+	IfTxKbps                     *prometheus.Desc
+	IfRxPackets                  *prometheus.Desc
+	IfRxBytes                    *prometheus.Desc
+	IfRxPPS                      *prometheus.Desc
+	IfRxKbps                     *prometheus.Desc
+	IfTxPacketsMulticast         *prometheus.Desc
+	IfTxPPSMulticast             *prometheus.Desc
+	IfRxPacketsMulticast         *prometheus.Desc
+	IfRxPPSMulticast             *prometheus.Desc
+	IfRxLossPacketsMulticast     *prometheus.Desc
+	IfTxPacketsSessionIPv4       *prometheus.Desc
+	IfTxPPSSessionIPv4           *prometheus.Desc
+	IfRxPacketsSessionIPv4       *prometheus.Desc
+	IfRxPPSSessionIPv4           *prometheus.Desc
+	IfRxLossPacketsSessionIPv4   *prometheus.Desc
+	IfTxPacketsSessionIPv6       *prometheus.Desc
+	IfTxPPSSessionIPv6           *prometheus.Desc
+	IfRxPacketsSessionIPv6       *prometheus.Desc
+	IfRxPPSSessionIPv6           *prometheus.Desc
+	IfRxLossPacketsSessionIPv6   *prometheus.Desc
+	IfTxPacketsSessionIPv6PD     *prometheus.Desc
+	IfTxPPSSessionIPv6PD         *prometheus.Desc
+	IfRxPacketsSessionIPv6PD     *prometheus.Desc
+	IfRxPPSSessionIPv6PD         *prometheus.Desc
+	IfRxLossPacketsSessionIPv6PD *prometheus.Desc
+	IfTxPacketsStreams           *prometheus.Desc
+	IfTxPPSStreams               *prometheus.Desc
+	IfRxPacketsStreams           *prometheus.Desc
+	IfRxPPSStreams               *prometheus.Desc
+	IfRxLossPacketsStreams       *prometheus.Desc
+	// Streams.
+	StreamTxPackets *prometheus.Desc
+	StreamTxBytes   *prometheus.Desc
+	StreamRxPackets *prometheus.Desc
+	StreamRxBytes   *prometheus.Desc
+	StreamRxLoss    *prometheus.Desc
 }
 
 // NewProm creates a new prometheus export object.
@@ -290,6 +314,18 @@ func NewProm(repository Repository) *Prom {
 		"Interface TX PPS multicast",
 		[]string{labelInstanceName, labelInterfaceName, labelInterfaceType}, prometheus.Labels{labelHostname: hostname},
 	)
+	p.IfRxPacketsMulticast = prometheus.NewDesc(metricIfRxPacketsMulticast,
+		"Interface RX packets multicast",
+		[]string{labelInstanceName, labelInterfaceName, labelInterfaceType}, prometheus.Labels{labelHostname: hostname},
+	)
+	p.IfRxPPSMulticast = prometheus.NewDesc(metricIfRxPPSMulticast,
+		"Interface RX PPS multicast",
+		[]string{labelInstanceName, labelInterfaceName, labelInterfaceType}, prometheus.Labels{labelHostname: hostname},
+	)
+	p.IfRxLossPacketsMulticast = prometheus.NewDesc(metricIfRxLossPacketsMulticast,
+		"Interface RX loss packets multicast",
+		[]string{labelInstanceName, labelInterfaceName, labelInterfaceType}, prometheus.Labels{labelHostname: hostname},
+	)
 	p.IfTxPacketsSessionIPv4 = prometheus.NewDesc(metricIfTxPacketsSessionIPv4,
 		"Interface TX packets session-traffic IPv4",
 		[]string{labelInstanceName, labelInterfaceName, labelInterfaceType}, prometheus.Labels{labelHostname: hostname},
@@ -306,8 +342,8 @@ func NewProm(repository Repository) *Prom {
 		"Interface RX PPS session-traffic IPv4",
 		[]string{labelInstanceName, labelInterfaceName, labelInterfaceType}, prometheus.Labels{labelHostname: hostname},
 	)
-	p.IfLossPacketsSessionIPv4 = prometheus.NewDesc(metricIfLossPacketsSessionIPv4,
-		"Interface loss packets session-traffic IPv4",
+	p.IfRxLossPacketsSessionIPv4 = prometheus.NewDesc(metricIfRxLossPacketsSessionIPv4,
+		"Interface RX loss packets session-traffic IPv4",
 		[]string{labelInstanceName, labelInterfaceName, labelInterfaceType}, prometheus.Labels{labelHostname: hostname},
 	)
 	p.IfTxPacketsSessionIPv6 = prometheus.NewDesc(metricIfTxPacketsSessionIPv6,
@@ -326,8 +362,8 @@ func NewProm(repository Repository) *Prom {
 		"Interface RX PPS session-traffic IPv6",
 		[]string{labelInstanceName, labelInterfaceName, labelInterfaceType}, prometheus.Labels{labelHostname: hostname},
 	)
-	p.IfLossPacketsSessionIPv6 = prometheus.NewDesc(metricIfLossPacketsSessionIPv6,
-		"Interface loss packets session-traffic IPv6",
+	p.IfRxLossPacketsSessionIPv6 = prometheus.NewDesc(metricIfRxLossPacketsSessionIPv6,
+		"Interface RX loss packets session-traffic IPv6",
 		[]string{labelInstanceName, labelInterfaceName, labelInterfaceType}, prometheus.Labels{labelHostname: hostname},
 	)
 	p.IfTxPacketsSessionIPv6PD = prometheus.NewDesc(metricIfTxPacketsSessionIPv6PD,
@@ -346,8 +382,8 @@ func NewProm(repository Repository) *Prom {
 		"Interface RX PPS session-traffic IPv6PD",
 		[]string{labelInstanceName, labelInterfaceName, labelInterfaceType}, prometheus.Labels{labelHostname: hostname},
 	)
-	p.IfLossPacketsSessionIPv6PD = prometheus.NewDesc(metricIfLossPacketsSessionIPv6PD,
-		"Interface loss packets session-traffic IPv6PD",
+	p.IfRxLossPacketsSessionIPv6PD = prometheus.NewDesc(metricIfRxLossPacketsSessionIPv6PD,
+		"Interface RX loss packets session-traffic IPv6PD",
 		[]string{labelInstanceName, labelInterfaceName, labelInterfaceType}, prometheus.Labels{labelHostname: hostname},
 	)
 	p.IfTxPacketsStreams = prometheus.NewDesc(metricIfTxPacketsStreams,
@@ -366,10 +402,32 @@ func NewProm(repository Repository) *Prom {
 		"Interface RX PPS stream-traffic",
 		[]string{labelInstanceName, labelInterfaceName, labelInterfaceType}, prometheus.Labels{labelHostname: hostname},
 	)
-	p.IfLossPacketsStreams = prometheus.NewDesc(metricIfLossPacketsStreams,
-		"Interface loss packets stream-traffic",
+	p.IfRxLossPacketsStreams = prometheus.NewDesc(metricIfRxLossPacketsStreams,
+		"Interface RX loss packets stream-traffic",
 		[]string{labelInstanceName, labelInterfaceName, labelInterfaceType}, prometheus.Labels{labelHostname: hostname},
 	)
+	// Streams.
+	p.StreamTxPackets = prometheus.NewDesc(metricStreamTxPackets,
+		"Stream TX packets",
+		[]string{labelInstanceName, labelFlowId, labelSessionId, labelStreamName, labelStreamDirection, labelStreamType, labelStreamSubType}, prometheus.Labels{labelHostname: hostname},
+	)
+	p.StreamTxBytes = prometheus.NewDesc(metricStreamTxBytes,
+		"Stream TX bytes",
+		[]string{labelInstanceName, labelFlowId, labelSessionId, labelStreamName, labelStreamDirection, labelStreamType, labelStreamSubType}, prometheus.Labels{labelHostname: hostname},
+	)
+	p.StreamRxPackets = prometheus.NewDesc(metricStreamRxPackets,
+		"Stream RX packets",
+		[]string{labelInstanceName, labelFlowId, labelSessionId, labelStreamName, labelStreamDirection, labelStreamType, labelStreamSubType}, prometheus.Labels{labelHostname: hostname},
+	)
+	p.StreamRxBytes = prometheus.NewDesc(metricStreamRxBytes,
+		"Stream RX bytes",
+		[]string{labelInstanceName, labelFlowId, labelSessionId, labelStreamName, labelStreamDirection, labelStreamType, labelStreamSubType}, prometheus.Labels{labelHostname: hostname},
+	)
+	p.StreamRxLoss = prometheus.NewDesc(metricStreamRxLoss,
+		"Stream RX loss",
+		[]string{labelInstanceName, labelFlowId, labelSessionId, labelStreamName, labelStreamDirection, labelStreamType, labelStreamSubType}, prometheus.Labels{labelHostname: hostname},
+	)
+
 	// Register all metrics and return.
 	p.Registry.MustRegister(p)
 	return p
@@ -413,26 +471,34 @@ func (p *Prom) Describe(ch chan<- *prometheus.Desc) {
 	ch <- p.IfRxKbps
 	ch <- p.IfTxPacketsMulticast
 	ch <- p.IfTxPPSMulticast
+	ch <- p.IfRxPacketsMulticast
+	ch <- p.IfRxPPSMulticast
+	ch <- p.IfRxLossPacketsMulticast
 	ch <- p.IfTxPacketsSessionIPv4
 	ch <- p.IfTxPPSSessionIPv4
 	ch <- p.IfRxPacketsSessionIPv4
 	ch <- p.IfRxPPSSessionIPv4
-	ch <- p.IfLossPacketsSessionIPv4
+	ch <- p.IfRxLossPacketsSessionIPv4
 	ch <- p.IfTxPacketsSessionIPv6
 	ch <- p.IfTxPPSSessionIPv6
 	ch <- p.IfRxPacketsSessionIPv6
 	ch <- p.IfRxPPSSessionIPv6
-	ch <- p.IfLossPacketsSessionIPv6
+	ch <- p.IfRxLossPacketsSessionIPv6
 	ch <- p.IfTxPacketsSessionIPv6PD
 	ch <- p.IfTxPPSSessionIPv6PD
 	ch <- p.IfRxPacketsSessionIPv6PD
 	ch <- p.IfRxPPSSessionIPv6PD
-	ch <- p.IfLossPacketsSessionIPv6PD
+	ch <- p.IfRxLossPacketsSessionIPv6PD
 	ch <- p.IfTxPacketsStreams
 	ch <- p.IfTxPPSStreams
 	ch <- p.IfRxPacketsStreams
 	ch <- p.IfRxPPSStreams
-	ch <- p.IfLossPacketsStreams
+	ch <- p.IfRxLossPacketsStreams
+	ch <- p.StreamTxPackets
+	ch <- p.StreamTxBytes
+	ch <- p.StreamRxPackets
+	ch <- p.StreamRxBytes
+	ch <- p.StreamRxLoss
 }
 
 // Collect implements required collect function for all metrics collectors.
@@ -522,34 +588,192 @@ func (p *Prom) collectInstanceInterfaces(instance string, ch chan<- prometheus.M
 	for _, iface := range cr.Interfaces {
 		ch <- prometheus.MustNewConstMetric(p.IfTxPackets, prometheus.CounterValue, float64(iface.TxPackets), instance, iface.Name, iface.Type)
 		ch <- prometheus.MustNewConstMetric(p.IfTxBytes, prometheus.CounterValue, float64(iface.TxBytes), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPackets, prometheus.CounterValue, float64(iface.RxPackets), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxBytes, prometheus.CounterValue, float64(iface.RxBytes), instance, iface.Name, iface.Type)
+	}
+}
+
+func (p *Prom) collectInstanceAccessInterfaces(instance string, ch chan<- prometheus.Metric) {
+	// Invoke command.
+	command := SocketCommand{
+		Command: "access-interfaces",
+	}
+	result, err := p.repository.Command(instance, command)
+	if err != nil {
+		log.Warn().Msgf("failed to execute access-interfaces: %s", err.Error())
+		return
+	}
+	// Decode response.
+	var cr AccessInterfacesResponse
+	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
+	if err != nil {
+		log.Warn().Msgf("failed to decode access-interfaces: %s", err.Error())
+		return
+	}
+	// Return Metrics.
+	for _, iface := range cr.Interfaces {
+		ch <- prometheus.MustNewConstMetric(p.IfTxPackets, prometheus.CounterValue, float64(iface.TxPackets), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxBytes, prometheus.CounterValue, float64(iface.TxBytes), instance, iface.Name, iface.Type)
 		ch <- prometheus.MustNewConstMetric(p.IfTxPPS, prometheus.GaugeValue, float64(iface.TxPPS), instance, iface.Name, iface.Type)
 		ch <- prometheus.MustNewConstMetric(p.IfTxKbps, prometheus.GaugeValue, float64(iface.TxKbps), instance, iface.Name, iface.Type)
 		ch <- prometheus.MustNewConstMetric(p.IfRxPackets, prometheus.CounterValue, float64(iface.RxPackets), instance, iface.Name, iface.Type)
 		ch <- prometheus.MustNewConstMetric(p.IfRxBytes, prometheus.CounterValue, float64(iface.RxBytes), instance, iface.Name, iface.Type)
 		ch <- prometheus.MustNewConstMetric(p.IfRxPPS, prometheus.GaugeValue, float64(iface.RxPPS), instance, iface.Name, iface.Type)
 		ch <- prometheus.MustNewConstMetric(p.IfRxKbps, prometheus.GaugeValue, float64(iface.RxKbps), instance, iface.Name, iface.Type)
-		ch <- prometheus.MustNewConstMetric(p.IfTxPacketsMulticast, prometheus.GaugeValue, float64(iface.TxPacketsMulticast), instance, iface.Name, iface.Type)
-		ch <- prometheus.MustNewConstMetric(p.IfTxPPSMulticast, prometheus.GaugeValue, float64(iface.TxPPSMulticast), instance, iface.Name, iface.Type)
-		ch <- prometheus.MustNewConstMetric(p.IfTxPacketsSessionIPv4, prometheus.GaugeValue, float64(iface.TxPacketsSessionIPv4), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPacketsMulticast, prometheus.CounterValue, float64(iface.RxPacketsMulticast), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPPSMulticast, prometheus.GaugeValue, float64(iface.RxPPSMulticast), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxLossPacketsMulticast, prometheus.CounterValue, float64(iface.RxLossPacketsMulticast), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPacketsSessionIPv4, prometheus.CounterValue, float64(iface.TxPacketsSessionIPv4), instance, iface.Name, iface.Type)
 		ch <- prometheus.MustNewConstMetric(p.IfTxPPSSessionIPv4, prometheus.GaugeValue, float64(iface.TxPPSSessionIPv4), instance, iface.Name, iface.Type)
-		ch <- prometheus.MustNewConstMetric(p.IfRxPacketsSessionIPv4, prometheus.GaugeValue, float64(iface.RxPacketsSessionIPv4), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPacketsSessionIPv4, prometheus.CounterValue, float64(iface.RxPacketsSessionIPv4), instance, iface.Name, iface.Type)
 		ch <- prometheus.MustNewConstMetric(p.IfRxPPSSessionIPv4, prometheus.GaugeValue, float64(iface.RxPPSSessionIPv4), instance, iface.Name, iface.Type)
-		ch <- prometheus.MustNewConstMetric(p.IfLossPacketsSessionIPv4, prometheus.GaugeValue, float64(iface.LossPacketsSessionIPv4), instance, iface.Name, iface.Type)
-		ch <- prometheus.MustNewConstMetric(p.IfTxPacketsSessionIPv6, prometheus.GaugeValue, float64(iface.TxPacketsSessionIPv6), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxLossPacketsSessionIPv4, prometheus.CounterValue, float64(iface.RxLossPacketsSessionIPv4), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPacketsSessionIPv6, prometheus.CounterValue, float64(iface.TxPacketsSessionIPv6), instance, iface.Name, iface.Type)
 		ch <- prometheus.MustNewConstMetric(p.IfTxPPSSessionIPv6, prometheus.GaugeValue, float64(iface.TxPPSSessionIPv6), instance, iface.Name, iface.Type)
-		ch <- prometheus.MustNewConstMetric(p.IfRxPacketsSessionIPv6, prometheus.GaugeValue, float64(iface.RxPacketsSessionIPv6), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPacketsSessionIPv6, prometheus.CounterValue, float64(iface.RxPacketsSessionIPv6), instance, iface.Name, iface.Type)
 		ch <- prometheus.MustNewConstMetric(p.IfRxPPSSessionIPv6, prometheus.GaugeValue, float64(iface.RxPPSSessionIPv6), instance, iface.Name, iface.Type)
-		ch <- prometheus.MustNewConstMetric(p.IfLossPacketsSessionIPv6, prometheus.GaugeValue, float64(iface.LossPacketsSessionIPv6), instance, iface.Name, iface.Type)
-		ch <- prometheus.MustNewConstMetric(p.IfTxPacketsSessionIPv6PD, prometheus.GaugeValue, float64(iface.TxPacketsSessionIPv6PD), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxLossPacketsSessionIPv6, prometheus.CounterValue, float64(iface.RxLossPacketsSessionIPv6), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPacketsSessionIPv6PD, prometheus.CounterValue, float64(iface.TxPacketsSessionIPv6PD), instance, iface.Name, iface.Type)
 		ch <- prometheus.MustNewConstMetric(p.IfTxPPSSessionIPv6PD, prometheus.GaugeValue, float64(iface.TxPPSSessionIPv6PD), instance, iface.Name, iface.Type)
-		ch <- prometheus.MustNewConstMetric(p.IfRxPacketsSessionIPv6PD, prometheus.GaugeValue, float64(iface.RxPacketsSessionIPv6PD), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPacketsSessionIPv6PD, prometheus.CounterValue, float64(iface.RxPacketsSessionIPv6PD), instance, iface.Name, iface.Type)
 		ch <- prometheus.MustNewConstMetric(p.IfRxPPSSessionIPv6PD, prometheus.GaugeValue, float64(iface.RxPPSSessionIPv6PD), instance, iface.Name, iface.Type)
-		ch <- prometheus.MustNewConstMetric(p.IfLossPacketsSessionIPv6PD, prometheus.GaugeValue, float64(iface.LossPacketsSessionIPv6PD), instance, iface.Name, iface.Type)
-		ch <- prometheus.MustNewConstMetric(p.IfTxPacketsStreams, prometheus.GaugeValue, float64(iface.TxPacketsStreams), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxLossPacketsSessionIPv6PD, prometheus.CounterValue, float64(iface.RxLossPacketsSessionIPv6PD), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPacketsStreams, prometheus.CounterValue, float64(iface.TxPacketsStreams), instance, iface.Name, iface.Type)
 		ch <- prometheus.MustNewConstMetric(p.IfTxPPSStreams, prometheus.GaugeValue, float64(iface.TxPPSStreams), instance, iface.Name, iface.Type)
-		ch <- prometheus.MustNewConstMetric(p.IfRxPacketsStreams, prometheus.GaugeValue, float64(iface.RxPacketsStreams), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPacketsStreams, prometheus.CounterValue, float64(iface.RxPacketsStreams), instance, iface.Name, iface.Type)
 		ch <- prometheus.MustNewConstMetric(p.IfRxPPSStreams, prometheus.GaugeValue, float64(iface.RxPPSStreams), instance, iface.Name, iface.Type)
-		ch <- prometheus.MustNewConstMetric(p.IfLossPacketsStreams, prometheus.GaugeValue, float64(iface.LossPacketsStreams), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxLossPacketsStreams, prometheus.CounterValue, float64(iface.RxLossPacketsStreams), instance, iface.Name, iface.Type)
+	}
+}
+
+func (p *Prom) collectInstanceNetworkInterfaces(instance string, ch chan<- prometheus.Metric) {
+	// Invoke command.
+	command := SocketCommand{
+		Command: "network-interfaces",
+	}
+	result, err := p.repository.Command(instance, command)
+	if err != nil {
+		log.Warn().Msgf("failed to execute network-interfaces: %s", err.Error())
+		return
+	}
+	// Decode response.
+	var cr NetworkInterfacesResponse
+	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
+	if err != nil {
+		log.Warn().Msgf("failed to decode network-interfaces: %s", err.Error())
+		return
+	}
+	// Return Metrics.
+	for _, iface := range cr.Interfaces {
+		ch <- prometheus.MustNewConstMetric(p.IfTxPackets, prometheus.CounterValue, float64(iface.TxPackets), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxBytes, prometheus.CounterValue, float64(iface.TxBytes), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPPS, prometheus.GaugeValue, float64(iface.TxPPS), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxKbps, prometheus.GaugeValue, float64(iface.TxKbps), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPackets, prometheus.CounterValue, float64(iface.RxPackets), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxBytes, prometheus.CounterValue, float64(iface.RxBytes), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPPS, prometheus.GaugeValue, float64(iface.RxPPS), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxKbps, prometheus.GaugeValue, float64(iface.RxKbps), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPacketsMulticast, prometheus.CounterValue, float64(iface.TxPacketsMulticast), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPPSMulticast, prometheus.GaugeValue, float64(iface.TxPPSMulticast), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPacketsSessionIPv4, prometheus.CounterValue, float64(iface.TxPacketsSessionIPv4), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPPSSessionIPv4, prometheus.GaugeValue, float64(iface.TxPPSSessionIPv4), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPacketsSessionIPv4, prometheus.CounterValue, float64(iface.RxPacketsSessionIPv4), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPPSSessionIPv4, prometheus.GaugeValue, float64(iface.RxPPSSessionIPv4), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxLossPacketsSessionIPv4, prometheus.CounterValue, float64(iface.RxLossPacketsSessionIPv4), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPacketsSessionIPv6, prometheus.CounterValue, float64(iface.TxPacketsSessionIPv6), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPPSSessionIPv6, prometheus.GaugeValue, float64(iface.TxPPSSessionIPv6), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPacketsSessionIPv6, prometheus.CounterValue, float64(iface.RxPacketsSessionIPv6), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPPSSessionIPv6, prometheus.GaugeValue, float64(iface.RxPPSSessionIPv6), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxLossPacketsSessionIPv6, prometheus.CounterValue, float64(iface.RxLossPacketsSessionIPv6), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPacketsSessionIPv6PD, prometheus.CounterValue, float64(iface.TxPacketsSessionIPv6PD), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPPSSessionIPv6PD, prometheus.GaugeValue, float64(iface.TxPPSSessionIPv6PD), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPacketsSessionIPv6PD, prometheus.CounterValue, float64(iface.RxPacketsSessionIPv6PD), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPPSSessionIPv6PD, prometheus.GaugeValue, float64(iface.RxPPSSessionIPv6PD), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxLossPacketsSessionIPv6PD, prometheus.CounterValue, float64(iface.RxLossPacketsSessionIPv6PD), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPacketsStreams, prometheus.CounterValue, float64(iface.TxPacketsStreams), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPPSStreams, prometheus.GaugeValue, float64(iface.TxPPSStreams), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPacketsStreams, prometheus.CounterValue, float64(iface.RxPacketsStreams), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPPSStreams, prometheus.GaugeValue, float64(iface.RxPPSStreams), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxLossPacketsStreams, prometheus.CounterValue, float64(iface.RxLossPacketsStreams), instance, iface.Name, iface.Type)
+	}
+}
+
+func (p *Prom) collectInstanceA10nspInterfaces(instance string, ch chan<- prometheus.Metric) {
+	// Invoke command.
+	command := SocketCommand{
+		Command: "a10nsp-interfaces",
+	}
+	result, err := p.repository.Command(instance, command)
+	if err != nil {
+		log.Warn().Msgf("failed to execute a10nsp-interfaces: %s", err.Error())
+		return
+	}
+	// Decode response.
+	var cr A10nspInterfacesResponse
+	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
+	if err != nil {
+		log.Warn().Msgf("failed to decode a10nsp-interfaces: %s", err.Error())
+		return
+	}
+	// Return Metrics.
+	for _, iface := range cr.Interfaces {
+		ch <- prometheus.MustNewConstMetric(p.IfTxPackets, prometheus.CounterValue, float64(iface.TxPackets), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxBytes, prometheus.CounterValue, float64(iface.TxBytes), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPPS, prometheus.GaugeValue, float64(iface.TxPPS), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxKbps, prometheus.GaugeValue, float64(iface.TxKbps), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPackets, prometheus.CounterValue, float64(iface.RxPackets), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxBytes, prometheus.CounterValue, float64(iface.RxBytes), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPPS, prometheus.GaugeValue, float64(iface.RxPPS), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxKbps, prometheus.GaugeValue, float64(iface.RxKbps), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPacketsSessionIPv4, prometheus.CounterValue, float64(iface.TxPacketsSessionIPv4), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPPSSessionIPv4, prometheus.GaugeValue, float64(iface.TxPPSSessionIPv4), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPacketsSessionIPv4, prometheus.CounterValue, float64(iface.RxPacketsSessionIPv4), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPPSSessionIPv4, prometheus.GaugeValue, float64(iface.RxPPSSessionIPv4), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxLossPacketsSessionIPv4, prometheus.CounterValue, float64(iface.RxLossPacketsSessionIPv4), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPacketsSessionIPv6, prometheus.CounterValue, float64(iface.TxPacketsSessionIPv6), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPPSSessionIPv6, prometheus.GaugeValue, float64(iface.TxPPSSessionIPv6), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPacketsSessionIPv6, prometheus.CounterValue, float64(iface.RxPacketsSessionIPv6), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPPSSessionIPv6, prometheus.GaugeValue, float64(iface.RxPPSSessionIPv6), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxLossPacketsSessionIPv6, prometheus.CounterValue, float64(iface.RxLossPacketsSessionIPv6), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPacketsSessionIPv6PD, prometheus.CounterValue, float64(iface.TxPacketsSessionIPv6PD), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPPSSessionIPv6PD, prometheus.GaugeValue, float64(iface.TxPPSSessionIPv6PD), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPacketsSessionIPv6PD, prometheus.CounterValue, float64(iface.RxPacketsSessionIPv6PD), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPPSSessionIPv6PD, prometheus.GaugeValue, float64(iface.RxPPSSessionIPv6PD), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxLossPacketsSessionIPv6PD, prometheus.CounterValue, float64(iface.RxLossPacketsSessionIPv6PD), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPacketsStreams, prometheus.CounterValue, float64(iface.TxPacketsStreams), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfTxPPSStreams, prometheus.GaugeValue, float64(iface.TxPPSStreams), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPacketsStreams, prometheus.CounterValue, float64(iface.RxPacketsStreams), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxPPSStreams, prometheus.GaugeValue, float64(iface.RxPPSStreams), instance, iface.Name, iface.Type)
+		ch <- prometheus.MustNewConstMetric(p.IfRxLossPacketsStreams, prometheus.CounterValue, float64(iface.RxLossPacketsStreams), instance, iface.Name, iface.Type)
+	}
+}
+
+func (p *Prom) collectInstanceStreams(instance string, ch chan<- prometheus.Metric) {
+	// Invoke command.
+	command := SocketCommand{
+		Command: "stream-summary",
+	}
+	result, err := p.repository.Command(instance, command)
+	if err != nil {
+		log.Warn().Msgf("failed to execute stream-summary: %s", err.Error())
+		return
+	}
+	// Decode response.
+	var cr StreamSummaryResponse
+	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
+	if err != nil {
+		log.Warn().Msgf("failed to decode stream-summary: %s", err.Error())
+		return
+	}
+	// Return Metrics.
+	for _, stream := range cr.Streams {
+		fid := strconv.Itoa(stream.FlowId)
+		sid := strconv.Itoa(stream.SessionId)
+		ch <- prometheus.MustNewConstMetric(p.StreamTxPackets, prometheus.CounterValue, float64(stream.TxPackets), instance, fid, sid, stream.Name, stream.Direction, stream.Type, stream.SubType)
+		ch <- prometheus.MustNewConstMetric(p.StreamTxBytes, prometheus.CounterValue, float64(stream.TxBytes), instance, fid, sid, stream.Name, stream.Direction, stream.Type, stream.SubType)
+		ch <- prometheus.MustNewConstMetric(p.StreamRxPackets, prometheus.CounterValue, float64(stream.RxPackets), instance, fid, sid, stream.Name, stream.Direction, stream.Type, stream.SubType)
+		ch <- prometheus.MustNewConstMetric(p.StreamRxBytes, prometheus.CounterValue, float64(stream.RxBytes), instance, fid, sid, stream.Name, stream.Direction, stream.Type, stream.SubType)
+		ch <- prometheus.MustNewConstMetric(p.StreamRxLoss, prometheus.CounterValue, float64(stream.RxLoss), instance, fid, sid, stream.Name, stream.Direction, stream.Type, stream.SubType)
 	}
 }
 
@@ -578,6 +802,14 @@ func (p *Prom) collectInstance(wg *sync.WaitGroup, instance string, ch chan<- pr
 			p.collectInstanceSessionCounters(instance, ch)
 		case "interfaces":
 			p.collectInstanceInterfaces(instance, ch)
+		case "access_interfaces":
+			p.collectInstanceAccessInterfaces(instance, ch)
+		case "network_interfaces":
+			p.collectInstanceNetworkInterfaces(instance, ch)
+		case "a10nsp_interfaces":
+			p.collectInstanceA10nspInterfaces(instance, ch)
+		case "streams":
+			p.collectInstanceStreams(instance, ch)
 		default:
 			log.Warn().Msgf("unknown metrics flag: %s", flag)
 		}

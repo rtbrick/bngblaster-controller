@@ -47,7 +47,7 @@ type RunningConfig struct {
 	// StreamConfig specifies an optional stream configuration file (absolute path)
 	StreamConfig string `json:"stream_config"`
 	// MetricFlags flags that allows to specify instance metrics to be reported
-	// Allowed values: session_counters|interfaces
+	// Allowed values: session_counters|interfaces|access_interfaces|network_interfaces|a10nsp_interfaces|streams
 	MetricFlags []string `json:"metric_flags"`
 }
 
@@ -92,38 +92,149 @@ type SessionCountersResponse struct {
 type InterfacesResponse struct {
 	Code       int `json:"code"`
 	Interfaces []struct {
-		Name                     string `json:"name"`
-		IfIndex                  int    `json:"ifindex"`
-		Type                     string `json:"type"`
-		TxPackets                int    `json:"tx-packets"`
-		TxBytes                  int    `json:"tx-bytes"`
-		TxPPS                    int    `json:"tx-pps"`
-		TxKbps                   int    `json:"tx-kbps"`
-		RxPackets                int    `json:"rx-packets"`
-		RxBytes                  int    `json:"rx-bytes"`
-		RxPPS                    int    `json:"rx-pps"`
-		RxKbps                   int    `json:"rx-kbps"`
-		TxPacketsMulticast       int    `json:"tx-packets-multicast"`
-		TxPPSMulticast           int    `json:"tx-pps-multicast"`
-		TxPacketsSessionIPv4     int    `json:"tx-packets-session-ipv4"`
-		TxPPSSessionIPv4         int    `json:"tx-pps-session-ipv4"`
-		RxPacketsSessionIPv4     int    `json:"rx-packets-session-ipv4"`
-		RxPPSSessionIPv4         int    `json:"rx-pps-session-ipv4"`
-		LossPacketsSessionIPv4   int    `json:"loss-packets-session-ipv4"`
-		TxPacketsSessionIPv6     int    `json:"tx-packets-session-ipv6"`
-		TxPPSSessionIPv6         int    `json:"tx-pps-session-ipv6"`
-		RxPacketsSessionIPv6     int    `json:"rx-packets-session-ipv6"`
-		RxPPSSessionIPv6         int    `json:"rx-pps-session-ipv6"`
-		LossPacketsSessionIPv6   int    `json:"loss-packets-session-ipv6"`
-		TxPacketsSessionIPv6PD   int    `json:"tx-packets-session-ipv6pd"`
-		TxPPSSessionIPv6PD       int    `json:"tx-pps-session-ipv6pd"`
-		RxPacketsSessionIPv6PD   int    `json:"rx-packets-session-ipv6pd"`
-		RxPPSSessionIPv6PD       int    `json:"rx-pps-session-ipv6pd"`
-		LossPacketsSessionIPv6PD int    `json:"loss-packets-session-ipv6pd"`
-		TxPacketsStreams         int    `json:"tx-packets-streams"`
-		TxPPSStreams             int    `json:"tx-pps-streams"`
-		RxPacketsStreams         int    `json:"rx-packets-streams"`
-		RxPPSStreams             int    `json:"rx-pps-streams"`
-		LossPacketsStreams       int    `json:"loss-packets-streams"`
+		Name      string `json:"name"`
+		IfIndex   int    `json:"ifindex"`
+		Type      string `json:"type"`
+		TxPackets int    `json:"tx-packets"`
+		TxBytes   int    `json:"tx-bytes"`
+		RxPackets int    `json:"rx-packets"`
+		RxBytes   int    `json:"rx-bytes"`
 	} `json:"interfaces"`
+}
+
+// AccessInterfacesResponse response for access-interfaces socket command.
+type AccessInterfacesResponse struct {
+	Code       int `json:"code"`
+	Interfaces []struct {
+		Name                       string `json:"name"`
+		IfIndex                    int    `json:"ifindex"`
+		Type                       string `json:"type"`
+		TxPackets                  int    `json:"tx-packets"`
+		TxBytes                    int    `json:"tx-bytes"`
+		TxPPS                      int    `json:"tx-pps"`
+		TxKbps                     int    `json:"tx-kbps"`
+		RxPackets                  int    `json:"rx-packets"`
+		RxBytes                    int    `json:"rx-bytes"`
+		RxPPS                      int    `json:"rx-pps"`
+		RxKbps                     int    `json:"rx-kbps"`
+		RxPacketsMulticast         int    `json:"rx-packets-multicast"`
+		RxPPSMulticast             int    `json:"rx-pps-multicast"`
+		RxLossPacketsMulticast     int    `json:"rx-loss-packets-multicast"`
+		TxPacketsSessionIPv4       int    `json:"tx-packets-session-ipv4"`
+		TxPPSSessionIPv4           int    `json:"tx-pps-session-ipv4"`
+		RxPacketsSessionIPv4       int    `json:"rx-packets-session-ipv4"`
+		RxPPSSessionIPv4           int    `json:"rx-pps-session-ipv4"`
+		RxLossPacketsSessionIPv4   int    `json:"rx-loss-packets-session-ipv4"`
+		TxPacketsSessionIPv6       int    `json:"tx-packets-session-ipv6"`
+		TxPPSSessionIPv6           int    `json:"tx-pps-session-ipv6"`
+		RxPacketsSessionIPv6       int    `json:"rx-packets-session-ipv6"`
+		RxPPSSessionIPv6           int    `json:"rx-pps-session-ipv6"`
+		RxLossPacketsSessionIPv6   int    `json:"rx-loss-packets-session-ipv6"`
+		TxPacketsSessionIPv6PD     int    `json:"tx-packets-session-ipv6pd"`
+		TxPPSSessionIPv6PD         int    `json:"tx-pps-session-ipv6pd"`
+		RxPacketsSessionIPv6PD     int    `json:"rx-packets-session-ipv6pd"`
+		RxPPSSessionIPv6PD         int    `json:"rx-pps-session-ipv6pd"`
+		RxLossPacketsSessionIPv6PD int    `json:"rx-loss-packets-session-ipv6pd"`
+		TxPacketsStreams           int    `json:"tx-packets-streams"`
+		TxPPSStreams               int    `json:"tx-pps-streams"`
+		RxPacketsStreams           int    `json:"rx-packets-streams"`
+		RxPPSStreams               int    `json:"rx-pps-streams"`
+		RxLossPacketsStreams       int    `json:"rx-loss-packets-streams"`
+	} `json:"access-interfaces"`
+}
+
+// NetworkInterfacesResponse response for network-interfaces socket command.
+type NetworkInterfacesResponse struct {
+	Code       int `json:"code"`
+	Interfaces []struct {
+		Name                       string `json:"name"`
+		IfIndex                    int    `json:"ifindex"`
+		Type                       string `json:"type"`
+		TxPackets                  int    `json:"tx-packets"`
+		TxBytes                    int    `json:"tx-bytes"`
+		TxPPS                      int    `json:"tx-pps"`
+		TxKbps                     int    `json:"tx-kbps"`
+		RxPackets                  int    `json:"rx-packets"`
+		RxBytes                    int    `json:"rx-bytes"`
+		RxPPS                      int    `json:"rx-pps"`
+		RxKbps                     int    `json:"rx-kbps"`
+		TxPacketsMulticast         int    `json:"rx-packets-multicast"`
+		TxPPSMulticast             int    `json:"rx-pps-multicast"`
+		TxPacketsSessionIPv4       int    `json:"tx-packets-session-ipv4"`
+		TxPPSSessionIPv4           int    `json:"tx-pps-session-ipv4"`
+		RxPacketsSessionIPv4       int    `json:"rx-packets-session-ipv4"`
+		RxPPSSessionIPv4           int    `json:"rx-pps-session-ipv4"`
+		RxLossPacketsSessionIPv4   int    `json:"rx-loss-packets-session-ipv4"`
+		TxPacketsSessionIPv6       int    `json:"tx-packets-session-ipv6"`
+		TxPPSSessionIPv6           int    `json:"tx-pps-session-ipv6"`
+		RxPacketsSessionIPv6       int    `json:"rx-packets-session-ipv6"`
+		RxPPSSessionIPv6           int    `json:"rx-pps-session-ipv6"`
+		RxLossPacketsSessionIPv6   int    `json:"rx-loss-packets-session-ipv6"`
+		TxPacketsSessionIPv6PD     int    `json:"tx-packets-session-ipv6pd"`
+		TxPPSSessionIPv6PD         int    `json:"tx-pps-session-ipv6pd"`
+		RxPacketsSessionIPv6PD     int    `json:"rx-packets-session-ipv6pd"`
+		RxPPSSessionIPv6PD         int    `json:"rx-pps-session-ipv6pd"`
+		RxLossPacketsSessionIPv6PD int    `json:"rx-loss-packets-session-ipv6pd"`
+		TxPacketsStreams           int    `json:"tx-packets-streams"`
+		TxPPSStreams               int    `json:"tx-pps-streams"`
+		RxPacketsStreams           int    `json:"rx-packets-streams"`
+		RxPPSStreams               int    `json:"rx-pps-streams"`
+		RxLossPacketsStreams       int    `json:"rx-loss-packets-streams"`
+	} `json:"network-interfaces"`
+}
+
+// A10nspInterfacesResponse response for a10nsp-interfaces socket command.
+type A10nspInterfacesResponse struct {
+	Code       int `json:"code"`
+	Interfaces []struct {
+		Name                       string `json:"name"`
+		IfIndex                    int    `json:"ifindex"`
+		Type                       string `json:"type"`
+		TxPackets                  int    `json:"tx-packets"`
+		TxBytes                    int    `json:"tx-bytes"`
+		TxPPS                      int    `json:"tx-pps"`
+		TxKbps                     int    `json:"tx-kbps"`
+		RxPackets                  int    `json:"rx-packets"`
+		RxBytes                    int    `json:"rx-bytes"`
+		RxPPS                      int    `json:"rx-pps"`
+		RxKbps                     int    `json:"rx-kbps"`
+		TxPacketsSessionIPv4       int    `json:"tx-packets-session-ipv4"`
+		TxPPSSessionIPv4           int    `json:"tx-pps-session-ipv4"`
+		RxPacketsSessionIPv4       int    `json:"rx-packets-session-ipv4"`
+		RxPPSSessionIPv4           int    `json:"rx-pps-session-ipv4"`
+		RxLossPacketsSessionIPv4   int    `json:"rx-loss-packets-session-ipv4"`
+		TxPacketsSessionIPv6       int    `json:"tx-packets-session-ipv6"`
+		TxPPSSessionIPv6           int    `json:"tx-pps-session-ipv6"`
+		RxPacketsSessionIPv6       int    `json:"rx-packets-session-ipv6"`
+		RxPPSSessionIPv6           int    `json:"rx-pps-session-ipv6"`
+		RxLossPacketsSessionIPv6   int    `json:"rx-loss-packets-session-ipv6"`
+		TxPacketsSessionIPv6PD     int    `json:"tx-packets-session-ipv6pd"`
+		TxPPSSessionIPv6PD         int    `json:"tx-pps-session-ipv6pd"`
+		RxPacketsSessionIPv6PD     int    `json:"rx-packets-session-ipv6pd"`
+		RxPPSSessionIPv6PD         int    `json:"rx-pps-session-ipv6pd"`
+		RxLossPacketsSessionIPv6PD int    `json:"rx-loss-packets-session-ipv6pd"`
+		TxPacketsStreams           int    `json:"tx-packets-streams"`
+		TxPPSStreams               int    `json:"tx-pps-streams"`
+		RxPacketsStreams           int    `json:"rx-packets-streams"`
+		RxPPSStreams               int    `json:"rx-pps-streams"`
+		RxLossPacketsStreams       int    `json:"rx-loss-packets-streams"`
+	} `json:"a10nsp-interfaces"`
+}
+
+// StreamSummaryResponse response for stream-summary socket command.
+type StreamSummaryResponse struct {
+	Code    int `json:"code"`
+	Streams []struct {
+		FlowId    int    `json:"flow-id"`
+		Name      string `json:"name"`
+		Type      string `json:"type"`
+		SubType   string `json:"sub-type"`
+		Direction string `json:"direction"`
+		TxPackets int    `json:"tx-packets"`
+		TxBytes   int    `json:"tx-bytes"`
+		RxPackets int    `json:"rx-packets"`
+		RxBytes   int    `json:"rx-bytes"`
+		RxLoss    int    `json:"rx-loss"`
+		SessionId int    `json:"session-id"`
+	} `json:"stream-summary"`
 }
