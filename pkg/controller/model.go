@@ -36,7 +36,7 @@ type RunningConfig struct {
 	// Logging specifies if logging is enabled
 	Logging bool `json:"logging"`
 	// LoggingFlags flags that allows to specify what is logged
-	// Allowed values: debug|error|igmp|io|pppoe|info|pcap|timer|timer-detail|ip|loss|l2tp|dhcp|isis|bgp|tcp
+	// Allowed values: debug|error|igmp|io|pppoe|info|pcap|ip|loss|l2tp|dhcp|isis|ospf|ldp|bgp|tcp|lag|dpdk|packet|http|timer|timer-detail
 	LoggingFlags []string `json:"logging_flags"`
 	// PCAPCapture allows to write a pcap file
 	PCAPCapture bool `json:"pcap_capture"`

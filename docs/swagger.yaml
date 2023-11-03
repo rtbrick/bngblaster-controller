@@ -213,15 +213,21 @@ paths:
                       - pppoe
                       - info
                       - pcap
-                      - timer
-                      - timer-detail
                       - ip
                       - loss
                       - l2tp
                       - dhcp
                       - isis
+                      - ospf
+                      - ldp
                       - bgp
                       - tcp
+                      - lag
+                      - dpdk
+                      - packet
+                      - http
+                      - timer
+                      - timer-detail
                 pcap_capture:
                   description: allows to write a PCAP file
                   type: boolean
