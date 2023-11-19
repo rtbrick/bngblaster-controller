@@ -10,6 +10,8 @@ a REST API to start and stop multiple test instances. It exposes the
 BNG Blaster [JSON RPC API](https://rtbrick.github.io/bngblaster/api/index.html)
 as REST API and provides endpoints to download logs and reports. 
 
+![BNG Blaster Controller](docs/controller.png "BNG Blaster Controller")
+
 ## Usage
 
 The controller comes with good defaults, just starting the controller will give you an instance that:
@@ -47,7 +49,7 @@ See the LICENSE file for more details.
 
 ## Copyright
 
-Copyright (C) 2020-2022, RtBrick, Inc.
+Copyright (C) 2020-2023, RtBrick, Inc.
 
 ## Contact
 
