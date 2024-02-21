@@ -2,6 +2,7 @@ package controller
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -288,10 +289,13 @@ func (r *DefaultRepository) Command(name string, command SocketCommand) ([]byte,
 		count, err := c.Read(buf)
 		received = append(received, buf[:count]...)
 		if err != nil {
-			if err != io.EOF {
-				return nil, err
+			if errors.Is(err, syscall.ECONNRESET) {
+				continue
 			}
-			break
+			if err == io.EOF {
+				break
+			}
+			return nil, err
 		}
 	}
 
