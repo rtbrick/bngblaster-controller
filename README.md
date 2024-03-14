@@ -49,7 +49,7 @@ See the LICENSE file for more details.
 
 ## Copyright
 
-Copyright (C) 2020-2023, RtBrick, Inc.
+Copyright (C) 2020-2024, RtBrick, Inc.
 
 ## Contact
 
