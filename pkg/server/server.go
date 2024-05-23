@@ -72,6 +72,7 @@ func (s *Server) routes() {
 			EnableOpenMetrics: true,
 		},
 	))
+	s.router.Path("/api/v1/instances").Methods(http.MethodGet).Handler(s.instances())
 	s.router.
 		Path(
 			fmt.Sprintf("%s/{file_name:%s|%s|%s|%s|%s|%s|%s}",
@@ -99,6 +100,15 @@ func (s *Server) fileServing(directory string) http.HandlerFunc {
 		instance := cleanPathVariable(instanceVariable)
 		file := mux.Vars(r)["file_name"]
 		http.ServeFile(w, r, path.Join(directory, instance, file))
+	}
+}
+
+func (s *Server) instances() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		instances := s.repository.Instances()
+		w.Header().Set(contentType, applicationJSON)
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(instances)
 	}
 }
 

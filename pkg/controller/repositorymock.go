@@ -271,6 +271,11 @@ func (mock *RepositoryMock) DeleteCalls() []struct {
 	return calls
 }
 
+// Exists calls InstancesFunc.
+func (mock *RepositoryMock) Instances() []string {
+	return []string{"test1", "test2"}
+}
+
 // Exists calls ExistsFunc.
 func (mock *RepositoryMock) Exists(name string) bool {
 	if mock.ExistsFunc == nil {
