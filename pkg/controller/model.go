@@ -6,6 +6,8 @@ package controller
 type Repository interface {
 	// ConfigFolder returns the config folder of this controller.
 	ConfigFolder() string
+	// AllowUpload returns true if file upload is allowed.
+	AllowUpload() bool
 	// Instances returns a list of all bngblaster instances.
 	Instances() []string
 	// Create a bngblaster instance on the file system.
