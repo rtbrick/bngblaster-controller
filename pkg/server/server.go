@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -85,6 +87,7 @@ func (s *Server) routes() {
 				controller.RunStdErr,
 				controller.RunStdOut)).
 		Methods(http.MethodGet).Handler(s.fileServing(s.repository.ConfigFolder()))
+
 	s.router.Path(instanceURL).Methods(http.MethodGet).Handler(s.status())
 	s.router.Path(instanceURL).Methods(http.MethodPut).Handler(s.create())
 	s.router.Path(instanceURL).Methods(http.MethodDelete).Handler(s.delete())
@@ -92,6 +95,7 @@ func (s *Server) routes() {
 	s.router.Path(instanceURL + "/_stop").Methods(http.MethodPost).Handler(s.stop())
 	s.router.Path(instanceURL + "/_kill").Methods(http.MethodPost).Handler(s.kill())
 	s.router.Path(instanceURL + "/_command").Methods(http.MethodPost).Handler(s.command())
+	s.router.Path(instanceURL + "/_upload").Methods(http.MethodPost).Handler(s.uploadFile())
 }
 
 func (s *Server) fileServing(directory string) http.HandlerFunc {
@@ -270,6 +274,52 @@ func (s *Server) command() http.HandlerFunc {
 		w.Header().Set(contentType, applicationJSON)
 		w.WriteHeader(status)
 		_, _ = w.Write(result)
+	}
+}
+
+func (s *Server) uploadFile() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		instanceVariable := mux.Vars(r)[instanceNameParameter]
+		instance := cleanPathVariable(instanceVariable)
+		if !s.repository.Exists(instance) {
+			http.Error(w, "instance not found", http.StatusNotFound)
+			return
+		}
+
+		if !s.repository.AllowUpload() {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+
+		err := r.ParseMultipartForm(1000 << 20) // Max upload size set to 1000 MB
+		if err != nil {
+			http.Error(w, "error parsing multipart form", http.StatusBadRequest)
+			return
+		}
+
+		file, handler, err := r.FormFile("file")
+		if err != nil {
+			http.Error(w, "error retrieving file", http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+
+		filePath := filepath.Join(s.repository.ConfigFolder(), instance, handler.Filename)
+
+		destFile, err := os.Create(filePath)
+		if err != nil {
+			http.Error(w, "failed to create file", http.StatusInternalServerError)
+			return
+		}
+		defer destFile.Close()
+
+		_, err = io.Copy(destFile, file)
+		if err != nil {
+			http.Error(w, "failed to save file", http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
 	}
 }
 
