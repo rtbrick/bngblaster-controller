@@ -37,7 +37,10 @@ paths:
           content:
             application/json:
               schema:
-                type: list
+                type: array
+                items:
+                  type: string
+                example: ["sample"]
   /api/v1/instances/{instance_name}:
     get:
       summary: Status information of an instance.
