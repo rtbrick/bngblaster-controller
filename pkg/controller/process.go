@@ -2,7 +2,6 @@ package controller
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"strings"
@@ -41,7 +40,7 @@ func RunCommand(pidFile string, stdFile string, errFile string, args ...string) 
 		return nil, err
 	}
 	pid := cmd.Process.Pid
-	_ = ioutil.WriteFile(pidFile, []byte(fmt.Sprintf("%d", pid)), permission)
+	_ = os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", pid)), permission)
 
 	done := make(chan bool)
 	go func() {

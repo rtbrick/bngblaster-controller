@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"path"
@@ -86,7 +85,7 @@ func (r *DefaultRepository) Create(name string, config []byte) error {
 	}
 
 	file := path.Join(folder, ConfigFilename)
-	if err := ioutil.WriteFile(file, config, permission); err != nil {
+	if err := os.WriteFile(file, config, permission); err != nil {
 		return err
 	}
 	if err := r.cleanupRunFiles(name); err != nil {
@@ -131,12 +130,12 @@ func (r *DefaultRepository) cleanupRunFiles(name string) error {
 func (r *DefaultRepository) Instances() []string {
 	instances := []string{}
 	entries, err := os.ReadDir(r.configFolder)
-    if err != nil {
-        return instances // Return the empty slice if there's an error.
-    }
+	if err != nil {
+		return instances // Return the empty slice if there's an error.
+	}
 	for _, entry := range entries {
 		if entry.IsDir() {
-			instances = append(instances, entry.Name()) 
+			instances = append(instances, entry.Name())
 		}
 	}
 	return instances
@@ -159,7 +158,7 @@ func (r *DefaultRepository) Running(name string) bool {
 		return false
 	}
 	// Read in the pid file as a slice of bytes.
-	if piddata, err := ioutil.ReadFile(file); err == nil {
+	if piddata, err := os.ReadFile(file); err == nil {
 		// Convert the file contents to an integer.
 		if pid, err := strconv.Atoi(string(piddata)); err == nil {
 			// Look for the pid in the process list.
@@ -193,7 +192,7 @@ func (r *DefaultRepository) Start(name string, runningConfig RunningConfig) erro
 	if err != nil {
 		return err
 	}
-	if err := ioutil.WriteFile(file, config, permission); err != nil {
+	if err := os.WriteFile(file, config, permission); err != nil {
 		return err
 	}
 	params := r.commandlineParameters(name, runningConfig)
@@ -219,7 +218,7 @@ func (r *DefaultRepository) sendSignal(name string, signal os.Signal) {
 	folder := path.Join(r.configFolder, name)
 	file := path.Join(folder, runPidFilename)
 	// Read in the pid file as a slice of bytes.
-	if piddata, err := ioutil.ReadFile(file); err == nil {
+	if piddata, err := os.ReadFile(file); err == nil {
 		// Convert the file contents to an integer.
 		if pid, err := strconv.Atoi(string(piddata)); err == nil {
 			// Look for the pid in the process list.
@@ -268,7 +267,7 @@ func (r *DefaultRepository) commandlineParameters(name string, runningConfig Run
 func (r *DefaultRepository) config(name string) ([]byte, error) {
 	folder := path.Join(r.configFolder, name)
 	file := path.Join(folder, ConfigFilename)
-	return ioutil.ReadFile(file)
+	return os.ReadFile(file)
 }
 
 // Command implements Repository.

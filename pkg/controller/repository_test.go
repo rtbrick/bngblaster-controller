@@ -3,7 +3,6 @@ package controller
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"os/signal"
@@ -20,7 +19,7 @@ import (
 func writePidFileForRunning(t *testing.T, rootFolder string) {
 	t.Helper()
 	pidFile := path.Join(rootFolder, "running", runPidFilename)
-	err := ioutil.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), permission)
+	err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), permission)
 	require.NoError(t, err)
 }
 
@@ -32,7 +31,7 @@ func cleanupPidFileForRunning(t *testing.T, rootFolder string) {
 
 func mustRead(t *testing.T, filename string) []byte {
 	t.Helper()
-	data, err := ioutil.ReadFile(filename)
+	data, err := os.ReadFile(filename)
 	require.NoError(t, err)
 	return data
 }
@@ -261,7 +260,7 @@ func TestDefaultRepository_Delete(t *testing.T) {
 
 	folder := path.Join(rootFolder, "exists_copy")
 	_ = os.Mkdir(folder, permission)
-	_ = ioutil.WriteFile(path.Join(folder, "config.json"), []byte("{}"), permission)
+	_ = os.WriteFile(path.Join(folder, "config.json"), []byte("{}"), permission)
 	if _, err := os.Stat(folder); os.IsNotExist(err) {
 		t.Fatalf("%s does not exist", folder)
 	}

@@ -3,7 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"path"
 	"strings"
@@ -116,7 +116,7 @@ func (s *Server) create() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		instanceVariable := mux.Vars(r)[instanceNameParameter]
 		instance := cleanPathVariable(instanceVariable)
-		content, err := ioutil.ReadAll(r.Body)
+		content, err := io.ReadAll(r.Body)
 		if err != nil || len(content) == 0 {
 			http.Error(w, "body not readable", http.StatusBadRequest)
 			return

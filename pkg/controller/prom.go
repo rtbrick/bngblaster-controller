@@ -3,7 +3,6 @@ package controller
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"strconv"
@@ -508,7 +507,7 @@ func (p *Prom) Collect(ch chan<- prometheus.Metric) {
 
 	var wg sync.WaitGroup
 
-	instances, _ := ioutil.ReadDir(p.repository.ConfigFolder())
+	instances, _ := os.ReadDir(p.repository.ConfigFolder())
 	for _, instance := range instances {
 		if instance.IsDir() {
 			total++

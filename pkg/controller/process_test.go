@@ -2,7 +2,6 @@ package controller
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"testing"
@@ -98,7 +97,7 @@ func TestApplication_ExecCommand(t *testing.T) {
 			if done != nil {
 				<-done
 			}
-			got, err := ioutil.ReadFile(stdoutFile)
+			got, err := os.ReadFile(stdoutFile)
 			require.NoError(t, err)
 			want := tt.expOut
 			require.Equal(t, want, got)
