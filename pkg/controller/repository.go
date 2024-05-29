@@ -127,6 +127,21 @@ func (r *DefaultRepository) cleanupRunFiles(name string) error {
 	return nil
 }
 
+// Instances implements Repository.
+func (r *DefaultRepository) Instances() []string {
+	instances := []string{}
+	entries, err := os.ReadDir(r.configFolder)
+    if err != nil {
+        return instances // Return the empty slice if there's an error.
+    }
+	for _, entry := range entries {
+		if entry.IsDir() {
+			instances = append(instances, entry.Name()) 
+		}
+	}
+	return instances
+}
+
 // Exists implements Repository.
 func (r *DefaultRepository) Exists(name string) bool {
 	folder := path.Join(r.configFolder, name)

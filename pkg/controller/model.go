@@ -6,6 +6,8 @@ package controller
 type Repository interface {
 	// ConfigFolder returns the config folder of this controller.
 	ConfigFolder() string
+	// Instances returns a list of all bngblaster instances.
+	Instances() []string
 	// Create a bngblaster instance on the file system.
 	// Does not start an instance.
 	Create(name string, config []byte) error
