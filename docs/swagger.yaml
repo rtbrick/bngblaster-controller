@@ -9,7 +9,7 @@ info:
   contact:
     email: bngblaster@rtbrick.com
     url: https://github.com/rtbrick/bngblaster-controller/issues
-  version: 1.0.0
+  version: 0.1.1
 servers:
   - url: 'http://localhost:8001'
 
