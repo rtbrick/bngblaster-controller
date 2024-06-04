@@ -16,3 +16,10 @@ func WithExecutable(executable string) DefaultRepositoryOption {
 		r.executable = executable
 	}
 }
+
+// WithUpload is the option to allow file upload.
+func WithUpload(upload bool) DefaultRepositoryOption {
+	return func(r *DefaultRepository) {
+		r.allow_upload = upload
+	}
+}

@@ -19,6 +19,7 @@ func main() {
 	addr := flag.String("addr", ":8001", "HTTP network address")
 	directory := flag.String("d", controller.DefaultConfigFolder, "config folder")
 	executable := flag.String("e", controller.DefaultExecutable, "bngblaster executable")
+	upload := flag.Bool("upload", false, "allow file upload")
 
 	// logging
 	debug := flag.Bool("debug", false, "turn on debug logging")
@@ -32,7 +33,8 @@ func main() {
 
 	repo := controller.NewDefaultRepository(
 		controller.WithConfigFolder(*directory),
-		controller.WithExecutable(*executable))
+		controller.WithExecutable(*executable),
+		controller.WithUpload(*upload))
 	srv := server.NewServer(repo)
 	serve(*addr, srv)
 }

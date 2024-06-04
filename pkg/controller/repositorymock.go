@@ -7,62 +7,59 @@ import (
 	"sync"
 )
 
-var (
-	lockRepositoryMockCommand      sync.RWMutex
-	lockRepositoryMockConfigFolder sync.RWMutex
-	lockRepositoryMockCreate       sync.RWMutex
-	lockRepositoryMockDelete       sync.RWMutex
-	lockRepositoryMockExists       sync.RWMutex
-	lockRepositoryMockKill         sync.RWMutex
-	lockRepositoryMockRunning      sync.RWMutex
-	lockRepositoryMockStart        sync.RWMutex
-	lockRepositoryMockStop         sync.RWMutex
-)
-
 // Ensure, that RepositoryMock does implement Repository.
 // If this is not the case, regenerate this file with moq.
 var _ Repository = &RepositoryMock{}
 
 // RepositoryMock is a mock implementation of Repository.
 //
-//     func TestSomethingThatUsesRepository(t *testing.T) {
+//	func TestSomethingThatUsesRepository(t *testing.T) {
 //
-//         // make and configure a mocked Repository
-//         mockedRepository := &RepositoryMock{
-//             CommandFunc: func(name string, command SocketCommand) ([]byte, error) {
-// 	               panic("mock out the Command method")
-//             },
-//             ConfigFolderFunc: func() string {
-// 	               panic("mock out the ConfigFolder method")
-//             },
-//             CreateFunc: func(name string, config []byte) error {
-// 	               panic("mock out the Create method")
-//             },
-//             DeleteFunc: func(name string) error {
-// 	               panic("mock out the Delete method")
-//             },
-//             ExistsFunc: func(name string) bool {
-// 	               panic("mock out the Exists method")
-//             },
-//             KillFunc: func(name string)  {
-// 	               panic("mock out the Kill method")
-//             },
-//             RunningFunc: func(name string) bool {
-// 	               panic("mock out the Running method")
-//             },
-//             StartFunc: func(name string, command RunningConfig) error {
-// 	               panic("mock out the Start method")
-//             },
-//             StopFunc: func(name string)  {
-// 	               panic("mock out the Stop method")
-//             },
-//         }
+//		// make and configure a mocked Repository
+//		mockedRepository := &RepositoryMock{
+//			AllowUploadFunc: func() bool {
+//				panic("mock out the AllowUpload method")
+//			},
+//			CommandFunc: func(name string, command SocketCommand) ([]byte, error) {
+//				panic("mock out the Command method")
+//			},
+//			ConfigFolderFunc: func() string {
+//				panic("mock out the ConfigFolder method")
+//			},
+//			CreateFunc: func(name string, config []byte) error {
+//				panic("mock out the Create method")
+//			},
+//			DeleteFunc: func(name string) error {
+//				panic("mock out the Delete method")
+//			},
+//			ExistsFunc: func(name string) bool {
+//				panic("mock out the Exists method")
+//			},
+//			InstancesFunc: func() []string {
+//				panic("mock out the Instances method")
+//			},
+//			KillFunc: func(name string)  {
+//				panic("mock out the Kill method")
+//			},
+//			RunningFunc: func(name string) bool {
+//				panic("mock out the Running method")
+//			},
+//			StartFunc: func(name string, runningConfig RunningConfig) error {
+//				panic("mock out the Start method")
+//			},
+//			StopFunc: func(name string)  {
+//				panic("mock out the Stop method")
+//			},
+//		}
 //
-//         // use mockedRepository in code that requires Repository
-//         // and then make assertions.
+//		// use mockedRepository in code that requires Repository
+//		// and then make assertions.
 //
-//     }
+//	}
 type RepositoryMock struct {
+	// AllowUploadFunc mocks the AllowUpload method.
+	AllowUploadFunc func() bool
+
 	// CommandFunc mocks the Command method.
 	CommandFunc func(name string, command SocketCommand) ([]byte, error)
 
@@ -78,6 +75,9 @@ type RepositoryMock struct {
 	// ExistsFunc mocks the Exists method.
 	ExistsFunc func(name string) bool
 
+	// InstancesFunc mocks the Instances method.
+	InstancesFunc func() []string
+
 	// KillFunc mocks the Kill method.
 	KillFunc func(name string)
 
@@ -92,6 +92,9 @@ type RepositoryMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
+		// AllowUpload holds details about calls to the AllowUpload method.
+		AllowUpload []struct {
+		}
 		// Command holds details about calls to the Command method.
 		Command []struct {
 			// Name is the name argument value.
@@ -119,6 +122,9 @@ type RepositoryMock struct {
 			// Name is the name argument value.
 			Name string
 		}
+		// Instances holds details about calls to the Instances method.
+		Instances []struct {
+		}
 		// Kill holds details about calls to the Kill method.
 		Kill []struct {
 			// Name is the name argument value.
@@ -133,7 +139,7 @@ type RepositoryMock struct {
 		Start []struct {
 			// Name is the name argument value.
 			Name string
-			// RunningConfig is the command argument value.
+			// RunningConfig is the runningConfig argument value.
 			RunningConfig RunningConfig
 		}
 		// Stop holds details about calls to the Stop method.
@@ -142,6 +148,44 @@ type RepositoryMock struct {
 			Name string
 		}
 	}
+	lockAllowUpload  sync.RWMutex
+	lockCommand      sync.RWMutex
+	lockConfigFolder sync.RWMutex
+	lockCreate       sync.RWMutex
+	lockDelete       sync.RWMutex
+	lockExists       sync.RWMutex
+	lockInstances    sync.RWMutex
+	lockKill         sync.RWMutex
+	lockRunning      sync.RWMutex
+	lockStart        sync.RWMutex
+	lockStop         sync.RWMutex
+}
+
+// AllowUpload calls AllowUploadFunc.
+func (mock *RepositoryMock) AllowUpload() bool {
+	if mock.AllowUploadFunc == nil {
+		panic("RepositoryMock.AllowUploadFunc: method is nil but Repository.AllowUpload was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockAllowUpload.Lock()
+	mock.calls.AllowUpload = append(mock.calls.AllowUpload, callInfo)
+	mock.lockAllowUpload.Unlock()
+	return mock.AllowUploadFunc()
+}
+
+// AllowUploadCalls gets all the calls that were made to AllowUpload.
+// Check the length with:
+//
+//	len(mockedRepository.AllowUploadCalls())
+func (mock *RepositoryMock) AllowUploadCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockAllowUpload.RLock()
+	calls = mock.calls.AllowUpload
+	mock.lockAllowUpload.RUnlock()
+	return calls
 }
 
 // Command calls CommandFunc.
@@ -156,15 +200,16 @@ func (mock *RepositoryMock) Command(name string, command SocketCommand) ([]byte,
 		Name:    name,
 		Command: command,
 	}
-	lockRepositoryMockCommand.Lock()
+	mock.lockCommand.Lock()
 	mock.calls.Command = append(mock.calls.Command, callInfo)
-	lockRepositoryMockCommand.Unlock()
+	mock.lockCommand.Unlock()
 	return mock.CommandFunc(name, command)
 }
 
 // CommandCalls gets all the calls that were made to Command.
 // Check the length with:
-//     len(mockedRepository.CommandCalls())
+//
+//	len(mockedRepository.CommandCalls())
 func (mock *RepositoryMock) CommandCalls() []struct {
 	Name    string
 	Command SocketCommand
@@ -173,9 +218,9 @@ func (mock *RepositoryMock) CommandCalls() []struct {
 		Name    string
 		Command SocketCommand
 	}
-	lockRepositoryMockCommand.RLock()
+	mock.lockCommand.RLock()
 	calls = mock.calls.Command
-	lockRepositoryMockCommand.RUnlock()
+	mock.lockCommand.RUnlock()
 	return calls
 }
 
@@ -186,22 +231,23 @@ func (mock *RepositoryMock) ConfigFolder() string {
 	}
 	callInfo := struct {
 	}{}
-	lockRepositoryMockConfigFolder.Lock()
+	mock.lockConfigFolder.Lock()
 	mock.calls.ConfigFolder = append(mock.calls.ConfigFolder, callInfo)
-	lockRepositoryMockConfigFolder.Unlock()
+	mock.lockConfigFolder.Unlock()
 	return mock.ConfigFolderFunc()
 }
 
 // ConfigFolderCalls gets all the calls that were made to ConfigFolder.
 // Check the length with:
-//     len(mockedRepository.ConfigFolderCalls())
+//
+//	len(mockedRepository.ConfigFolderCalls())
 func (mock *RepositoryMock) ConfigFolderCalls() []struct {
 } {
 	var calls []struct {
 	}
-	lockRepositoryMockConfigFolder.RLock()
+	mock.lockConfigFolder.RLock()
 	calls = mock.calls.ConfigFolder
-	lockRepositoryMockConfigFolder.RUnlock()
+	mock.lockConfigFolder.RUnlock()
 	return calls
 }
 
@@ -217,15 +263,16 @@ func (mock *RepositoryMock) Create(name string, config []byte) error {
 		Name:   name,
 		Config: config,
 	}
-	lockRepositoryMockCreate.Lock()
+	mock.lockCreate.Lock()
 	mock.calls.Create = append(mock.calls.Create, callInfo)
-	lockRepositoryMockCreate.Unlock()
+	mock.lockCreate.Unlock()
 	return mock.CreateFunc(name, config)
 }
 
 // CreateCalls gets all the calls that were made to Create.
 // Check the length with:
-//     len(mockedRepository.CreateCalls())
+//
+//	len(mockedRepository.CreateCalls())
 func (mock *RepositoryMock) CreateCalls() []struct {
 	Name   string
 	Config []byte
@@ -234,9 +281,9 @@ func (mock *RepositoryMock) CreateCalls() []struct {
 		Name   string
 		Config []byte
 	}
-	lockRepositoryMockCreate.RLock()
+	mock.lockCreate.RLock()
 	calls = mock.calls.Create
-	lockRepositoryMockCreate.RUnlock()
+	mock.lockCreate.RUnlock()
 	return calls
 }
 
@@ -250,30 +297,26 @@ func (mock *RepositoryMock) Delete(name string) error {
 	}{
 		Name: name,
 	}
-	lockRepositoryMockDelete.Lock()
+	mock.lockDelete.Lock()
 	mock.calls.Delete = append(mock.calls.Delete, callInfo)
-	lockRepositoryMockDelete.Unlock()
+	mock.lockDelete.Unlock()
 	return mock.DeleteFunc(name)
 }
 
 // DeleteCalls gets all the calls that were made to Delete.
 // Check the length with:
-//     len(mockedRepository.DeleteCalls())
+//
+//	len(mockedRepository.DeleteCalls())
 func (mock *RepositoryMock) DeleteCalls() []struct {
 	Name string
 } {
 	var calls []struct {
 		Name string
 	}
-	lockRepositoryMockDelete.RLock()
+	mock.lockDelete.RLock()
 	calls = mock.calls.Delete
-	lockRepositoryMockDelete.RUnlock()
+	mock.lockDelete.RUnlock()
 	return calls
-}
-
-// Exists calls InstancesFunc.
-func (mock *RepositoryMock) Instances() []string {
-	return []string{"test1", "test2"}
 }
 
 // Exists calls ExistsFunc.
@@ -286,24 +329,52 @@ func (mock *RepositoryMock) Exists(name string) bool {
 	}{
 		Name: name,
 	}
-	lockRepositoryMockExists.Lock()
+	mock.lockExists.Lock()
 	mock.calls.Exists = append(mock.calls.Exists, callInfo)
-	lockRepositoryMockExists.Unlock()
+	mock.lockExists.Unlock()
 	return mock.ExistsFunc(name)
 }
 
 // ExistsCalls gets all the calls that were made to Exists.
 // Check the length with:
-//     len(mockedRepository.ExistsCalls())
+//
+//	len(mockedRepository.ExistsCalls())
 func (mock *RepositoryMock) ExistsCalls() []struct {
 	Name string
 } {
 	var calls []struct {
 		Name string
 	}
-	lockRepositoryMockExists.RLock()
+	mock.lockExists.RLock()
 	calls = mock.calls.Exists
-	lockRepositoryMockExists.RUnlock()
+	mock.lockExists.RUnlock()
+	return calls
+}
+
+// Instances calls InstancesFunc.
+func (mock *RepositoryMock) Instances() []string {
+	if mock.InstancesFunc == nil {
+		panic("RepositoryMock.InstancesFunc: method is nil but Repository.Instances was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockInstances.Lock()
+	mock.calls.Instances = append(mock.calls.Instances, callInfo)
+	mock.lockInstances.Unlock()
+	return mock.InstancesFunc()
+}
+
+// InstancesCalls gets all the calls that were made to Instances.
+// Check the length with:
+//
+//	len(mockedRepository.InstancesCalls())
+func (mock *RepositoryMock) InstancesCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockInstances.RLock()
+	calls = mock.calls.Instances
+	mock.lockInstances.RUnlock()
 	return calls
 }
 
@@ -317,24 +388,25 @@ func (mock *RepositoryMock) Kill(name string) {
 	}{
 		Name: name,
 	}
-	lockRepositoryMockKill.Lock()
+	mock.lockKill.Lock()
 	mock.calls.Kill = append(mock.calls.Kill, callInfo)
-	lockRepositoryMockKill.Unlock()
+	mock.lockKill.Unlock()
 	mock.KillFunc(name)
 }
 
 // KillCalls gets all the calls that were made to Kill.
 // Check the length with:
-//     len(mockedRepository.KillCalls())
+//
+//	len(mockedRepository.KillCalls())
 func (mock *RepositoryMock) KillCalls() []struct {
 	Name string
 } {
 	var calls []struct {
 		Name string
 	}
-	lockRepositoryMockKill.RLock()
+	mock.lockKill.RLock()
 	calls = mock.calls.Kill
-	lockRepositoryMockKill.RUnlock()
+	mock.lockKill.RUnlock()
 	return calls
 }
 
@@ -348,24 +420,25 @@ func (mock *RepositoryMock) Running(name string) bool {
 	}{
 		Name: name,
 	}
-	lockRepositoryMockRunning.Lock()
+	mock.lockRunning.Lock()
 	mock.calls.Running = append(mock.calls.Running, callInfo)
-	lockRepositoryMockRunning.Unlock()
+	mock.lockRunning.Unlock()
 	return mock.RunningFunc(name)
 }
 
 // RunningCalls gets all the calls that were made to Running.
 // Check the length with:
-//     len(mockedRepository.RunningCalls())
+//
+//	len(mockedRepository.RunningCalls())
 func (mock *RepositoryMock) RunningCalls() []struct {
 	Name string
 } {
 	var calls []struct {
 		Name string
 	}
-	lockRepositoryMockRunning.RLock()
+	mock.lockRunning.RLock()
 	calls = mock.calls.Running
-	lockRepositoryMockRunning.RUnlock()
+	mock.lockRunning.RUnlock()
 	return calls
 }
 
@@ -381,15 +454,16 @@ func (mock *RepositoryMock) Start(name string, runningConfig RunningConfig) erro
 		Name:          name,
 		RunningConfig: runningConfig,
 	}
-	lockRepositoryMockStart.Lock()
+	mock.lockStart.Lock()
 	mock.calls.Start = append(mock.calls.Start, callInfo)
-	lockRepositoryMockStart.Unlock()
+	mock.lockStart.Unlock()
 	return mock.StartFunc(name, runningConfig)
 }
 
 // StartCalls gets all the calls that were made to Start.
 // Check the length with:
-//     len(mockedRepository.StartCalls())
+//
+//	len(mockedRepository.StartCalls())
 func (mock *RepositoryMock) StartCalls() []struct {
 	Name          string
 	RunningConfig RunningConfig
@@ -398,9 +472,9 @@ func (mock *RepositoryMock) StartCalls() []struct {
 		Name          string
 		RunningConfig RunningConfig
 	}
-	lockRepositoryMockStart.RLock()
+	mock.lockStart.RLock()
 	calls = mock.calls.Start
-	lockRepositoryMockStart.RUnlock()
+	mock.lockStart.RUnlock()
 	return calls
 }
 
@@ -414,23 +488,24 @@ func (mock *RepositoryMock) Stop(name string) {
 	}{
 		Name: name,
 	}
-	lockRepositoryMockStop.Lock()
+	mock.lockStop.Lock()
 	mock.calls.Stop = append(mock.calls.Stop, callInfo)
-	lockRepositoryMockStop.Unlock()
+	mock.lockStop.Unlock()
 	mock.StopFunc(name)
 }
 
 // StopCalls gets all the calls that were made to Stop.
 // Check the length with:
-//     len(mockedRepository.StopCalls())
+//
+//	len(mockedRepository.StopCalls())
 func (mock *RepositoryMock) StopCalls() []struct {
 	Name string
 } {
 	var calls []struct {
 		Name string
 	}
-	lockRepositoryMockStop.RLock()
+	mock.lockStop.RLock()
 	calls = mock.calls.Stop
-	lockRepositoryMockStop.RUnlock()
+	mock.lockStop.RUnlock()
 	return calls
 }

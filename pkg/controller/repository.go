@@ -55,6 +55,7 @@ var _ Repository = &DefaultRepository{}
 type DefaultRepository struct {
 	executable   string
 	configFolder string
+	allow_upload bool
 }
 
 // NewDefaultRepository is a constructor function for Repository.
@@ -62,6 +63,7 @@ func NewDefaultRepository(opts ...DefaultRepositoryOption) *DefaultRepository {
 	r := &DefaultRepository{
 		executable:   DefaultExecutable,
 		configFolder: DefaultConfigFolder,
+		allow_upload: false,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -72,6 +74,11 @@ func NewDefaultRepository(opts ...DefaultRepositoryOption) *DefaultRepository {
 // ConfigFolder implements Repository.
 func (r DefaultRepository) ConfigFolder() string {
 	return r.configFolder
+}
+
+// AllowUpload implements Repository.
+func (r DefaultRepository) AllowUpload() bool {
+	return r.allow_upload
 }
 
 // Create implements Repository.
