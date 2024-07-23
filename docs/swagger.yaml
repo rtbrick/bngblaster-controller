@@ -9,7 +9,7 @@ info:
   contact:
     email: bngblaster@rtbrick.com
     url: https://github.com/rtbrick/bngblaster-controller/issues
-  version: 0.1.1
+  version: 0.1.2
 servers:
   - url: 'http://localhost:8001'
 
@@ -26,6 +26,55 @@ paths:
             text/plain:
               schema:
                 type: string
+  /api/v1/version:
+    get:
+      summary: BNG Blaster and Controller versions.
+      description: >-
+        Get versions of BNG Blaster and BNG Blaster Controller.
+      responses:
+        200:
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  {
+                    "controller-version": "development",
+                    "blaster-version": "DEV",
+                    "blaster-compiler": "GNU (11.4.0)",
+                    "blaster-io-modes": [
+                      "packet_mmap_raw (default)",
+                      "packet_mmap",
+                      "raw"
+                    ]
+                  }    
+  /api/v1/interfaces:
+    get:
+      summary: List network interfaces.
+      description: >-
+        Get list of all host network interfaces.
+      responses:
+        200:
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                example: [ 
+                  { 
+                    "name": "eth0", 
+                    "mtu": 1500,
+                    "flags": [
+                      "up",
+                      "broadcast",
+                      "multicast"
+                    ],
+                    "mac": "aa:bb:cc:dd:ee:ff"
+                  }
+                ]
   /api/v1/instances:
     get:
       summary: List of all instances.
