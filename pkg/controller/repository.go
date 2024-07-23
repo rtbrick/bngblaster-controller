@@ -121,6 +121,7 @@ func (r *DefaultRepository) cleanupRunFiles(name string) error {
 	files := []string{
 		path.Join(folder, runPidFilename),
 		path.Join(folder, RunConfigFilename),
+		path.Join(folder, RunLogFilename),
 		path.Join(folder, RunReportFilename),
 		path.Join(folder, RunPcapFilename),
 		path.Join(folder, RunSockFilename),
