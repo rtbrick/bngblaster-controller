@@ -1,11 +1,14 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -17,6 +20,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+var VERSION = "development"
 
 const (
 	instanceNameParameter = "instance_name"
@@ -37,6 +42,22 @@ type Server struct {
 	router     *mux.Router
 	prom       *controller.Prom
 	repository controller.Repository
+}
+
+// InterfaceInfo holds the information about a network interface.
+type InterfaceInfo struct {
+	Name  string   `json:"name"`
+	MTU   int      `json:"mtu"`
+	Flags []string `json:"flags"`
+	Mac   string   `json:"mac"`
+}
+
+// VersionInfo holds controller version and the parsed output of the `bngblaster -v` command.
+type VersionInfo struct {
+	Version         string   `json:"controller-version"`
+	BlasterVersion  string   `json:"blaster-version"`
+	BlasterCompiler string   `json:"blaster-compiler"`
+	BlasterIOModes  []string `json:"blaster-io-modes"`
 }
 
 // NewServer is a constructor function for Server.
@@ -74,6 +95,8 @@ func (s *Server) routes() {
 			EnableOpenMetrics: true,
 		},
 	))
+	s.router.Path("/api/v1/version").Methods(http.MethodGet).Handler(s.version())
+	s.router.Path("/api/v1/interfaces").Methods(http.MethodGet).Handler(s.interfaces())
 	s.router.Path("/api/v1/instances").Methods(http.MethodGet).Handler(s.instances())
 	s.router.
 		Path(
@@ -113,6 +136,100 @@ func (s *Server) instances() http.HandlerFunc {
 		w.Header().Set(contentType, applicationJSON)
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(instances)
+	}
+}
+
+// getReadableInterfaceFlags converts interface flags to a readable format.
+func getReadableInterfaceFlags(flags net.Flags) []string {
+	var readableFlags []string
+	flagMap := map[net.Flags]string{
+		net.FlagUp:           "up",
+		net.FlagBroadcast:    "broadcast",
+		net.FlagLoopback:     "loopback",
+		net.FlagPointToPoint: "point-to-point",
+		net.FlagMulticast:    "multicast",
+	}
+
+	for flag, desc := range flagMap {
+		if flags&flag != 0 {
+			readableFlags = append(readableFlags, desc)
+		}
+	}
+
+	return readableFlags
+}
+
+// getInterfaces returns a list of all network interfaces.
+func getInterfaces() []InterfaceInfo {
+	var interfacesInfo []InterfaceInfo
+
+	// Get the list of network interfaces.
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return interfacesInfo // Return the empty slice if there's an error.
+	}
+
+	// Populate InterfaceInfo for each interface.
+	for _, iface := range interfaces {
+		info := InterfaceInfo{
+			Name:  iface.Name,
+			MTU:   iface.MTU,
+			Flags: getReadableInterfaceFlags(iface.Flags),
+			Mac:   iface.HardwareAddr.String(),
+		}
+		interfacesInfo = append(interfacesInfo, info)
+	}
+
+	return interfacesInfo
+}
+
+func (s *Server) interfaces() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		interfaces := getInterfaces()
+		w.Header().Set(contentType, applicationJSON)
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(interfaces)
+	}
+}
+
+// getVersion returns controller and bngblaster version informations.
+func getVersion(bngblaster string) VersionInfo {
+
+	versionInfo := VersionInfo{
+		Version:         VERSION,
+		BlasterVersion:  "NA",
+		BlasterCompiler: "NA",
+	}
+
+	cmd := exec.Command(bngblaster, "-v")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+
+	if err := cmd.Run(); err != nil {
+		return versionInfo
+	}
+
+	lines := strings.Split(out.String(), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "Version:") {
+			versionInfo.BlasterVersion = strings.TrimSpace(strings.TrimPrefix(line, "Version:"))
+		} else if strings.HasPrefix(line, "Compiler:") {
+			versionInfo.BlasterCompiler = strings.TrimSpace(strings.TrimPrefix(line, "Compiler:"))
+		} else if strings.HasPrefix(line, "IO Modes:") {
+			ioModes := strings.TrimSpace(strings.TrimPrefix(line, "IO Modes:"))
+			versionInfo.BlasterIOModes = strings.Split(ioModes, ", ")
+		}
+	}
+
+	return versionInfo
+}
+
+func (s *Server) version() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		version := getVersion(s.repository.Executable())
+		w.Header().Set(contentType, applicationJSON)
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(version)
 	}
 }
 

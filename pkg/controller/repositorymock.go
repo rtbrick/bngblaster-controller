@@ -32,6 +32,9 @@ var _ Repository = &RepositoryMock{}
 //			DeleteFunc: func(name string) error {
 //				panic("mock out the Delete method")
 //			},
+//			ExecutableFunc: func() string {
+//				panic("mock out the Executable method")
+//			},
 //			ExistsFunc: func(name string) bool {
 //				panic("mock out the Exists method")
 //			},
@@ -71,6 +74,9 @@ type RepositoryMock struct {
 
 	// DeleteFunc mocks the Delete method.
 	DeleteFunc func(name string) error
+
+	// ExecutableFunc mocks the Executable method.
+	ExecutableFunc func() string
 
 	// ExistsFunc mocks the Exists method.
 	ExistsFunc func(name string) bool
@@ -117,6 +123,9 @@ type RepositoryMock struct {
 			// Name is the name argument value.
 			Name string
 		}
+		// Executable holds details about calls to the Executable method.
+		Executable []struct {
+		}
 		// Exists holds details about calls to the Exists method.
 		Exists []struct {
 			// Name is the name argument value.
@@ -153,6 +162,7 @@ type RepositoryMock struct {
 	lockConfigFolder sync.RWMutex
 	lockCreate       sync.RWMutex
 	lockDelete       sync.RWMutex
+	lockExecutable   sync.RWMutex
 	lockExists       sync.RWMutex
 	lockInstances    sync.RWMutex
 	lockKill         sync.RWMutex
@@ -316,6 +326,33 @@ func (mock *RepositoryMock) DeleteCalls() []struct {
 	mock.lockDelete.RLock()
 	calls = mock.calls.Delete
 	mock.lockDelete.RUnlock()
+	return calls
+}
+
+// Executable calls ExecutableFunc.
+func (mock *RepositoryMock) Executable() string {
+	if mock.ExecutableFunc == nil {
+		panic("RepositoryMock.ExecutableFunc: method is nil but Repository.Executable was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockExecutable.Lock()
+	mock.calls.Executable = append(mock.calls.Executable, callInfo)
+	mock.lockExecutable.Unlock()
+	return mock.ExecutableFunc()
+}
+
+// ExecutableCalls gets all the calls that were made to Executable.
+// Check the length with:
+//
+//	len(mockedRepository.ExecutableCalls())
+func (mock *RepositoryMock) ExecutableCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockExecutable.RLock()
+	calls = mock.calls.Executable
+	mock.lockExecutable.RUnlock()
 	return calls
 }
 

@@ -81,6 +81,11 @@ func (r DefaultRepository) AllowUpload() bool {
 	return r.allow_upload
 }
 
+// Executable implements Repository.
+func (r DefaultRepository) Executable() string {
+	return r.executable
+}
+
 // Create implements Repository.
 func (r *DefaultRepository) Create(name string, config []byte) error {
 	if r.Running(name) {

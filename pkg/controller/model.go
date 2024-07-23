@@ -8,6 +8,8 @@ type Repository interface {
 	ConfigFolder() string
 	// AllowUpload returns true if file upload is allowed.
 	AllowUpload() bool
+	// Executable returns the bngblaster executable.
+	Executable() string
 	// Instances returns a list of all bngblaster instances.
 	Instances() []string
 	// Create a bngblaster instance on the file system.
