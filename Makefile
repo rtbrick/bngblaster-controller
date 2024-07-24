@@ -10,7 +10,7 @@ fumpt:
 	gofumpt -l -w .
 
 test:
-	go test -cover ./...
+	go test -v -cover ./...
 
 lint:
 	golangci-lint run
