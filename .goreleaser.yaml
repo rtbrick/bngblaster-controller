@@ -13,6 +13,8 @@ builds:
       - linux
     goarch:
       - amd64
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
 
 nfpms:
   - file_name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Arch }}'
