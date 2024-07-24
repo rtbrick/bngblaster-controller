@@ -1,14 +1,14 @@
 openapi: 3.0.3
 info:
-  title: RtBrick BNG Blaster Management API
+  title: RtBrick BNG Blaster Conroller API
   description: >-
-    RtBrick BNG Blaster Management API is the management API for multiple BNG Blaster instances.
+    RtBrick BNG Blaster Conroller API is the management API for multiple BNG Blaster instances.
 
     It allows to manage instances in the sense that new instances can be created, started, stopped 
     and also controlled via command socket of the BNG Blaster.
   contact:
     email: bngblaster@rtbrick.com
-    url: https://github.com/rtbrick/bngblaster-controller/issues
+    url: https://github.com/rtbrick/bngblaster-controller
   version: 0.1.2
 servers:
   - url: 'http://localhost:8001'
@@ -40,11 +40,11 @@ paths:
                 type: object
                 example:
                   {
-                    "controller-version": "development",
-                    "blaster-version": "DEV",
+                    "controller-version": "dev",
+                    "blaster-version": "0.9.5",
                     "blaster-compiler": "GNU (11.4.0)",
                     "blaster-io-modes": [
-                      "packet_mmap_raw (default)",
+                      "packet_mmap_raw",
                       "packet_mmap",
                       "raw"
                     ]
@@ -482,6 +482,37 @@ paths:
           description: ok, with the content type applicable for the specific file ending.
         404:
           description: not found, file does not exist
+  /api/v1/instances/{instance_name}/_upload:
+    post:
+      summary: Upload files.
+      description: >-
+        This API endpoint allows files to be uploaded into the test instance directory, 
+        with a limit of 4GB per file. By default, file upload is disabled and must be 
+        explicitly enabled by starting the controller with the-upload flag.
+
+
+        **Example:**
+        `curl --location --request POST 'http://<host>:<port>/api/v1/instances/<instance_name>/_upload' --form 'file=@<local-filename>'`
+      parameters:
+        - name: instance_name
+          description: instance name of the parsable
+          in: path
+          required: true
+          example: sample
+          schema:
+            type: string
+      responses:
+        200:
+          description: ok, upload success
+        400:
+          description: error retrieving file
+        403:
+          description: forbidden, controller not started with upload flag
+        413:
+          description: file to large (> 4GB)
+        500:
+          description: internal server error
+
 components:
   schemas:
     commandResponse:
