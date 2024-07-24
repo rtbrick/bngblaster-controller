@@ -15,6 +15,8 @@ import (
 	"github.com/rtbrick/bngblaster-controller/pkg/server"
 )
 
+var Version = "dev"
+
 func main() {
 	addr := flag.String("addr", ":8001", "HTTP network address")
 	directory := flag.String("d", controller.DefaultConfigFolder, "config folder")
@@ -36,6 +38,7 @@ func main() {
 		controller.WithExecutable(*executable),
 		controller.WithUpload(*upload))
 	srv := server.NewServer(repo)
+	srv.Version = Version
 	serve(*addr, srv)
 }
 

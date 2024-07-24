@@ -21,8 +21,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-var VERSION = "development"
-
 const (
 	instanceNameParameter = "instance_name"
 	errInstanceIsRunning  = "instance is running"
@@ -39,6 +37,7 @@ func cleanPathVariable(instanceVariable string) string {
 
 // Server implementation for the rest api.
 type Server struct {
+	Version    string
 	router     *mux.Router
 	prom       *controller.Prom
 	repository controller.Repository
@@ -54,15 +53,16 @@ type InterfaceInfo struct {
 
 // VersionInfo holds controller version and the parsed output of the `bngblaster -v` command.
 type VersionInfo struct {
-	Version         string   `json:"controller-version"`
-	BlasterVersion  string   `json:"blaster-version"`
-	BlasterCompiler string   `json:"blaster-compiler"`
-	BlasterIOModes  []string `json:"blaster-io-modes"`
+	Version         string   `json:"bngblasterctrl-version"`
+	BlasterVersion  string   `json:"bngblaster-version"`
+	BlasterCompiler string   `json:"bngblaster-compiler"`
+	BlasterIOModes  []string `json:"bngblaster-io-modes"`
 }
 
 // NewServer is a constructor function for Server.
 func NewServer(repository controller.Repository) *Server {
 	r := &Server{
+		Version:    "dev",
 		router:     mux.NewRouter(),
 		prom:       controller.NewProm(repository),
 		repository: repository,
@@ -192,16 +192,16 @@ func (s *Server) interfaces() http.HandlerFunc {
 	}
 }
 
-// getVersion returns controller and bngblaster version informations.
-func getVersion(bngblaster string) VersionInfo {
+// getVersion returns server and bngblaster version informations.
+func getVersion(s *Server) VersionInfo {
 
 	versionInfo := VersionInfo{
-		Version:         VERSION,
+		Version:         s.Version,
 		BlasterVersion:  "NA",
 		BlasterCompiler: "NA",
 	}
 
-	cmd := exec.Command(bngblaster, "-v")
+	cmd := exec.Command(s.repository.Executable(), "-v")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 
@@ -216,7 +216,7 @@ func getVersion(bngblaster string) VersionInfo {
 		} else if strings.HasPrefix(line, "Compiler:") {
 			versionInfo.BlasterCompiler = strings.TrimSpace(strings.TrimPrefix(line, "Compiler:"))
 		} else if strings.HasPrefix(line, "IO Modes:") {
-			ioModes := strings.TrimSpace(strings.TrimPrefix(line, "IO Modes:"))
+			ioModes := strings.TrimSpace(strings.TrimPrefix(strings.Replace(line, " (default)", "", 1), "IO Modes:"))
 			versionInfo.BlasterIOModes = strings.Split(ioModes, ", ")
 		}
 	}
@@ -226,7 +226,7 @@ func getVersion(bngblaster string) VersionInfo {
 
 func (s *Server) version() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		version := getVersion(s.repository.Executable())
+		version := getVersion(s)
 		w.Header().Set(contentType, applicationJSON)
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(version)
