@@ -38,6 +38,8 @@ Usage of bngblasterctrl:
     	turn on debug logging
   -e string
     	bngblaster executable (default "/usr/sbin/bngblaster")
+  -upload
+    	allow file upload
 ```
 
 ## License

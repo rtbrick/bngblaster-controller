@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (C) 2020-2024, RtBrick, Inc.
 package controller
 
 // DefaultRepositoryOption helps to configure the Repository with options.
