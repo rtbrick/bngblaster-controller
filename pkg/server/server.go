@@ -408,9 +408,9 @@ func (s *Server) uploadFile() http.HandlerFunc {
 			return
 		}
 
-		err := r.ParseMultipartForm(1000 << 20) // Max upload size set to 1000 MB
+		err := r.ParseMultipartForm(4000 << 20) // Max upload size set to 4000 MB
 		if err != nil {
-			http.Error(w, "error parsing multipart form", http.StatusBadRequest)
+			http.Error(w, "error parsing multipart form", http.StatusRequestEntityTooLarge)
 			return
 		}
 
