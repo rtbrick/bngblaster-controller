@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2020-2024, RtBrick, Inc.
+// Copyright (C) 2020-2025, RtBrick, Inc.
 package server
 
 import (
