@@ -250,16 +250,23 @@ type StreamInfoResponse struct {
 	Status     string `json:"status"`
 	Code       int    `json:"code"`
 	StreamInfo struct {
-		FlowId    int    `json:"flow-id"`
-		Name      string `json:"name"`
-		Type      string `json:"type"`
-		SubType   string `json:"sub-type"`
-		Direction string `json:"direction"`
-		TxPackets int    `json:"tx-packets"`
-		TxBytes   int    `json:"tx-bytes"`
-		RxPackets int    `json:"rx-packets"`
-		RxBytes   int    `json:"rx-bytes"`
-		RxLoss    int    `json:"rx-loss"`
-		SessionId int    `json:"session-id"`
+		FlowId       int    `json:"flow-id"`
+		Name         string `json:"name"`
+		Type         string `json:"type"`
+		SubType      string `json:"sub-type"`
+		Direction    string `json:"direction"`
+		TxPackets    int    `json:"tx-packets"`
+		TxBytes      int    `json:"tx-bytes"`
+		TxPPS        int    `json:"tx-pps"`
+		TxBPSL2      int    `json:"tx-bps-l2"`
+		RxPackets    int    `json:"rx-packets"`
+		RxBytes      int    `json:"rx-bytes"`
+		RxLoss       int    `json:"rx-loss"`
+		RxPPS        int    `json:"rx-pps"`
+		RxBPSL2      int    `json:"rx-bps-l2"`
+		RxBPSL3      int    `json:"rx-bps-l3"`
+		RxDelayUsMin int    `json:"rx-delay-us-min"`
+		RxDelayUsMax int    `json:"rx-delay-us-max"`
+		SessionId    int    `json:"session-id"`
 	} `json:"stream-info"`
 }
