@@ -4,6 +4,7 @@
 package controller
 
 import (
+	"context"
 	"sync"
 )
 
@@ -38,6 +39,9 @@ var _ Repository = &RepositoryMock{}
 //			ExistsFunc: func(name string) bool {
 //				panic("mock out the Exists method")
 //			},
+//			FilesFunc: func(name string) ([]InstanceFile, error) {
+//				panic("mock out the Files method")
+//			},
 //			InstancesFunc: func() []string {
 //				panic("mock out the Instances method")
 //			},
@@ -47,7 +51,7 @@ var _ Repository = &RepositoryMock{}
 //			RunningFunc: func(name string) bool {
 //				panic("mock out the Running method")
 //			},
-//			StartFunc: func(name string, runningConfig RunningConfig) error {
+//			StartFunc: func(ctx context.Context, name string, runningConfig RunningConfig) error {
 //				panic("mock out the Start method")
 //			},
 //			StopFunc: func(name string)  {
@@ -81,6 +85,9 @@ type RepositoryMock struct {
 	// ExistsFunc mocks the Exists method.
 	ExistsFunc func(name string) bool
 
+	// FilesFunc mocks the Files method.
+	FilesFunc func(name string) ([]InstanceFile, error)
+
 	// InstancesFunc mocks the Instances method.
 	InstancesFunc func() []string
 
@@ -91,7 +98,7 @@ type RepositoryMock struct {
 	RunningFunc func(name string) bool
 
 	// StartFunc mocks the Start method.
-	StartFunc func(name string, runningConfig RunningConfig) error
+	StartFunc func(ctx context.Context, name string, runningConfig RunningConfig) error
 
 	// StopFunc mocks the Stop method.
 	StopFunc func(name string)
@@ -131,6 +138,11 @@ type RepositoryMock struct {
 			// Name is the name argument value.
 			Name string
 		}
+		// Files holds details about calls to the Files method.
+		Files []struct {
+			// Name is the name argument value.
+			Name string
+		}
 		// Instances holds details about calls to the Instances method.
 		Instances []struct {
 		}
@@ -146,6 +158,8 @@ type RepositoryMock struct {
 		}
 		// Start holds details about calls to the Start method.
 		Start []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
 			// Name is the name argument value.
 			Name string
 			// RunningConfig is the runningConfig argument value.
@@ -164,6 +178,7 @@ type RepositoryMock struct {
 	lockDelete       sync.RWMutex
 	lockExecutable   sync.RWMutex
 	lockExists       sync.RWMutex
+	lockFiles        sync.RWMutex
 	lockInstances    sync.RWMutex
 	lockKill         sync.RWMutex
 	lockRunning      sync.RWMutex
@@ -388,6 +403,38 @@ func (mock *RepositoryMock) ExistsCalls() []struct {
 	return calls
 }
 
+// Files calls FilesFunc.
+func (mock *RepositoryMock) Files(name string) ([]InstanceFile, error) {
+	if mock.FilesFunc == nil {
+		panic("RepositoryMock.FilesFunc: method is nil but Repository.Files was just called")
+	}
+	callInfo := struct {
+		Name string
+	}{
+		Name: name,
+	}
+	mock.lockFiles.Lock()
+	mock.calls.Files = append(mock.calls.Files, callInfo)
+	mock.lockFiles.Unlock()
+	return mock.FilesFunc(name)
+}
+
+// FilesCalls gets all the calls that were made to Files.
+// Check the length with:
+//
+//	len(mockedRepository.FilesCalls())
+func (mock *RepositoryMock) FilesCalls() []struct {
+	Name string
+} {
+	var calls []struct {
+		Name string
+	}
+	mock.lockFiles.RLock()
+	calls = mock.calls.Files
+	mock.lockFiles.RUnlock()
+	return calls
+}
+
 // Instances calls InstancesFunc.
 func (mock *RepositoryMock) Instances() []string {
 	if mock.InstancesFunc == nil {
@@ -480,21 +527,23 @@ func (mock *RepositoryMock) RunningCalls() []struct {
 }
 
 // Start calls StartFunc.
-func (mock *RepositoryMock) Start(name string, runningConfig RunningConfig) error {
+func (mock *RepositoryMock) Start(ctx context.Context, name string, runningConfig RunningConfig) error {
 	if mock.StartFunc == nil {
 		panic("RepositoryMock.StartFunc: method is nil but Repository.Start was just called")
 	}
 	callInfo := struct {
+		Ctx           context.Context
 		Name          string
 		RunningConfig RunningConfig
 	}{
+		Ctx:           ctx,
 		Name:          name,
 		RunningConfig: runningConfig,
 	}
 	mock.lockStart.Lock()
 	mock.calls.Start = append(mock.calls.Start, callInfo)
 	mock.lockStart.Unlock()
-	return mock.StartFunc(name, runningConfig)
+	return mock.StartFunc(ctx, name, runningConfig)
 }
 
 // StartCalls gets all the calls that were made to Start.
@@ -502,10 +551,12 @@ func (mock *RepositoryMock) Start(name string, runningConfig RunningConfig) erro
 //
 //	len(mockedRepository.StartCalls())
 func (mock *RepositoryMock) StartCalls() []struct {
+	Ctx           context.Context
 	Name          string
 	RunningConfig RunningConfig
 } {
 	var calls []struct {
+		Ctx           context.Context
 		Name          string
 		RunningConfig RunningConfig
 	}

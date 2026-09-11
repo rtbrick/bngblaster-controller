@@ -3,6 +3,7 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -29,6 +31,16 @@ const (
 	writeTimeout               = 5 * time.Second
 	bufferLength               = 512
 	initialReceiveBufferLength = 20000
+
+	// startupPollInterval is how often Start polls for the control socket
+	// while waiting to see whether bngblaster came up successfully.
+	startupPollInterval = 100 * time.Millisecond
+	// startupMaxWait bounds how long Start waits for the control socket to
+	// appear before giving up on detecting failure and reporting success
+	// anyway. A very large configuration can legitimately take a few
+	// seconds to come up, so this needs real headroom above the common
+	// "bad config, fails in milliseconds" case.
+	startupMaxWait = 30 * time.Second
 
 	// ConfigFilename configuration file of the blaster.
 	ConfigFilename = "config.json"
@@ -191,7 +203,7 @@ func (r *DefaultRepository) Running(name string) bool {
 }
 
 // Start implements Repository.
-func (r *DefaultRepository) Start(name string, runningConfig RunningConfig) error {
+func (r *DefaultRepository) Start(ctx context.Context, name string, runningConfig RunningConfig) error {
 	if !r.Exists(name) {
 		return ErrBlasterNotExists
 	}
@@ -211,12 +223,60 @@ func (r *DefaultRepository) Start(name string, runningConfig RunningConfig) erro
 		return err
 	}
 	params := r.commandlineParameters(name, runningConfig)
-	_, err = RunCommand(
+	done, err := RunCommand(
 		path.Join(folder, runPidFilename),
 		path.Join(folder, RunStdOut),
 		path.Join(folder, RunStdErr),
 		params...)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// bngblaster only creates its control socket once it has fully come up
+	// (config parsed and validated, interfaces set up); a bad configuration
+	// instead makes it print an error and exit - usually within
+	// milliseconds, but a very large configuration can take a few seconds
+	// to either come up or fail. So: wait for whichever happens first,
+	// bounded by startupMaxWait so this can never hang the request forever,
+	// and by ctx so a caller that has gone away (a disconnected HTTP client)
+	// stops the wait immediately instead of pinning a goroutine for it.
+	//
+	// Note that returning early never stops the instance: it has been
+	// spawned either way, and giving up on *observing* the outcome only
+	// means the caller has to ask for the status separately.
+	sockFile := path.Join(folder, RunSockFilename)
+	deadline := time.Now().Add(startupMaxWait)
+	ticker := time.NewTicker(startupPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			// Caller gave up waiting; the instance itself keeps running.
+			return nil
+		case waitErr := <-done:
+			if waitErr == nil {
+				// Exited on its own without an error before creating a
+				// socket: not the failure case this is guarding against.
+				return nil
+			}
+			stderrContent, _ := os.ReadFile(path.Join(folder, RunStdErr))
+			msg := strings.TrimSpace(string(stderrContent))
+			if msg == "" {
+				msg = waitErr.Error()
+			}
+			return fmt.Errorf("%s", msg)
+		case <-ticker.C:
+			if _, statErr := os.Stat(sockFile); statErr == nil {
+				return nil
+			}
+			if time.Now().After(deadline) {
+				// Still running, just hasn't created its socket yet after a
+				// generous wait: report success rather than blocking (or
+				// misreporting failure) any longer.
+				return nil
+			}
+		}
+	}
 }
 
 // Stop implements Repository.
@@ -283,6 +343,30 @@ func (r *DefaultRepository) config(name string) ([]byte, error) {
 	folder := path.Join(r.configFolder, name)
 	file := path.Join(folder, ConfigFilename)
 	return os.ReadFile(file)
+}
+
+// Files implements Repository.
+func (r *DefaultRepository) Files(name string) ([]InstanceFile, error) {
+	if !r.Exists(name) {
+		return nil, ErrBlasterNotExists
+	}
+	folder := path.Join(r.configFolder, name)
+	entries, err := os.ReadDir(folder)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]InstanceFile, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Name() == runPidFilename || entry.Name() == RunSockFilename {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, InstanceFile{Name: entry.Name(), Size: info.Size()})
+	}
+	return files, nil
 }
 
 // Command implements Repository.

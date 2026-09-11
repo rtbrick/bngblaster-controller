@@ -1,0 +1,821 @@
+/* BNG Blaster Controller — Web UI
+   Colors chosen for WCAG AA contrast (>= 4.5:1 for body text, >= 3:1 for large text/graphics). */
+
+:root {
+  --color-bg: #f4f6f8;
+  --color-surface: #ffffff;
+  --color-surface-alt: #eef1f4;
+  --color-border: #c7ced6;
+  --color-text: #1a2027;
+  --color-text-muted: #4b5563;
+  --color-primary: #8a1c1c;      /* RtBrick red, darkened for contrast on white */
+  --color-primary-contrast: #ffffff;
+  --color-primary-hover: #6f1616;
+  --color-accent: #0b5fa5;
+  --color-success: #146c2e;
+  --color-warning: #d69429;
+  --color-danger: #a4222b;
+  --color-danger-hover: #841b23;
+  --color-focus: #0b5fa5;
+  --color-progress: #4b5563;
+  --radius: 6px;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --header-height: 3.5rem;
+  --logdock-height: 260px;
+  font-size: 16px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.45;
+}
+
+body { padding-bottom: var(--logdock-height); }
+body.logdock-collapsed { padding-bottom: 2.5rem; }
+
+h1, h2, h3, h4 { line-height: 1.2; margin: 0 0 var(--space-3); }
+p { margin: 0 0 var(--space-3); }
+
+a { color: var(--color-accent); }
+
+/* Visible, high-contrast focus ring everywhere — never remove outline without replacing it. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible,
+summary:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  left: -999px;
+  top: 0;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  padding: var(--space-2) var(--space-4);
+  z-index: 1000;
+  border-radius: 0 0 var(--radius) 0;
+}
+.skip-link:focus {
+  left: 0;
+}
+
+/* ---------- Header ---------- */
+.app-header {
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.app-header .logo { height: 28px; width: auto; }
+.app-header h1 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--color-text);
+}
+.app-header .subtitle {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+.app-header .spacer { flex: 1; }
+.app-header .version-badge {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+}
+.app-header .api-docs-link {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  text-decoration: none;
+}
+.app-header .api-docs-link:hover,
+.app-header .api-docs-link:focus-visible { text-decoration: underline; }
+
+.app-nav {
+  display: flex;
+  gap: var(--space-2);
+}
+.app-nav button {
+  background: none;
+  border: 1px solid transparent;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius);
+  color: var(--color-text-muted);
+  font-weight: 600;
+  cursor: pointer;
+}
+.app-nav button[aria-current="page"] {
+  color: var(--color-primary);
+  border-color: var(--color-border);
+  background: var(--color-surface-alt);
+}
+
+main {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-4);
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font: inherit;
+  font-weight: 600;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: 0.5rem 0.9rem;
+  cursor: pointer;
+  line-height: 1.1;
+  text-decoration: none;
+}
+.btn:hover { background: var(--color-surface-alt); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn-primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+.btn-primary:hover { background: var(--color-primary-hover); border-color: var(--color-primary-hover); }
+.btn-danger {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: #fff;
+}
+.btn-danger:hover { background: var(--color-danger-hover); }
+.btn-sm { padding: 0.3rem 0.6rem; font-size: 0.85rem; }
+.btn-icon { padding: 0.35rem; }
+
+/* ---------- Cards / sections ---------- */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+}
+.card-header h2 { margin: 0; font-size: 1.1rem; }
+
+/* ---------- Tables ---------- */
+table { width: 100%; border-collapse: collapse; }
+caption { text-align: left; font-weight: 600; margin-bottom: var(--space-2); }
+th, td {
+  text-align: left;
+  padding: 0.55rem 0.6rem;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.92rem;
+}
+th { color: var(--color-text-muted); font-weight: 600; white-space: nowrap; }
+tbody tr:hover { background: var(--color-surface-alt); }
+.table-scroll { overflow-x: auto; }
+.actions-cell { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+.status-pill.started { background: #e4f4e8; color: var(--color-success); border-color: #bfe4c9; }
+.status-pill.stopped { background: #f0f0f0; color: var(--color-text-muted); border-color: var(--color-border); }
+.status-pill.duration-pill { background: var(--color-surface-alt); color: var(--color-text-muted); border-color: var(--color-border); font-weight: 600; }
+.status-pill.duration-pill::before { content: none; }
+.status-pill::before {
+  content: "";
+  width: 0.5rem; height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.empty-state {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: var(--space-6) var(--space-4);
+}
+
+/* ---------- Forms ---------- */
+.field {
+  margin-bottom: var(--space-3);
+}
+.field > label, .field > legend {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  font-size: 0.9rem;
+}
+.field .hint {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  margin-top: 0.2rem;
+}
+input[type="text"], input[type="number"], input[type="search"], select, textarea {
+  font: inherit;
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+textarea { min-height: 5rem; font-family: ui-monospace, Consolas, monospace; }
+fieldset {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  margin: 0 0 var(--space-4);
+}
+fieldset fieldset { background: var(--color-surface-alt); }
+.checkbox-field { display: flex; align-items: center; gap: 0.5rem; }
+.checkbox-field input { width: auto; }
+.required-mark { color: var(--color-danger); margin-left: 0.15rem; }
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3) var(--space-4);
+}
+/* Structural sub-fields (nested objects rendered as <details>, list/array
+   fields such as network/access/a10nsp/links/lag interfaces rendered as
+   <fieldset>) always take the full row width and stack below the simple
+   scalar fields, instead of being squeezed into one ~220px grid column —
+   they typically hold many nested fields of their own and need the room. */
+.form-grid > details,
+.form-grid > fieldset {
+  grid-column: 1 / -1;
+}
+.array-item {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-end;
+  margin-bottom: var(--space-2);
+}
+.array-item > div { flex: 1; }
+.form-error {
+  color: var(--color-danger);
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
+}
+.form-status[role="alert"] {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-3);
+}
+.form-status.error { background: #fbe7e8; color: var(--color-danger); border: 1px solid #f0c1c4; }
+.form-status.success { background: #e4f4e8; color: var(--color-success); border: 1px solid #bfe4c9; }
+.form-status-title { font-weight: 700; margin-bottom: 0.35rem; }
+.form-status-detail {
+  margin: 0;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------- Dialogs ---------- */
+dialog {
+  border: none;
+  border-radius: var(--radius);
+  padding: 0;
+  max-width: min(720px, 92vw);
+  width: 100%;
+  max-height: 88vh;
+  color: var(--color-text);
+  box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+  /* Closed <dialog> elements are display:none by default (UA stylesheet);
+     author rules always win over the UA stylesheet regardless of
+     selector specificity, so this MUST stay display:none here and only
+     switch to flex once [open] is set below — otherwise every dialog
+     renders inline in the page flow all the time instead of as a modal. */
+  display: none;
+  flex-direction: column;
+}
+dialog[open] { display: flex; }
+/* The New Instance dialog always uses (near) the full viewport — it hosts
+   the schema-driven form and the raw JSON editor, both of which need room.
+   Every other dialog (confirm, stream detail, start instance, ...) keeps
+   its compact, content-sized default above. */
+dialog.dialog-wide {
+  width: 98vw;
+  height: 94vh;
+  max-width: 98vw;
+  max-height: 94vh;
+}
+dialog::backdrop { background: rgba(15, 18, 22, 0.55); }
+dialog > form[method="dialog"] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  flex: 0 0 auto;
+}
+.dialog-header h2 { font-size: 1.1rem; margin: 0; }
+.dialog-body { padding: var(--space-4); overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-top: 1px solid var(--color-border);
+  flex: 0 0 auto;
+}
+
+/* ---------- Drop zone ---------- */
+.dropzone {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-5);
+  text-align: center;
+  color: var(--color-text-muted);
+  background: var(--color-surface-alt);
+}
+.dropzone.dragover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: #eaf3fb;
+}
+.upload-list { margin-top: var(--space-3); font-size: 0.88rem; }
+.upload-list li { display: flex; justify-content: space-between; gap: var(--space-2); padding: 0.2rem 0; }
+
+/* ---------- Config input mode toggle (Form / JSON) ---------- */
+.mode-toggle {
+  display: inline-flex;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 2px;
+}
+.mode-toggle button {
+  background: none;
+  border: none;
+  border-radius: calc(var(--radius) - 2px);
+  padding: 0.35rem 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.mode-toggle button[aria-pressed="true"] {
+  background: var(--color-surface);
+  color: var(--color-primary);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+}
+/* ---------- Schema-aware JSON editor ---------- */
+.json-editor { position: relative; }
+#schema-json-textarea,
+.json-editor-highlight {
+  margin: 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  tab-size: 2;
+}
+#schema-json-textarea {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  min-height: 50vh;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--color-text);
+  border-color: var(--color-border);
+  resize: vertical;
+}
+.json-editor-highlight {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: auto;
+  pointer-events: none;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.json-editor-highlight code { white-space: inherit; font: inherit; }
+.jt-key { color: var(--color-accent); font-weight: 600; }
+.jt-string { color: var(--color-success); }
+.jt-number, .jt-boolean, .jt-null { color: #7a4a00; }
+.jt-punct { color: var(--color-text-muted); }
+.jt-error { text-decoration: underline wavy var(--color-danger); text-underline-offset: 2px; }
+
+.json-suggest {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem 0;
+  min-width: 220px;
+  max-width: min(420px, 90vw);
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+}
+.json-suggest li {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+.json-suggest li .suggest-name { font-family: ui-monospace, Consolas, monospace; font-weight: 600; white-space: nowrap; }
+.json-suggest li .suggest-desc { color: var(--color-text-muted); font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.json-editor-info {
+  margin-top: var(--space-2);
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius);
+  background: var(--color-surface-alt);
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  min-height: 1.6em;
+}
+.json-editor-info strong { color: var(--color-text); font-family: ui-monospace, Consolas, monospace; }
+.json-info-type { font-style: italic; }
+
+.json-problems {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.json-problems:empty { display: none; margin: 0; }
+.json-problems li {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.82rem;
+  color: var(--color-danger);
+  cursor: pointer;
+  border-radius: var(--radius);
+}
+.json-problems li:hover { background: #fbe7e8; }
+.json-problems li .problem-loc { color: var(--color-text-muted); margin-right: 0.4rem; font-family: ui-monospace, Consolas, monospace; }
+
+/* ---------- Tabs ---------- */
+[role="tablist"] {
+  display: flex;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+}
+[role="tab"] {
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  padding: 0.6rem 0.2rem;
+  margin-right: var(--space-4);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+[role="tab"][aria-selected="true"] {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+/* A tab that has nothing to show - Sessions during a pure stream test, or
+   Streams during a run with no traffic flows - is hidden outright. Stated
+   explicitly (rather than relying on the UA [hidden] rule) because the tab
+   strip is a flex container and the tabs carry author styling. */
+[role="tab"][hidden] { display: none; }
+[role="tabpanel"] { outline: none; }
+[role="tabpanel"][hidden] { display: none; }
+
+/* ---------- Progress bars (session overview) ---------- */
+.meter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.stat-tile {
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+}
+.stat-tile .stat-value { font-size: 1.6rem; font-weight: 700; }
+.stat-tile .stat-label { font-size: 0.8rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+
+.session-meter { margin-bottom: var(--space-3); }
+.session-meter .meter-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+.session-meter .meter-label .count { color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.session-meter progress {
+  width: 100%;
+  height: 1.1rem;
+  appearance: none;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--color-surface-alt);
+}
+.session-meter progress::-webkit-progress-bar { background: var(--color-surface-alt); }
+.session-meter progress::-webkit-progress-value { background: var(--color-progress); }
+.session-meter progress::-moz-progress-bar { background: var(--color-progress); }
+.session-meter.is-complete progress::-webkit-progress-value { background: var(--color-success); }
+.session-meter.is-complete progress::-moz-progress-bar { background: var(--color-success); }
+
+/* Sessions outstanding: reaching 100% means every session is stuck
+   outstanding, so that state is flagged red instead of green. */
+.session-meter--outstanding.is-complete progress::-webkit-progress-value { background: var(--color-progress); }
+.session-meter--outstanding.is-complete progress::-moz-progress-bar { background: var(--color-progress); }
+
+/* Sessions terminated: always red (the same red used for the Kill/Delete
+   buttons), regardless of percentage. */
+.session-meter--terminated progress::-webkit-progress-value { background: var(--color-danger); }
+.session-meter--terminated progress::-moz-progress-bar { background: var(--color-danger); }
+
+/* ---------- Interface statistics (Session Overview) ---------- */
+.iface-group { margin-top: var(--space-4); }
+.iface-group h3 { margin-bottom: var(--space-2); }
+.iface-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-2);
+}
+.iface-card { background: var(--color-surface-alt); border: 1px solid var(--color-border); border-radius: var(--radius); padding: var(--space-3); }
+.iface-card h4 { margin: 0 0 var(--space-2); font-size: 0.95rem; }
+.iface-stat-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.iface-stat-table thead th { color: var(--color-text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; text-align: left; padding-bottom: 0.3rem; }
+.iface-stat-table th[scope="row"] { text-align: left; font-weight: 500; color: var(--color-text-muted); padding: 0.2rem 0.4rem 0.2rem 0; white-space: nowrap; }
+.iface-stat-table td { padding: 0.2rem 0.4rem; font-variant-numeric: tabular-nums; }
+
+/* ---------- Virtual scroll stream table ---------- */
+.vscroll-viewport {
+  height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  position: relative;
+}
+.vscroll-spacer { width: 100%; }
+.vscroll-row-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.vscroll-row-table th { position: sticky; top: 0; background: var(--color-surface); z-index: 1; }
+.stream-row-loading td { color: var(--color-text-muted); font-style: italic; }
+.rx-loss-nonzero { color: var(--color-danger); font-weight: 700; }
+/* Start-or-Stop + Detail always stay on one row (the table uses a fixed row
+   height for virtual scrolling, so wrapping would break it). overflow-x
+   is deliberately left at its default (visible) rather than auto: a
+   scrollable overflow reserves scrollbar space that renders as a stray
+   line under this column alone, out of line with the row border under
+   every other column.
+   This flex layout lives on a div *inside* the <td>, not the <td> itself -
+   a table cell with display:flex forces the browser to reconcile flex
+   sizing with table row-height layout, which is exactly the kind of thing
+   that produces a 1px rounding gap between this column's row border and
+   every other column's, splitting one border line into two.
+   Shared by the stream and session virtual-scroll tables. */
+.row-actions-cell {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--space-1);
+}
+.row-actions-cell .btn { padding: 0.2rem 0.35rem; font-size: 0.78rem; white-space: nowrap; }
+
+/* ---------- Badges (shared pill style: command output meta, stream flags) ---------- */
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  font-weight: 600;
+}
+.badge.status-ok, .badge.badge-yes { background: #e4f4e8; color: var(--color-success); border-color: #bfe4c9; }
+.badge.status-error, .badge.badge-no { background: #fbe4e4; color: var(--color-danger); border-color: #f0bcbc; }
+.badge.status-code { background: var(--color-surface-alt); color: var(--color-text-muted); }
+
+/* ---------- Command builder ---------- */
+.command-output-meta {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-bottom: var(--space-2);
+  font-size: 0.85rem;
+}
+/* nowrap (not wrap) so a row with both badges is never taller than a row
+   with zero or one - the virtual-scroll spacer math above assumes every
+   row is exactly rowHeight tall, and a row that wraps to a second line
+   breaks that assumption, which is what made the scrollbar wobble once
+   scrolled to the end. */
+.stream-flags-cell { display: flex; gap: var(--space-1); flex-wrap: nowrap; }
+.stream-flags-cell .badge { font-size: 0.72rem; padding: 0.05rem 0.35rem; white-space: nowrap; }
+.command-output {
+  background: #0f1115;
+  color: #d8dee6;
+  padding: var(--space-3);
+  border-radius: var(--radius);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.85rem;
+  overflow: auto;
+  max-height: 340px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------- Detail dialogs (stream-info / session-info field lists) ---------- */
+/* One key/value pair per row: a label column sized to its content and a
+   value column taking the rest. Deliberately not .form-grid - that grid is
+   auto-fit/minmax for wrapping *complete* label+input fields, and applying
+   it here let dt/dd flow independently into it, packing two unrelated
+   key/value pairs (four grid cells) onto one row. */
+.detail-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-4);
+  align-items: baseline;
+}
+.detail-grid dt { font-weight: 600; color: var(--color-text-muted); white-space: nowrap; }
+.detail-grid dd { margin: 0; overflow-wrap: anywhere; }
+.detail-value-wide { grid-column: 1 / -1; }
+.detail-value-json {
+  margin: 0.25rem 0 0;
+  padding: var(--space-2) var(--space-3);
+  background: #0f1115;
+  color: #d8dee6;
+  border-radius: var(--radius);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.85rem;
+  overflow: auto;
+  max-height: 240px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------- Log dock ---------- */
+.logdock {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  height: var(--logdock-height);
+  background: #11151a;
+  color: #d8dee6;
+  border-top: 2px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  z-index: 30;
+}
+.logdock-collapsed .logdock { height: 2.5rem; }
+.logdock-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0.4rem var(--space-4);
+  border-bottom: 1px solid #2a303a;
+  flex-shrink: 0;
+}
+.logdock-header h2 { font-size: 0.85rem; margin: 0; color: #d8dee6; text-transform: uppercase; letter-spacing: 0.04em; }
+.logdock-header .spacer { flex: 1; }
+.logdock-header .btn { background: #1c2128; color: #d8dee6; border-color: #2a303a; }
+.logdock-header .btn:hover { background: #262c35; }
+.logdock-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-4);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.82rem;
+}
+.logdock-collapsed .logdock-body,
+.logdock-collapsed .logdock-footer { display: none; }
+.log-line { white-space: pre-wrap; word-break: break-word; border-bottom: 1px solid rgba(255,255,255,0.04); padding: 0.1rem 0; }
+.log-line.level-error, .log-line.level-err { color: #ff8a8a; }
+.log-line.level-warn, .log-line.level-warning { color: #ffcf7a; }
+
+.sr-status { position: absolute; width: 1px; height: 1px; overflow: hidden; }
+
+@media (max-width: 720px) {
+  .app-header h1 { font-size: 0.95rem; }
+  .app-header .subtitle { display: none; }
+  :root { --logdock-height: 200px; }
+}
+
+/* ===================== TOASTS ===================== */
+/* Visible counterpart of the #global-status screen-reader live region, so
+   that failures reported through announce() are not invisible to sighted
+   users. Sits above the log dock and below any open modal dialog. */
+.toast-region {
+  position: fixed;
+  top: var(--space-3);
+  right: var(--space-3);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(24rem, calc(100vw - 2 * var(--space-3)));
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  border-left-width: 4px;
+  background: var(--color-surface);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 18%);
+  font-size: 0.875rem;
+  line-height: 1.4;
+  animation: toast-in 120ms ease-out;
+}
+
+.toast.error { border-left-color: var(--color-danger); }
+.toast.success { border-left-color: var(--color-success); }
+.toast.info { border-left-color: var(--color-primary); }
+
+.toast-message {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.toast-dismiss {
+  flex: none;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  padding: 0 0.15rem;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--color-text-muted);
+}
+
+.toast-dismiss:hover { color: var(--color-text); }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-0.35rem); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+}

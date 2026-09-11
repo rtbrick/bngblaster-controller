@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BNG Blaster Controller</title>
+<link rel="icon" type="image/png" href="/favicon.ico?v={{.AssetVersion}}">
+<link rel="stylesheet" href="/static/css/app.css?v={{.AssetVersion}}">
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<!-- Visible counterpart of the #global-status live region: every announce()
+     message is shown here as a dismissible toast so failures are not
+     screen-reader-only. Marked aria-hidden because #global-status already
+     announces the same text. -->
+<div class="toast-region" id="toast-region" aria-hidden="true"></div>
+
+<header class="app-header">
+  <img class="logo" src="/static/img/logo.png?v={{.AssetVersion}}" alt="RtBrick" width="28" height="28">
+  <div>
+    <h1>BNG Blaster Controller</h1>
+    <div class="subtitle">Test instance management</div>
+  </div>
+  <nav class="app-nav" aria-label="Primary">
+    <button type="button" id="nav-dashboard" aria-current="page">Dashboard</button>
+  </nav>
+  <div class="spacer"></div>
+  <a class="api-docs-link" href="https://rtbrick.github.io/bngblaster/index.html" target="_blank" rel="noopener">BNG Blaster Docs</a>
+  <a class="api-docs-link" href="/docs/" target="_blank" rel="noopener">API Docs</a>
+  <span class="version-badge" id="version-badge">version: …</span>
+</header>
+
+<main id="main-content">
+
+  <div id="global-status" class="visually-hidden" role="status" aria-live="polite"></div>
+
+  <!-- ===================== DASHBOARD VIEW ===================== -->
+  <section id="view-dashboard" aria-labelledby="dashboard-heading">
+    <h2 id="dashboard-heading" class="visually-hidden">Dashboard</h2>
+
+    <div class="card">
+      <div class="card-header">
+        <h2>Test Instances</h2>
+        <button type="button" class="btn btn-primary" id="btn-new-instance">
+          <span aria-hidden="true">+</span> New Instance
+        </button>
+      </div>
+      <div class="table-scroll">
+        <table id="instances-table">
+          <caption class="visually-hidden">List of bngblaster test instances and their current state</caption>
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Status</th>
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="instances-tbody">
+          </tbody>
+        </table>
+        <p class="empty-state" id="instances-empty" hidden>No test instances yet. Click “New Instance” to create one.</p>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ===================== INSTANCE DETAIL VIEW ===================== -->
+  <section id="view-instance" hidden aria-labelledby="instance-heading">
+    <div class="card-header">
+      <div>
+        <button type="button" class="btn btn-sm" id="btn-back-dashboard">&larr; Back to dashboard</button>
+        <h2 id="instance-heading" style="margin-top:.5rem;">
+          <span id="instance-name"></span>
+          <span class="status-pill" id="instance-status-pill"></span>
+          <span class="status-pill duration-pill" id="instance-duration-pill" hidden></span>
+        </h2>
+      </div>
+      <div class="actions-cell">
+        <button type="button" class="btn" id="btn-instance-start">Start</button>
+        <button type="button" class="btn" id="btn-instance-stop">Stop</button>
+        <button type="button" class="btn btn-danger" id="btn-instance-kill">Kill</button>
+        <button type="button" class="btn" id="btn-instance-refresh">Refresh</button>
+      </div>
+    </div>
+
+    <div role="tablist" aria-label="Instance views">
+      <button role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true">Session Overview</button>
+      <button role="tab" id="tab-sessions" aria-controls="panel-sessions" aria-selected="false" tabindex="-1">Sessions</button>
+      <button role="tab" id="tab-streams" aria-controls="panel-streams" aria-selected="false" tabindex="-1">Streams</button>
+      <button role="tab" id="tab-commands" aria-controls="panel-commands" aria-selected="false" tabindex="-1">Commands</button>
+    </div>
+
+    <!-- ---- Session overview ---- -->
+    <div role="tabpanel" id="panel-overview" aria-labelledby="tab-overview" tabindex="0">
+      <p class="hint" id="overview-hint">Live session counters, polled every 2 seconds while this tab is visible.</p>
+      <div id="overview-empty" class="empty-state">No session or stream traffic reported yet.</div>
+      <div id="overview-content" hidden>
+        <div class="meter-grid" id="overview-stat-tiles"></div>
+        <div id="overview-meters"></div>
+      </div>
+      <div id="overview-interfaces" hidden>
+        <div class="iface-group" id="group-network-interfaces">
+          <h3>Network Interfaces</h3>
+          <div id="overview-network-interfaces" class="iface-card-grid"></div>
+        </div>
+        <div class="iface-group" id="group-access-interfaces">
+          <h3>Access Interfaces</h3>
+          <div id="overview-access-interfaces" class="iface-card-grid"></div>
+        </div>
+        <div class="iface-group" id="group-a10nsp-interfaces">
+          <h3>A10NSP Interfaces</h3>
+          <div id="overview-a10nsp-interfaces" class="iface-card-grid"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---- Sessions ---- -->
+    <div role="tabpanel" id="panel-sessions" aria-labelledby="tab-sessions" tabindex="0" hidden>
+      <details id="session-filters" open>
+        <summary>Filters</summary>
+        <form id="session-filters-form" class="form-grid">
+          <div class="field">
+            <label for="session-filter-session-id">Session ID</label>
+            <input type="number" id="session-filter-session-id" min="1">
+            <span class="hint">Exact session, overrides the min/max range below.</span>
+          </div>
+          <div class="field">
+            <label for="session-filter-session-id-min">Session ID Min</label>
+            <input type="number" id="session-filter-session-id-min" min="0">
+          </div>
+          <div class="field">
+            <label for="session-filter-session-id-max">Session ID Max</label>
+            <input type="number" id="session-filter-session-id-max" min="0">
+          </div>
+          <div class="field">
+            <label for="session-filter-session-group-id">Session Group ID</label>
+            <input type="number" id="session-filter-session-group-id" min="0">
+          </div>
+        </form>
+        <div class="dialog-footer" style="padding:var(--space-2) 0;">
+          <button type="button" class="btn btn-sm" id="btn-session-filters-clear">Clear filters</button>
+          <button type="button" class="btn btn-sm btn-primary" id="btn-session-filters-apply">Apply filters</button>
+        </div>
+      </details>
+      <div class="card-header">
+        <p class="hint" style="margin:0;">Only the sessions currently scrolled into view are requested from the
+          controller (virtual scrolling).</p>
+        <button type="button" class="btn btn-sm" id="btn-sessions-refresh">Refresh</button>
+      </div>
+      <div id="sessions-empty" class="empty-state">No session data available. Start the instance to see live
+        sessions here.</div>
+      <div id="sessions-content" hidden>
+        <div class="vscroll-viewport" id="session-viewport" tabindex="0"
+             role="region" aria-label="Session summary table, scrollable">
+          <div class="vscroll-spacer" id="session-spacer">
+            <table class="vscroll-row-table">
+              <caption class="visually-hidden">Session summary</caption>
+              <colgroup>
+                <col style="width:8%">
+                <col style="width:8%">
+                <col style="width:11%">
+                <col style="width:10%">
+                <col style="width:8%">
+                <col style="width:17%">
+                <col style="width:11%">
+                <col style="width:9%">
+                <col style="width:9%">
+                <col style="width:9%">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th scope="col">Session ID</th>
+                  <th scope="col">Type</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Interface</th>
+                  <th scope="col">VLAN</th>
+                  <th scope="col">Username</th>
+                  <th scope="col">IPv4 Address</th>
+                  <th scope="col">TX Packets</th>
+                  <th scope="col">RX Packets</th>
+                  <th scope="col">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="session-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <p class="hint" id="session-count-hint"></p>
+      </div>
+    </div>
+
+    <!-- ---- Streams ---- -->
+    <div role="tabpanel" id="panel-streams" aria-labelledby="tab-streams" tabindex="0" hidden>
+      <details id="stream-filters" open>
+        <summary>Filters</summary>
+        <form id="stream-filters-form" class="form-grid">
+          <div class="field">
+            <label for="filter-session-id">Session ID</label>
+            <input type="number" id="filter-session-id" min="0">
+          </div>
+          <div class="field">
+            <label for="filter-session-group-id">Session Group ID</label>
+            <input type="number" id="filter-session-group-id" min="0">
+          </div>
+          <div class="field">
+            <label for="filter-flow-id">Flow ID</label>
+            <input type="number" id="filter-flow-id" min="1">
+            <span class="hint">Exact flow, overrides the min/max range below.</span>
+          </div>
+          <div class="field">
+            <label for="filter-flow-id-min">Flow ID Min</label>
+            <input type="number" id="filter-flow-id-min" min="0">
+          </div>
+          <div class="field">
+            <label for="filter-flow-id-max">Flow ID Max</label>
+            <input type="number" id="filter-flow-id-max" min="0">
+          </div>
+          <div class="field">
+            <label for="filter-name">Stream Name</label>
+            <input type="text" id="filter-name">
+          </div>
+          <div class="field">
+            <label for="filter-interface">Interface</label>
+            <input type="text" id="filter-interface">
+          </div>
+          <div class="field">
+            <label for="filter-direction">Direction</label>
+            <select id="filter-direction">
+              <option value="">Any</option>
+              <option value="upstream">Upstream</option>
+              <option value="downstream">Downstream</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="filter-state">State</label>
+            <select id="filter-state">
+              <option value="">Any</option>
+              <option value="verified">Verified only</option>
+              <option value="bidirectional-verified">Bidirectional verified only</option>
+              <option value="pending">Pending only</option>
+            </select>
+          </div>
+        </form>
+        <div class="dialog-footer" style="padding:var(--space-2) 0;">
+          <button type="button" class="btn btn-sm" id="btn-stream-filters-clear">Clear filters</button>
+          <button type="button" class="btn btn-sm btn-primary" id="btn-stream-filters-apply">Apply filters</button>
+        </div>
+      </details>
+      <div class="card-header">
+        <p class="hint" style="margin:0;">Only the streams currently scrolled into view are requested from the
+          controller (virtual scrolling).</p>
+        <button type="button" class="btn btn-sm" id="btn-streams-refresh">Refresh</button>
+      </div>
+      <div id="streams-empty" class="empty-state">No stream data available. Start the instance and its traffic
+        streams to see live counters here.</div>
+      <div id="streams-content" hidden>
+        <div class="vscroll-viewport" id="stream-viewport" tabindex="0"
+             role="region" aria-label="Stream summary table, scrollable">
+          <div class="vscroll-spacer" id="stream-spacer">
+            <table class="vscroll-row-table">
+              <caption class="visually-hidden">Stream summary</caption>
+              <colgroup>
+                <col style="width:5%">
+                <col style="width:11%">
+                <col style="width:9%">
+                <col style="width:9%">
+                <col style="width:12%">
+                <col style="width:10%">
+                <col style="width:8%">
+                <col style="width:10%">
+                <col style="width:8%">
+                <col style="width:8%">
+                <col style="width:10%">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th scope="col">Flow ID</th>
+                  <th scope="col">Name</th>
+                  <th scope="col">Type</th>
+                  <th scope="col">Direction</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">TX Packets</th>
+                  <th scope="col">TX PPS</th>
+                  <th scope="col">RX Packets</th>
+                  <th scope="col">RX PPS</th>
+                  <th scope="col">RX Loss</th>
+                  <th scope="col">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="stream-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <p class="hint" id="stream-count-hint"></p>
+      </div>
+    </div>
+
+    <!-- ---- Commands ---- -->
+    <div role="tabpanel" id="panel-commands" aria-labelledby="tab-commands" tabindex="0" hidden>
+      <div class="form-grid">
+        <div class="field">
+          <label for="command-select">Command</label>
+          <select id="command-select"></select>
+        </div>
+      </div>
+      <form id="command-args-form">
+        <fieldset id="command-args-fieldset">
+          <legend>Arguments</legend>
+          <p class="hint" id="command-args-empty">Select a command to see its arguments.</p>
+        </fieldset>
+        <button type="submit" class="btn btn-primary" id="btn-command-execute">Execute command</button>
+      </form>
+      <h3>Response</h3>
+      <div id="command-output-meta" class="command-output-meta" hidden></div>
+      <p class="hint" id="command-output-empty">No command executed yet.</p>
+      <dl id="command-output" class="detail-grid" role="status" aria-live="polite" hidden></dl>
+    </div>
+  </section>
+</main>
+
+<!-- ===================== NEW INSTANCE DIALOG ===================== -->
+<dialog id="dialog-new-instance" class="dialog-wide" aria-labelledby="dialog-new-instance-title">
+  <form method="dialog" novalidate>
+    <div class="dialog-header">
+      <h2 id="dialog-new-instance-title">New Test Instance</h2>
+      <button type="button" class="btn btn-sm btn-icon" data-close-dialog="dialog-new-instance" aria-label="Close dialog">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div id="new-instance-status" role="alert"></div>
+      <div class="field">
+        <label for="new-instance-name">Instance name <span class="required-mark" aria-hidden="true">*</span></label>
+        <input type="text" id="new-instance-name" required pattern="[A-Za-z0-9_\-]+"
+               aria-describedby="new-instance-name-hint">
+        <span class="hint" id="new-instance-name-hint">Letters, digits, "-" and "_" only.</span>
+      </div>
+      <div class="mode-toggle" role="group" aria-label="Configuration input mode" id="config-mode-toggle">
+        <button type="button" class="btn btn-sm" id="config-mode-btn-form" aria-pressed="true">Form</button>
+        <button type="button" class="btn btn-sm" id="config-mode-btn-json" aria-pressed="false">Edit as JSON</button>
+      </div>
+      <div id="schema-form-root">
+        <p class="hint">Loading configuration schema…</p>
+      </div>
+      <div id="schema-json-root" hidden>
+        <p class="hint">Edit the instance configuration directly as JSON. Switching back to the form
+          populates it from this JSON where possible. Property and value suggestions follow the
+          configuration schema as you type (or press Ctrl+Space); invalid parts are underlined and
+          listed below.</p>
+        <div id="schema-json-status" class="form-status" role="alert"></div>
+        <div class="json-editor">
+          <pre class="json-editor-highlight" id="schema-json-highlight" aria-hidden="true"><code></code></pre>
+          <textarea id="schema-json-textarea" rows="20" aria-label="Instance configuration JSON"
+                    spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"></textarea>
+          <ul class="json-suggest" id="schema-json-suggest" role="note" aria-label="Available options" hidden></ul>
+        </div>
+        <div class="json-editor-info" id="schema-json-info" aria-live="polite"></div>
+        <ul class="json-problems" id="schema-json-problems"></ul>
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <button type="button" class="btn" data-close-dialog="dialog-new-instance">Cancel</button>
+      <button type="button" class="btn" id="btn-create-instance">Create</button>
+      <button type="button" class="btn btn-primary" id="btn-create-and-start-instance">Create &amp; Start</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===================== START INSTANCE DIALOG ===================== -->
+<dialog id="dialog-start-instance" aria-labelledby="dialog-start-instance-title">
+  <div class="dialog-header">
+    <h2 id="dialog-start-instance-title">Start Instance</h2>
+    <button type="button" class="btn btn-sm btn-icon" data-close-dialog="dialog-start-instance" aria-label="Close dialog">✕</button>
+  </div>
+  <div class="dialog-body">
+    <div id="start-instance-status" role="alert"></div>
+    <fieldset>
+      <legend>Reporting &amp; logging</legend>
+      <div class="checkbox-field field">
+        <input type="checkbox" id="start-opt-report" checked>
+        <label for="start-opt-report">Generate JSON result report on exit</label>
+      </div>
+      <div class="checkbox-field field">
+        <input type="checkbox" id="start-opt-logging">
+        <label for="start-opt-logging">Enable logging to file</label>
+      </div>
+      <div class="checkbox-field field">
+        <input type="checkbox" id="start-opt-pcap">
+        <label for="start-opt-pcap">Capture traffic to a pcap file</label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Overrides</legend>
+      <div class="form-grid">
+        <div class="field">
+          <label for="start-opt-session-count">Session count override</label>
+          <input type="number" id="start-opt-session-count" min="0">
+          <span class="hint">Leave at 0 to use the value from the instance configuration.</span>
+        </div>
+        <div class="field">
+          <label for="start-opt-stream-config">Stream config file (optional)</label>
+          <input type="text" id="start-opt-stream-config" placeholder="/var/bngblaster/&lt;instance&gt;/streams.json">
+        </div>
+      </div>
+    </fieldset>
+  </div>
+  <div class="dialog-footer">
+    <button type="button" class="btn" data-close-dialog="dialog-start-instance">Cancel</button>
+    <button type="button" class="btn btn-primary" id="btn-start-instance-confirm">Start</button>
+  </div>
+</dialog>
+
+<!-- ===================== STREAM DETAIL DIALOG ===================== -->
+<dialog id="dialog-stream-detail" aria-labelledby="dialog-stream-detail-title">
+  <div class="dialog-header">
+    <h2 id="dialog-stream-detail-title">Stream Detail</h2>
+    <button type="button" class="btn btn-sm btn-icon" data-close-dialog="dialog-stream-detail" aria-label="Close dialog">✕</button>
+  </div>
+  <div class="dialog-body">
+    <dl id="stream-detail-list" class="detail-grid"></dl>
+  </div>
+  <div class="dialog-footer">
+    <button type="button" class="btn" id="btn-stream-detail-refresh">Refresh</button>
+    <button type="button" class="btn" data-close-dialog="dialog-stream-detail">Close</button>
+  </div>
+</dialog>
+
+<!-- ===================== SESSION DETAIL DIALOG ===================== -->
+<dialog id="dialog-session-detail" aria-labelledby="dialog-session-detail-title">
+  <div class="dialog-header">
+    <h2 id="dialog-session-detail-title">Session Detail</h2>
+    <button type="button" class="btn btn-sm btn-icon" data-close-dialog="dialog-session-detail" aria-label="Close dialog">✕</button>
+  </div>
+  <div class="dialog-body">
+    <dl id="session-detail-list" class="detail-grid"></dl>
+  </div>
+  <div class="dialog-footer">
+    <button type="button" class="btn" id="btn-session-detail-refresh">Refresh</button>
+    <button type="button" class="btn" data-close-dialog="dialog-session-detail">Close</button>
+  </div>
+</dialog>
+
+<!-- ===================== DOWNLOADS DIALOG ===================== -->
+<dialog id="dialog-downloads" aria-labelledby="dialog-downloads-title">
+  <div class="dialog-header">
+    <h2 id="dialog-downloads-title">Downloads</h2>
+    <button type="button" class="btn btn-sm btn-icon" data-close-dialog="dialog-downloads" aria-label="Close dialog">✕</button>
+  </div>
+  <div class="dialog-body">
+    <p class="hint" id="downloads-empty" hidden>No files found for this instance.</p>
+    <p class="form-error" id="downloads-error" hidden></p>
+    <table id="downloads-table" hidden>
+      <thead><tr><th>File</th><th>Size</th><th></th></tr></thead>
+      <tbody id="downloads-tbody"></tbody>
+    </table>
+  </div>
+  <div class="dialog-footer">
+    <button type="button" class="btn" id="btn-downloads-refresh">Refresh</button>
+    <button type="button" class="btn" data-close-dialog="dialog-downloads">Close</button>
+  </div>
+</dialog>
+
+<!-- ===================== UPLOADS DIALOG ===================== -->
+<dialog id="dialog-uploads" aria-labelledby="dialog-uploads-title">
+  <div class="dialog-header">
+    <h2 id="dialog-uploads-title">Uploads</h2>
+    <button type="button" class="btn btn-sm btn-icon" data-close-dialog="dialog-uploads" aria-label="Close dialog">✕</button>
+  </div>
+  <div class="dialog-body">
+    <p class="hint" id="uploads-description">Upload stream definitions, MRT tables, BGP update files or other auxiliary
+      data used by a test configuration. Files are stored inside this instance's folder.</p>
+    <div class="dropzone" id="dropzone" tabindex="0" role="button"
+         aria-labelledby="dialog-uploads-title" aria-describedby="dropzone-hint">
+      <p id="dropzone-hint">Drag and drop a file here, or press Enter / Space to browse.</p>
+      <input type="file" id="file-input" class="visually-hidden" aria-hidden="true" tabindex="-1">
+    </div>
+    <ul class="upload-list" id="upload-list" aria-live="polite"></ul>
+  </div>
+  <div class="dialog-footer">
+    <button type="button" class="btn" data-close-dialog="dialog-uploads">Close</button>
+  </div>
+</dialog>
+
+<!-- ===================== CONFIRM DIALOG ===================== -->
+<dialog id="dialog-confirm" aria-labelledby="dialog-confirm-title">
+  <div class="dialog-header">
+    <h2 id="dialog-confirm-title">Please confirm</h2>
+    <button type="button" class="btn btn-sm btn-icon" data-close-dialog="dialog-confirm" aria-label="Close dialog">✕</button>
+  </div>
+  <div class="dialog-body">
+    <p id="dialog-confirm-message"></p>
+  </div>
+  <div class="dialog-footer">
+    <button type="button" class="btn" data-close-dialog="dialog-confirm">Cancel</button>
+    <button type="button" class="btn btn-danger" id="btn-confirm-ok">Confirm</button>
+  </div>
+</dialog>
+
+<!-- ===================== LOG DOCK ===================== -->
+<div class="logdock" id="logdock" aria-label="Instance log viewer">
+  <div class="logdock-header">
+    <h2>Log Viewer</h2>
+    <label for="logdock-instance-select" class="visually-hidden">Instance</label>
+    <select id="logdock-instance-select" style="width:auto;"></select>
+    <button type="button" class="btn btn-sm" id="btn-logdock-pause" aria-pressed="false">Pause</button>
+    <button type="button" class="btn btn-sm" id="btn-logdock-clear">Clear</button>
+    <div class="spacer"></div>
+    <button type="button" class="btn btn-sm" id="btn-logdock-toggle" aria-expanded="true" aria-controls="logdock-body">
+      Collapse
+    </button>
+  </div>
+  <div class="logdock-body" id="logdock-body" role="log" aria-live="off" tabindex="0"></div>
+  <div class="sr-status" role="status" aria-live="polite" id="logdock-sr-status"></div>
+</div>
+
+<script src="/static/js/app.js?v={{.AssetVersion}}" defer></script>
+</body>
+</html>

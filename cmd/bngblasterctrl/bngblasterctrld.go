@@ -22,6 +22,9 @@ func main() {
 	directory := flag.String("d", controller.DefaultConfigFolder, "config folder")
 	executable := flag.String("e", controller.DefaultExecutable, "bngblaster executable")
 	upload := flag.Bool("upload", false, "allow file upload")
+	ui := flag.Bool("ui", true, "serve the embedded web UI on /")
+	interfacesAPI := flag.Bool("interfaces-api", true, "expose the /api/v1/interfaces endpoint")
+	schema := flag.String("schema", server.DefaultSchemaPath, "path to the bngblaster configuration JSON schema served on /api/v1/schema")
 
 	// logging
 	debug := flag.Bool("debug", false, "turn on debug logging")
@@ -37,7 +40,10 @@ func main() {
 		controller.WithConfigFolder(*directory),
 		controller.WithExecutable(*executable),
 		controller.WithUpload(*upload))
-	srv := server.NewServer(repo)
+	srv := server.NewServer(repo,
+		server.WithUI(*ui),
+		server.WithInterfacesAPI(*interfacesAPI),
+		server.WithSchemaPath(*schema))
 	srv.Version = Version
 	serve(*addr, srv)
 }

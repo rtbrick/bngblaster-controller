@@ -14,6 +14,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
@@ -43,6 +44,28 @@ type Server struct {
 	router     *mux.Router
 	prom       *controller.Prom
 	repository controller.Repository
+
+	// enableUI toggles serving the embedded web UI on "/".
+	enableUI bool
+	// enableInterfaces toggles the "/api/v1/interfaces" endpoint.
+	enableInterfaces bool
+	// schemaPath is the file system location of the bngblaster config schema.
+	schemaPath string
+	// authMiddleware is invoked for every request. It is a no-op unless
+	// WithAuthMiddleware is used, and is the extension point for plugging
+	// in authentication/login later.
+	authMiddleware AuthMiddleware
+
+	streamCache   *summaryCache[[]controller.StreamSummaryStream]
+	sessionCache  *summaryCache[[]controller.SessionSummarySession]
+	overviewCache *summaryCache[map[string]json.RawMessage]
+
+	// assetVersion is appended to every embedded UI asset URL as a cache
+	// busting query parameter, so a browser can cache them aggressively yet
+	// never run a stale app.js against a newer controller. It is resolved
+	// lazily because Version is assigned after NewServer returns.
+	assetVersion     string
+	assetVersionOnce sync.Once
 }
 
 // InterfaceInfo holds the information about a network interface.
@@ -62,12 +85,22 @@ type VersionInfo struct {
 }
 
 // NewServer is a constructor function for Server.
-func NewServer(repository controller.Repository) *Server {
+func NewServer(repository controller.Repository, opts ...Option) *Server {
 	r := &Server{
-		Version:    "dev",
-		router:     mux.NewRouter(),
-		prom:       controller.NewProm(repository),
-		repository: repository,
+		Version:          "dev",
+		router:           mux.NewRouter(),
+		prom:             controller.NewProm(repository),
+		repository:       repository,
+		enableUI:         true,
+		enableInterfaces: true,
+		schemaPath:       DefaultSchemaPath,
+		authMiddleware:   noopAuthMiddleware,
+		streamCache:      newSummaryCache[[]controller.StreamSummaryStream](),
+		sessionCache:     newSummaryCache[[]controller.SessionSummarySession](),
+		overviewCache:    newSummaryCache[map[string]json.RawMessage](),
+	}
+	for _, opt := range opts {
+		opt(r)
 	}
 	r.routes()
 	return r
@@ -90,6 +123,11 @@ func loggingMiddleware(next http.Handler) http.Handler {
 func (s *Server) routes() {
 	const instanceURL = "/api/v1/instances/{instance_name}"
 	s.router.Use(loggingMiddleware)
+	// authMiddleware is a no-op unless WithAuthMiddleware(...) was supplied.
+	// It sits in front of both the UI and the API so a future login system
+	// can be introduced here without touching individual handlers.
+	s.router.Use(mux.MiddlewareFunc(s.authMiddleware))
+
 	// Expose the registered metrics via HTTP.
 	s.router.Path("/metrics").Methods(http.MethodGet).Handler(promhttp.HandlerFor(
 		s.prom.Registry,
@@ -98,8 +136,18 @@ func (s *Server) routes() {
 		},
 	))
 	s.router.Path("/api/v1/version").Methods(http.MethodGet).Handler(s.version())
-	s.router.Path("/api/v1/interfaces").Methods(http.MethodGet).Handler(s.interfaces())
+	s.router.Path("/api/v1/schema").Methods(http.MethodGet).Handler(s.schema())
+	s.registerAPIDocsRoutes()
+	if s.enableInterfaces {
+		s.router.Path("/api/v1/interfaces").Methods(http.MethodGet).Handler(s.interfaces())
+	}
 	s.router.Path("/api/v1/instances").Methods(http.MethodGet).Handler(s.instances())
+	s.router.Path(instanceURL + "/_overview").Methods(http.MethodGet).Handler(s.overview())
+	s.router.Path(instanceURL + "/_streams").Methods(http.MethodGet).Handler(s.streams())
+	s.router.Path(instanceURL + "/_sessions").Methods(http.MethodGet).Handler(s.sessions())
+	s.router.Path(instanceURL + "/_logs").Methods(http.MethodGet).Handler(s.logs())
+	s.router.Path(instanceURL + "/_files").Methods(http.MethodGet).Handler(s.files())
+	s.router.Path(instanceURL + "/_files/{file_name}").Methods(http.MethodGet).Handler(s.fileDownload())
 	s.router.
 		Path(
 			fmt.Sprintf("%s/{file_name:%s|%s|%s|%s|%s|%s|%s}",
@@ -121,6 +169,10 @@ func (s *Server) routes() {
 	s.router.Path(instanceURL + "/_kill").Methods(http.MethodPost).Handler(s.kill())
 	s.router.Path(instanceURL + "/_command").Methods(http.MethodPost).Handler(s.command())
 	s.router.Path(instanceURL + "/_upload").Methods(http.MethodPost).Handler(s.uploadFile())
+
+	if s.enableUI {
+		s.registerUIRoutes()
+	}
 }
 
 func (s *Server) fileServing(directory string) http.HandlerFunc {
@@ -132,13 +184,49 @@ func (s *Server) fileServing(directory string) http.HandlerFunc {
 	}
 }
 
+// instanceDetail is one entry of the detailed instance listing.
+type instanceDetail struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+// instances lists the configured instances. By default this is the plain
+// array of names it has always been; "?detail=true" instead returns each
+// name together with its status.
+//
+// The dashboard refreshes its table every few seconds and needs the status
+// of every instance, which previously meant one request for the list plus
+// one per instance on every refresh. The detailed form collapses that into
+// a single request.
 func (s *Server) instances() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		instances := s.repository.Instances()
 		w.Header().Set(contentType, applicationJSON)
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(instances)
+		if r.URL.Query().Get("detail") != "true" {
+			_ = json.NewEncoder(w).Encode(instances)
+			return
+		}
+		details := make([]instanceDetail, 0, len(instances))
+		for _, name := range instances {
+			status := "stopped"
+			if s.repository.Running(name) {
+				status = "started"
+			}
+			details = append(details, instanceDetail{Name: name, Status: status})
+		}
+		_ = json.NewEncoder(w).Encode(details)
 	}
+}
+
+// invalidateInstanceCaches drops every cached summary belonging to an
+// instance. Called whenever its lifecycle changes so a start/stop/kill/delete
+// is reflected immediately instead of after the cache period, and so a
+// deleted instance leaves nothing cached behind it.
+func (s *Server) invalidateInstanceCaches(instance string) {
+	s.streamCache.invalidate(instance)
+	s.sessionCache.invalidate(instance)
+	s.overviewCache.invalidate(instance)
 }
 
 // getReadableInterfaceFlags converts interface flags to a readable format.
@@ -235,6 +323,21 @@ func (s *Server) version() http.HandlerFunc {
 	}
 }
 
+// schema serves the bngblaster configuration JSON schema used by the web UI
+// to render and validate the "New Instance" config editor.
+func (s *Server) schema() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		content, err := os.ReadFile(s.schemaPath)
+		if err != nil {
+			JSONError(w, "schema not available", http.StatusNotFound)
+			return
+		}
+		w.Header().Set(contentType, applicationJSON)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(content)
+	}
+}
+
 func (s *Server) create() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		instanceVariable := mux.Vars(r)[instanceNameParameter]
@@ -288,6 +391,7 @@ func (s *Server) delete() http.HandlerFunc {
 		instanceVariable := mux.Vars(r)[instanceNameParameter]
 		instance := cleanPathVariable(instanceVariable)
 		status := http.StatusNoContent
+		s.invalidateInstanceCaches(instance)
 		err := s.repository.Delete(instance)
 		if err == controller.ErrBlasterRunning {
 			JSONError(w, errInstanceIsRunning, http.StatusPreconditionFailed)
@@ -314,7 +418,8 @@ func (s *Server) start() http.HandlerFunc {
 
 		status := http.StatusNoContent
 
-		err = s.repository.Start(instance, runningConfig)
+		s.invalidateInstanceCaches(instance)
+		err = s.repository.Start(r.Context(), instance, runningConfig)
 		if err == controller.ErrBlasterNotExists {
 			JSONNotFound(w, r)
 			return
@@ -324,7 +429,7 @@ func (s *Server) start() http.HandlerFunc {
 			return
 		}
 		if err != nil {
-			JSONError(w, "not able to start", http.StatusInternalServerError)
+			JSONError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(status)
@@ -337,6 +442,7 @@ func (s *Server) stop() http.HandlerFunc {
 		instance := cleanPathVariable(instanceVariable)
 		status := http.StatusAccepted
 		s.repository.Stop(instance)
+		s.invalidateInstanceCaches(instance)
 		w.WriteHeader(status)
 	}
 }
@@ -347,6 +453,7 @@ func (s *Server) kill() http.HandlerFunc {
 		instance := cleanPathVariable(instanceVariable)
 		status := http.StatusAccepted
 		s.repository.Kill(instance)
+		s.invalidateInstanceCaches(instance)
 		w.WriteHeader(status)
 	}
 }
@@ -423,7 +530,12 @@ func (s *Server) uploadFile() http.HandlerFunc {
 		}
 		defer file.Close()
 
-		filePath := filepath.Join(s.repository.ConfigFolder(), instance, handler.Filename)
+		// Only ever the base name. net/http already strips directory
+		// components from a multipart filename (RFC 7578 requires it), so
+		// this is belt and braces - but the guarantee that an upload cannot
+		// escape the instance folder is worth stating at the point where the
+		// path is built rather than relying on a caller's behavior.
+		filePath := filepath.Join(s.repository.ConfigFolder(), instance, filepath.Base(handler.Filename))
 
 		destFile, err := os.Create(filePath)
 		if err != nil {

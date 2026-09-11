@@ -19,7 +19,11 @@ var ExecCommand = exec.Command
 // stdFile file that should be written with the stdout
 // errFile file that should be written with the stderr
 // args first argument will be the command to execute, all the rest are arguments that are used for this command.
-func RunCommand(pidFile string, stdFile string, errFile string, args ...string) (chan bool, error) {
+// The returned channel receives the command's exit error (nil on a clean
+// exit) exactly once, once the process has terminated; it is buffered so a
+// caller that stops waiting (e.g. after a startup grace period) never
+// leaks the reporting goroutine.
+func RunCommand(pidFile string, stdFile string, errFile string, args ...string) (chan error, error) {
 	if len(args) == 0 {
 		return nil, fmt.Errorf("at least one argument need to be specified")
 	}
@@ -44,12 +48,13 @@ func RunCommand(pidFile string, stdFile string, errFile string, args ...string) 
 	pid := cmd.Process.Pid
 	_ = os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", pid)), permission)
 
-	done := make(chan bool)
+	done := make(chan error, 1)
 	go func() {
-		_ = cmd.Wait()
+		waitErr := cmd.Wait()
 		_ = stdout.Close()
 		_ = stderr.Close()
 		_ = os.Remove(pidFile)
+		done <- waitErr
 		close(done)
 		log.Info().Str("command", strings.Join(args, " ")).Msg("stopped Command")
 	}()

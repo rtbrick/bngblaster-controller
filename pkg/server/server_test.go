@@ -3,6 +3,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -246,7 +247,7 @@ func TestServer_start(t *testing.T) {
 			name:        "error",
 			resultStart: fmt.Errorf("other error"),
 			body:        &controller.RunningConfig{},
-			wantBody:    "not able to start",
+			wantBody:    "other error",
 			want:        http.StatusInternalServerError,
 		},
 	}
@@ -256,7 +257,7 @@ func TestServer_start(t *testing.T) {
 				ConfigFolderFunc: func() string {
 					return configFolder
 				},
-				StartFunc: func(name string, config controller.RunningConfig) error {
+				StartFunc: func(_ context.Context, name string, config controller.RunningConfig) error {
 					return tt.resultStart
 				},
 			}

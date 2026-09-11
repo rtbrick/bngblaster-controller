@@ -3,12 +3,15 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -240,7 +243,7 @@ func TestDefaultRepository_Start(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := r.Start(tt.name, tt.runningConfig); (err != nil) != tt.wantErr {
+			if err := r.Start(context.Background(), tt.name, tt.runningConfig); (err != nil) != tt.wantErr {
 				t.Fatalf("Start() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantErr {
@@ -437,4 +440,49 @@ func waitSig(t *testing.T, c <-chan os.Signal, sig os.Signal) {
 		}
 	}
 	t.Fatalf("timeout after %v waiting for %v", settleTime, sig)
+}
+
+func TestDefaultRepository_Start_returnsWhenTheCallerGivesUp(t *testing.T) {
+	// A process that stays alive without ever creating a control socket:
+	// exactly the case Start waits out, up to startupMaxWait.
+	defaultExecCommand := ExecCommand
+	ExecCommand = func(command string, args ...string) *exec.Cmd {
+		return exec.Command("sleep", "10")
+	}
+	defer func() { ExecCommand = defaultExecCommand }()
+
+	// Its own config folder: Start writes run files into the instance folder,
+	// and the checked-in td/ fixtures are shared with the other tests.
+	configFolder := t.TempDir()
+	folder := path.Join(configFolder, "instance")
+	require.NoError(t, os.MkdirAll(folder, 0o700))
+	r := NewDefaultRepository(WithConfigFolder(configFolder), WithExecutable("test"))
+
+	// The caller's HTTP client has gone away. The instance has been spawned
+	// either way; only the observation of its outcome is abandoned, so Start
+	// must return at once instead of blocking for the full startup window.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	started := time.Now()
+	done := make(chan error, 1)
+	go func() { done <- r.Start(ctx, "instance", RunningConfig{}) }()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+		if waited := time.Since(started); waited >= 2*time.Second {
+			t.Fatalf("Start() waited %s: it ignored the cancelled context and "+
+				"blocked on the process instead", waited)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start() ignored the cancelled context and kept waiting")
+	}
+
+	// Leave no stray process behind.
+	if piddata, err := os.ReadFile(path.Join(folder, runPidFilename)); err == nil {
+		if pid, err := strconv.Atoi(string(piddata)); err == nil {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	}
 }

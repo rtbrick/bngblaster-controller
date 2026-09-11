@@ -2,6 +2,8 @@
 // Copyright (C) 2020-2025, RtBrick, Inc.
 package controller
 
+import "context"
+
 //go:generate moq -out repositorymock.go . Repository
 
 // Repository for managing the bng blaster.
@@ -25,13 +27,27 @@ type Repository interface {
 	// Running checks if a bngblaster instance is running.
 	Running(name string) bool
 	// Start the bngblaster instance with the given running configuration.
-	Start(name string, runningConfig RunningConfig) error
+	// It blocks until the instance is known to have come up or to have
+	// failed (see DefaultRepository.Start); ctx bounds that wait, so a
+	// caller whose client has gone away does not keep waiting.
+	Start(ctx context.Context, name string, runningConfig RunningConfig) error
 	// Stop sends a SIGINT to the instance
 	Stop(name string)
 	// Kill sends a SIGKILL to the instance
 	Kill(name string)
 	// Command sends a request to the unix socket.
 	Command(name string, command SocketCommand) ([]byte, error)
+	// Files lists the files present in an instance's config folder, for use
+	// by the web UI's downloads view. Internal run-control artifacts (the
+	// pid file and control socket) are excluded.
+	Files(name string) ([]InstanceFile, error)
+}
+
+// InstanceFile describes one downloadable file inside an instance's config
+// folder.
+type InstanceFile struct {
+	Name string `json:"name"`
+	Size int64  `json:"size"`
 }
 
 // RunningConfig start configuration for the bngblaster.
@@ -229,20 +245,63 @@ type A10nspInterfacesResponse struct {
 	} `json:"a10nsp-interfaces"`
 }
 
+// StreamSummaryStream describes a single stream as reported by the
+// stream-summary socket command.
+type StreamSummaryStream struct {
+	FlowId         int    `json:"flow-id"`
+	Name           string `json:"name"`
+	Type           string `json:"type"`
+	SubType        string `json:"sub-type"`
+	Direction      string `json:"direction"`
+	Enabled        bool   `json:"enabled"`
+	Active         bool   `json:"active"`
+	Verified       bool   `json:"verified"`
+	Interface      string `json:"interface"`
+	TxPackets      int    `json:"tx-packets"`
+	TxBytes        int    `json:"tx-bytes"`
+	RxPackets      int    `json:"rx-packets"`
+	RxBytes        int    `json:"rx-bytes"`
+	RxLoss         int    `json:"rx-loss"`
+	TxPPS          int    `json:"tx-pps"`
+	RxPPS          int    `json:"rx-pps"`
+	SessionId      int    `json:"session-id"`
+	SessionTraffic bool   `json:"session-traffic"`
+}
+
 // StreamSummaryResponse response for stream-summary socket command.
 type StreamSummaryResponse struct {
-	Code    int `json:"code"`
-	Streams []struct {
-		FlowId    int    `json:"flow-id"`
-		Name      string `json:"name"`
-		Type      string `json:"type"`
-		SubType   string `json:"sub-type"`
-		Direction string `json:"direction"`
-		TxPackets int    `json:"tx-packets"`
-		TxBytes   int    `json:"tx-bytes"`
-		RxPackets int    `json:"rx-packets"`
-		RxBytes   int    `json:"rx-bytes"`
-		RxLoss    int    `json:"rx-loss"`
-		SessionId int    `json:"session-id"`
-	} `json:"stream-summary"`
+	Code    int                   `json:"code"`
+	Streams []StreamSummaryStream `json:"stream-summary"`
+}
+
+// SessionSummarySession describes a single session as reported by the
+// session-summary socket command. Not every field is populated for every
+// session type (e.g. dhcpv6-state/ip6cp-state only apply to some sessions),
+// which is fine here since it only backs the summary table - the full,
+// untyped session-info response backs the session detail view.
+type SessionSummarySession struct {
+	Type           string `json:"type"`
+	SessionId      int    `json:"session-id"`
+	PPPoESessionId int    `json:"pppoe-session-id"`
+	SessionState   string `json:"session-state"`
+	Flapped        int    `json:"flapped"`
+	Interface      string `json:"interface"`
+	OuterVlan      int    `json:"outer-vlan"`
+	InnerVlan      int    `json:"inner-vlan"`
+	MAC            string `json:"mac"`
+	ServerMAC      string `json:"server-mac"`
+	Username       string `json:"username"`
+	IPv4Address    string `json:"ipv4-address"`
+	LCPState       string `json:"lcp-state"`
+	IPCPState      string `json:"ipcp-state"`
+	IP6CPState     string `json:"ip6cp-state"`
+	DHCPv6State    string `json:"dhcpv6-state"`
+	TxPackets      int    `json:"tx-packets"`
+	RxPackets      int    `json:"rx-packets"`
+}
+
+// SessionSummaryResponse response for session-summary socket command.
+type SessionSummaryResponse struct {
+	Code     int                     `json:"code"`
+	Sessions []SessionSummarySession `json:"session-summary"`
 }

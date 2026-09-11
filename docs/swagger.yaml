@@ -75,6 +75,24 @@ paths:
                     "mac": "aa:bb:cc:dd:ee:ff"
                   }
                 ]
+  /api/v1/schema:
+    get:
+      summary: BNG Blaster configuration JSON schema.
+      description: >-
+        Get the JSON schema used to render and validate the "New Instance" config editor in the web UI.
+      responses:
+        200:
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+        404:
+          description: not found, schema not available
+          content:
+            text/plain:
+              schema:
+                type: string
   /api/v1/instances:
     get:
       summary: List of all instances.
@@ -220,6 +238,242 @@ paths:
           description: no content, the instance was deleted
         412:
           description: precondition failed, if instance is running
+          content:
+            text/plain:
+              schema:
+                type: string
+        500:
+          description: internal server error
+          content:
+            text/plain:
+              schema:
+                type: string
+  /api/v1/instances/{instance_name}/_streams:
+    get:
+      summary: List traffic streams of a running instance.
+      description: >-
+        Get a paginated, optionally filtered view of the streams reported by the
+        bngblaster "stream-summary" control socket command. Used by the web UI's
+        virtual-scrolling stream table, which only ever requests the slice of rows
+        currently in (or near) its viewport.
+      parameters:
+        - name: instance_name
+          description: instance name of the bngblaster
+          in: path
+          required: true
+          example: sample
+          schema:
+            type: string
+        - name: offset
+          description: number of streams to skip
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          description: maximum number of streams to return
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+            maximum: 500
+        - name: session-id
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: session-group-id
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: flow-id
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: flow-id-min
+          description: lower bound of an explicit flow-id range; requires flow-id-max
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: flow-id-max
+          description: upper bound of an explicit flow-id range; requires flow-id-min
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: interface
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: direction
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - verified
+              - bidirectional-verified
+              - pending
+      responses:
+        200:
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/streamsResponse'
+        404:
+          description: not found, instance does not exist
+          content:
+            text/plain:
+              schema:
+                type: string
+        412:
+          description: precondition failed, if instance is not running
+          content:
+            text/plain:
+              schema:
+                type: string
+        500:
+          description: internal server error
+          content:
+            text/plain:
+              schema:
+                type: string
+  /api/v1/instances/{instance_name}/_sessions:
+    get:
+      summary: List sessions of a running instance.
+      description: >-
+        Get a paginated, optionally filtered view of the sessions reported by the
+        bngblaster "session-summary" control socket command. Used by the web UI's
+        virtual-scrolling session table, which only ever requests the slice of rows
+        currently in (or near) its viewport.
+      parameters:
+        - name: instance_name
+          description: instance name of the bngblaster
+          in: path
+          required: true
+          example: sample
+          schema:
+            type: string
+        - name: offset
+          description: number of sessions to skip
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          description: maximum number of sessions to return
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+            maximum: 500
+        - name: session-id
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: session-group-id
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: session-id-min
+          description: lower bound of an explicit session-id range; requires session-id-max
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: session-id-max
+          description: upper bound of an explicit session-id range; requires session-id-min
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        200:
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/sessionsResponse'
+        404:
+          description: not found, instance does not exist
+          content:
+            text/plain:
+              schema:
+                type: string
+        412:
+          description: precondition failed, if instance is not running
+          content:
+            text/plain:
+              schema:
+                type: string
+        500:
+          description: internal server error
+          content:
+            text/plain:
+              schema:
+                type: string
+  /api/v1/instances/{instance_name}/_logs:
+    get:
+      summary: Tail the log of a running instance.
+      description: >-
+        Poll for log lines appended to the instance's run.log since a previous
+        call. Pass the "next_offset" from the previous response as the "offset"
+        query parameter to only receive newly appended lines. If the instance was
+        never started with logging enabled the response is an empty, EOF result
+        rather than an error.
+      parameters:
+        - name: instance_name
+          description: instance name of the bngblaster
+          in: path
+          required: true
+          example: sample
+          schema:
+            type: string
+        - name: offset
+          description: byte offset into run.log to read from
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          description: maximum number of bytes to read
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 65536
+            maximum: 1048576
+      responses:
+        200:
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/logsResponse'
+        404:
+          description: not found, instance does not exist
           content:
             text/plain:
               schema:
@@ -449,6 +703,59 @@ paths:
             text/plain:
               schema:
                 type: string
+  /api/v1/instances/{instance_name}/_files:
+    get:
+      summary: List downloadable files.
+      description: >-
+        List the files present in an instance's config folder, used by the web UI's
+        download view.
+      parameters:
+        - name: instance_name
+          description: instance name of the parsable
+          in: path
+          required: true
+          example: sample
+          schema:
+            type: string
+      responses:
+        200:
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/instanceFile'
+        404:
+          description: not found, instance does not exist
+  /api/v1/instances/{instance_name}/_files/{file_name}:
+    get:
+      summary: Download one of the files listed by _files.
+      description: >-
+        Serves a single file out of an instance's config folder. Unlike the fixed-name
+        route registered for the well-known result files, this accepts any file name
+        (e.g. user-uploaded files) since it only ever downloads names the _files
+        endpoint itself just listed.
+      parameters:
+        - name: instance_name
+          description: instance name of the parsable
+          in: path
+          required: true
+          example: sample
+          schema:
+            type: string
+        - name: file_name
+          description: name of the file to download, as returned by _files
+          in: path
+          required: true
+          example: config.json
+          schema:
+            type: string
+      responses:
+        200:
+          description: ok, with the content type applicable for the specific file ending.
+        404:
+          description: not found, instance or file does not exist
   /api/v1/instances/{instance_name}/{file_name}:
     get:
       summary: Download one of the output files.
@@ -515,6 +822,247 @@ paths:
 
 components:
   schemas:
+    streamSummaryStream:
+      type: object
+      properties:
+        flow-id:
+          type: integer
+        name:
+          type: string
+        type:
+          type: string
+        sub-type:
+          type: string
+        direction:
+          type: string
+        enabled:
+          type: boolean
+        active:
+          type: boolean
+        verified:
+          type: boolean
+        interface:
+          type: string
+        tx-packets:
+          type: integer
+        tx-bytes:
+          type: integer
+        rx-packets:
+          type: integer
+        rx-bytes:
+          type: integer
+        rx-loss:
+          type: integer
+        tx-pps:
+          type: integer
+        rx-pps:
+          type: integer
+        session-id:
+          type: integer
+        session-traffic:
+          type: boolean
+      example:
+        {
+          "flow-id": 1,
+          "name": "stream1",
+          "type": "ipv4",
+          "sub-type": "raw",
+          "direction": "upstream",
+          "enabled": true,
+          "active": true,
+          "verified": true,
+          "interface": "bblA",
+          "tx-packets": 1000,
+          "tx-bytes": 64000,
+          "rx-packets": 1000,
+          "rx-bytes": 64000,
+          "rx-loss": 0,
+          "tx-pps": 100,
+          "rx-pps": 100,
+          "session-id": 1,
+          "session-traffic": false
+        }
+    streamsResponse:
+      type: object
+      properties:
+        total:
+          description: total number of streams matching the filters
+          type: integer
+        offset:
+          type: integer
+        limit:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/streamSummaryStream'
+      example:
+        {
+          "total": 1,
+          "offset": 0,
+          "limit": 50,
+          "items": [
+            {
+              "flow-id": 1,
+              "name": "stream1",
+              "type": "ipv4",
+              "sub-type": "raw",
+              "direction": "upstream",
+              "enabled": true,
+              "active": true,
+              "verified": true,
+              "interface": "bblA",
+              "tx-packets": 1000,
+              "tx-bytes": 64000,
+              "rx-packets": 1000,
+              "rx-bytes": 64000,
+              "rx-loss": 0,
+              "tx-pps": 100,
+              "rx-pps": 100,
+              "session-id": 1,
+              "session-traffic": false
+            }
+          ]
+        }
+    sessionSummarySession:
+      type: object
+      properties:
+        type:
+          type: string
+        session-id:
+          type: integer
+        pppoe-session-id:
+          type: integer
+        session-state:
+          type: string
+        flapped:
+          type: integer
+        interface:
+          type: string
+        outer-vlan:
+          type: integer
+        inner-vlan:
+          type: integer
+        mac:
+          type: string
+        server-mac:
+          type: string
+        username:
+          type: string
+        ipv4-address:
+          type: string
+        lcp-state:
+          type: string
+        ipcp-state:
+          type: string
+        ip6cp-state:
+          type: string
+        dhcpv6-state:
+          type: string
+        tx-packets:
+          type: integer
+        rx-packets:
+          type: integer
+      example:
+        {
+          "type": "pppoe",
+          "session-id": 1,
+          "pppoe-session-id": 1,
+          "session-state": "Established",
+          "flapped": 0,
+          "interface": "bblA",
+          "outer-vlan": 1,
+          "inner-vlan": 1,
+          "mac": "aa:bb:cc:dd:ee:ff",
+          "server-mac": "ff:ee:dd:cc:bb:aa",
+          "username": "user1@rtbrick.com",
+          "ipv4-address": "10.100.128.0",
+          "lcp-state": "Opened",
+          "ipcp-state": "Opened",
+          "ip6cp-state": "Opened",
+          "dhcpv6-state": "",
+          "tx-packets": 1000,
+          "rx-packets": 1000
+        }
+    sessionsResponse:
+      type: object
+      properties:
+        total:
+          description: total number of sessions matching the filters
+          type: integer
+        offset:
+          type: integer
+        limit:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/sessionSummarySession'
+      example:
+        {
+          "total": 1,
+          "offset": 0,
+          "limit": 50,
+          "items": [
+            {
+              "type": "pppoe",
+              "session-id": 1,
+              "pppoe-session-id": 1,
+              "session-state": "Established",
+              "flapped": 0,
+              "interface": "bblA",
+              "outer-vlan": 1,
+              "inner-vlan": 1,
+              "mac": "aa:bb:cc:dd:ee:ff",
+              "server-mac": "ff:ee:dd:cc:bb:aa",
+              "username": "user1@rtbrick.com",
+              "ipv4-address": "10.100.128.0",
+              "lcp-state": "Opened",
+              "ipcp-state": "Opened",
+              "ip6cp-state": "Opened",
+              "dhcpv6-state": "",
+              "tx-packets": 1000,
+              "rx-packets": 1000
+            }
+          ]
+        }
+    logsResponse:
+      type: object
+      properties:
+        offset:
+          description: byte offset the returned lines started at
+          type: integer
+        next_offset:
+          description: pass this as the "offset" query parameter on the next poll
+          type: integer
+        eof:
+          description: true if next_offset has reached the current end of the log file
+          type: boolean
+        lines:
+          type: array
+          items:
+            type: string
+      example:
+        {
+          "offset": 0,
+          "next_offset": 128,
+          "eof": true,
+          "lines": [
+            "2025-01-01 00:00:00.000 INFO: bngblaster started"
+          ]
+        }
+    instanceFile:
+      type: object
+      properties:
+        name:
+          type: string
+        size:
+          type: integer
+      example:
+        {
+          "name": "run.log",
+          "size": 1024
+        }
     commandResponse:
       type: object
       properties:
