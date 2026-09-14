@@ -22,7 +22,7 @@ const (
 	DefaultConfigFolder = "/var/bngblaster"
 
 	// DefaultExecutable is the default executable for bngblaster.
-	DefaultExecutable = "/usr/sbin/bngblaster"
+	DefaultExecutable = "/usr/bin/bngblaster"
 
 	// permission file and folder permissions to use.
 	permission os.FileMode = 0o777

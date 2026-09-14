@@ -17,7 +17,7 @@ as REST API and provides endpoints to download logs and reports.
 The controller comes with good defaults, just starting the controller will give you an instance that:
 
 * runs on port `8001`
-* assumes bngblaster is installed at `/usr/sbin/bngblaster`
+* assumes bngblaster is installed at `/usr/bin/bngblaster`
 * uses `/var/bngblaster` as storage directory 
 
 The blaster instance needs at least the permissions required to run 
@@ -37,7 +37,7 @@ Usage of bngblasterctrl:
   -debug
     	turn on debug logging
   -e string
-    	bngblaster executable (default "/usr/sbin/bngblaster")
+    	bngblaster executable (default "/usr/bin/bngblaster")
   -upload
     	allow file upload
 ```

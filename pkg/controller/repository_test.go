@@ -176,7 +176,7 @@ func TestDefaultRepository_commandlineParameters(t *testing.T) {
 			name:          "default",
 			runningConfig: RunningConfig{},
 			want: []string{
-				"/usr/sbin/bngblaster",
+				"/usr/bin/bngblaster",
 				"-C", "td/default/config.json",
 				"-S", "td/default/run.sock",
 			},
@@ -190,7 +190,7 @@ func TestDefaultRepository_commandlineParameters(t *testing.T) {
 				PPPoESessionCount: 1000,
 			},
 			want: []string{
-				"/usr/sbin/bngblaster",
+				"/usr/bin/bngblaster",
 				"-C", "td/all/config.json",
 				"-S", "td/all/run.sock",
 				"-J", "td/all/run_report.json",
