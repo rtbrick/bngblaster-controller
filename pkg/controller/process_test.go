@@ -89,7 +89,7 @@ func TestApplication_ExecCommand(t *testing.T) {
 			defer func() {
 				_ = os.Remove(stdoutFile)
 			}()
-			done, err := RunCommand(pidFile, stdoutFile, stderrFile, tt.command...)
+			done, err := RunCommand("", pidFile, stdoutFile, stderrFile, tt.command...)
 			if (err == nil) == tt.wantErr {
 				t.Fatalf("RunCommand() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -114,8 +114,30 @@ func TestApplication_runCommandNoTimeOut(t *testing.T) {
 	defer func() {
 		_ = os.Remove(stdoutFile)
 	}()
-	_, err := RunCommand(pidFile, stdoutFile, stderrFile, "sleep", "10")
+	_, err := RunCommand("", pidFile, stdoutFile, stderrFile, "sleep", "10")
 	require.NoError(t, err)
+}
+
+// TestApplication_RunCommand_WorkingDirectory verifies that a relative file
+// reference in the command's arguments is resolved against dir, the way a
+// bngblaster config referencing a relative isis mrt-file or bgp
+// raw-update-file needs to resolve it against the instance folder rather
+// than the controller's own working directory.
+func TestApplication_RunCommand_WorkingDirectory(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(dir+"/relative.txt", []byte("hello"), 0o644))
+
+	localPidFile := dir + "/pid"
+	localStdoutFile := dir + "/out"
+	localStderrFile := dir + "/err"
+
+	done, err := RunCommand(dir, localPidFile, localStdoutFile, localStderrFile, "cat", "relative.txt")
+	require.NoError(t, err)
+	require.NoError(t, <-done)
+
+	got, err := os.ReadFile(localStdoutFile)
+	require.NoError(t, err)
+	require.Equal(t, "hello", string(got))
 }
 
 func TestApplication_ExecCommand_Real(t *testing.T) {
@@ -138,7 +160,7 @@ func TestApplication_ExecCommand_Real(t *testing.T) {
 			defer func() {
 				_ = os.Remove(stdoutFile)
 			}()
-			done, err := RunCommand(pidFile, stdoutFile, stderrFile, tt.command...)
+			done, err := RunCommand("", pidFile, stdoutFile, stderrFile, tt.command...)
 			if (err == nil) == tt.wantErr {
 				t.Fatalf("RunCommand() error = %v, wantErr %v", err, tt.wantErr)
 			}

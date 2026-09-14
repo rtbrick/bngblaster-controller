@@ -21,9 +21,9 @@ func main() {
 	addr := flag.String("addr", ":8001", "HTTP network address")
 	directory := flag.String("d", controller.DefaultConfigFolder, "config folder")
 	executable := flag.String("e", controller.DefaultExecutable, "bngblaster executable")
-	upload := flag.Bool("upload", false, "allow file upload")
-	ui := flag.Bool("ui", true, "serve the embedded web UI on /")
-	interfacesAPI := flag.Bool("interfaces-api", true, "expose the /api/v1/interfaces endpoint")
+	upload := flag.Bool("upload", true, "disable file upload")
+	ui := flag.Bool("ui", true, "disable the embedded web UI")
+	interfacesAPI := flag.Bool("interfaces-api", true, "disable the interfaces endpoint")
 	schema := flag.String("schema", server.DefaultSchemaPath, "path to the bngblaster configuration JSON schema served on /api/v1/schema")
 
 	// logging
@@ -69,19 +69,43 @@ func serve(addr string, handler http.Handler) {
 }
 
 func initializeLogger(debug, console bool, color bool) {
-	var w io.Writer
-	w = os.Stderr
+	var out, errOut io.Writer = os.Stdout, os.Stderr
 	if console {
-		w = zerolog.ConsoleWriter{
+		out = zerolog.ConsoleWriter{
+			Out:        os.Stdout,
+			NoColor:    !color,
+			TimeFormat: "2006-01-02 15:04:05 MST",
+		}
+		errOut = zerolog.ConsoleWriter{
 			Out:        os.Stderr,
 			NoColor:    !color,
 			TimeFormat: "2006-01-02 15:04:05 MST",
 		}
 	}
 
-	log.Logger = zerolog.New(w).With().Timestamp().Caller().Logger()
+	log.Logger = zerolog.New(levelSplitWriter{out: out, errOut: errOut}).With().Timestamp().Caller().Logger()
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	if debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
+}
+
+// levelSplitWriter routes warn/error/fatal/panic records to errOut and
+// everything below (info/debug/trace) to out, so the systemd unit's separate
+// stdout/stderr log files actually separate normal activity from problems
+// instead of funneling every record into one of them.
+type levelSplitWriter struct {
+	out    io.Writer
+	errOut io.Writer
+}
+
+func (w levelSplitWriter) Write(p []byte) (int, error) {
+	return w.out.Write(p)
+}
+
+func (w levelSplitWriter) WriteLevel(level zerolog.Level, p []byte) (int, error) {
+	if level >= zerolog.WarnLevel {
+		return w.errOut.Write(p)
+	}
+	return w.out.Write(p)
 }

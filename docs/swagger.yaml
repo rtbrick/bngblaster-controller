@@ -557,7 +557,7 @@ paths:
                   type: integer
                   deprecated: true
                 stream_config:
-                  description: specifies an optional stream configuration file (absolute path) 
+                  description: specifies an optional stream configuration file. An absolute path (starting with "/") is used as-is; a relative path is resolved against the instance's directory.
                   type: string
                 metric_flags:
                   description: flags that allows to specify what is exposed as metric
@@ -794,9 +794,7 @@ paths:
       summary: Upload files.
       description: >-
         This API endpoint allows files to be uploaded into the test instance directory, 
-        with a limit of 4GB per file. By default, file upload is disabled and must be 
-        explicitly enabled by starting the controller with the-upload flag.
-
+        with a limit of 4GB per file.
 
         **Example:**
         `curl --location --request POST 'http://<host>:<port>/api/v1/instances/<instance_name>/_upload' --form 'file=@<local-filename>'`

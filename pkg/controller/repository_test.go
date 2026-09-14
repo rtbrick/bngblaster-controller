@@ -200,6 +200,28 @@ func TestDefaultRepository_commandlineParameters(t *testing.T) {
 				"-P", "td/all/run.pcap",
 				"-c", "1000",
 			},
+		}, {
+			name: "stream config relative path",
+			runningConfig: RunningConfig{
+				StreamConfig: "streams.json",
+			},
+			want: []string{
+				"/usr/bin/bngblaster",
+				"-C", "td/stream config relative path/config.json",
+				"-S", "td/stream config relative path/run.sock",
+				"-T", "td/stream config relative path/streams.json",
+			},
+		}, {
+			name: "stream config absolute path",
+			runningConfig: RunningConfig{
+				StreamConfig: "/etc/bngblaster/streams.json",
+			},
+			want: []string{
+				"/usr/bin/bngblaster",
+				"-C", "td/stream config absolute path/config.json",
+				"-S", "td/stream config absolute path/run.sock",
+				"-T", "/etc/bngblaster/streams.json",
+			},
 		},
 	}
 	for _, tt := range tests {

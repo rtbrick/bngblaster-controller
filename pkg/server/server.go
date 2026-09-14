@@ -38,6 +38,28 @@ func cleanPathVariable(instanceVariable string) string {
 	return instance
 }
 
+// isUnsafeFileName reports whether name - already reduced to its base
+// component via filepath.Base - could still escape the directory it is
+// joined into. Base only strips leading directory components, so a
+// filename that is itself "", ".", ".." or "/" (Base's results for those
+// inputs) would otherwise resolve to the parent or instance directory
+// itself instead of a file inside it.
+func isUnsafeFileName(name string) bool {
+	return name == "" || name == "." || name == ".." || name == string(filepath.Separator)
+}
+
+// clientIP returns the request's source IP, stripping the port from
+// RemoteAddr. This is the direct TCP peer address rather than a
+// client-supplied header (e.g. X-Forwarded-For), which cannot be trusted
+// unless this server sits behind a specifically configured proxy.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
 // Server implementation for the rest api.
 type Server struct {
 	Version    string
@@ -505,6 +527,7 @@ func (s *Server) command() http.HandlerFunc {
 
 func (s *Server) uploadFile() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		remoteAddr := clientIP(r)
 		instanceVariable := mux.Vars(r)[instanceNameParameter]
 		instance := cleanPathVariable(instanceVariable)
 		if !s.repository.Exists(instance) {
@@ -513,6 +536,7 @@ func (s *Server) uploadFile() http.HandlerFunc {
 		}
 
 		if !s.repository.AllowUpload() {
+			log.Warn().Str("remote_addr", remoteAddr).Str("instance", instance).Msg("upload forbidden")
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -534,8 +558,17 @@ func (s *Server) uploadFile() http.HandlerFunc {
 		// components from a multipart filename (RFC 7578 requires it), so
 		// this is belt and braces - but the guarantee that an upload cannot
 		// escape the instance folder is worth stating at the point where the
-		// path is built rather than relying on a caller's behavior.
-		filePath := filepath.Join(s.repository.ConfigFolder(), instance, filepath.Base(handler.Filename))
+		// path is built rather than relying on a caller's behavior. Base's
+		// own degenerate outputs ("", ".", "..", "/") are rejected outright
+		// since joining any of them would land outside the instance folder.
+		name := filepath.Base(handler.Filename)
+		if isUnsafeFileName(name) {
+			log.Warn().Str("remote_addr", remoteAddr).Str("instance", instance).Str("file", handler.Filename).
+				Msg("upload rejected: invalid filename")
+			http.Error(w, "invalid filename", http.StatusBadRequest)
+			return
+		}
+		filePath := filepath.Join(s.repository.ConfigFolder(), instance, name)
 
 		destFile, err := os.Create(filePath)
 		if err != nil {
@@ -549,6 +582,8 @@ func (s *Server) uploadFile() http.HandlerFunc {
 			http.Error(w, "failed to save file", http.StatusInternalServerError)
 			return
 		}
+
+		log.Info().Str("remote_addr", remoteAddr).Str("instance", instance).Str("file", name).Msg("file uploaded")
 
 		w.WriteHeader(http.StatusOK)
 	}

@@ -223,7 +223,12 @@ func (r *DefaultRepository) Start(ctx context.Context, name string, runningConfi
 		return err
 	}
 	params := r.commandlineParameters(name, runningConfig)
+	// folder as the working directory lets bngblaster resolve any relative
+	// file reference in config.json (e.g. an isis mrt-file or a bgp
+	// raw-update-file) against the instance directory, which is also where
+	// uploaded files are stored.
 	done, err := RunCommand(
+		folder,
 		path.Join(folder, runPidFilename),
 		path.Join(folder, RunStdOut),
 		path.Join(folder, RunStdErr),
@@ -334,7 +339,11 @@ func (r *DefaultRepository) commandlineParameters(name string, runningConfig Run
 		params = append(params, "-c", fmt.Sprintf("%d", runningConfig.PPPoESessionCount))
 	}
 	if len(runningConfig.StreamConfig) > 0 {
-		params = append(params, "-T", runningConfig.StreamConfig)
+		streamConfig := runningConfig.StreamConfig
+		if !path.IsAbs(streamConfig) {
+			streamConfig = path.Join(folder, streamConfig)
+		}
+		params = append(params, "-T", streamConfig)
 	}
 	return params
 }

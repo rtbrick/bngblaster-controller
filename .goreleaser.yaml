@@ -33,6 +33,16 @@ nfpms:
         dst: /lib/systemd/system/rtbrick-bngblasterctrl.service
         file_info:
           mode: 0644
+      - src: debian/scripts/default/rtbrick-bngblasterctrl
+        dst: /etc/default/rtbrick-bngblasterctrl
+        type: config|noreplace
+        file_info:
+          mode: 0644
+      - src: debian/scripts/logrotate/rtbrick-bngblasterctrl
+        dst: /etc/logrotate.d/rtbrick-bngblasterctrl
+        type: config|noreplace
+        file_info:
+          mode: 0644
     scripts:
       postinstall: debian/scripts/postinstall.sh
       preremove: debian/scripts/preremove.sh

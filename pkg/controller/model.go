@@ -68,7 +68,9 @@ type RunningConfig struct {
 	PPPoESessionCount int `json:"pppoe_session_count"`
 	// SessionCount overwrites the session count from config
 	SessionCount int `json:"session_count"`
-	// StreamConfig specifies an optional stream configuration file (absolute path)
+	// StreamConfig specifies an optional stream configuration file. An
+	// absolute path (starting with "/") is used as-is; a relative path is
+	// resolved against the instance's directory.
 	StreamConfig string `json:"stream_config"`
 	// MetricFlags flags that allows to specify instance metrics to be reported
 	// Allowed values: session_counters|interfaces|access_interfaces|network_interfaces|a10nsp_interfaces|streams

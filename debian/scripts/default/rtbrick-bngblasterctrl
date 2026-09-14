@@ -1,0 +1,10 @@
+# Configuration for the rtbrick-bngblasterctrl systemd service.
+#
+# Set BNGBLASTERCTRL_OPTS to any combination of the bngblasterctrl
+# command-line flags. Run "bngblasterctrl -h" for the full list.
+#
+# Examples:
+#   BNGBLASTERCTRL_OPTS="-addr :8080 -d /var/bngblaster"
+#   BNGBLASTERCTRL_OPTS="-ui=false -interfaces-api=false -upload=false"
+#
+#BNGBLASTERCTRL_OPTS=""

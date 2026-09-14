@@ -15,6 +15,10 @@ import (
 var ExecCommand = exec.Command
 
 // RunCommand runs the command
+// dir working directory the command is started in; relative file paths
+// referenced by the command (e.g. a bngblaster config's isis mrt-file or
+// bgp raw-update-file) resolve against this directory. Empty inherits the
+// caller's own working directory.
 // pidFile file that should be written with the pid
 // stdFile file that should be written with the stdout
 // errFile file that should be written with the stderr
@@ -23,12 +27,13 @@ var ExecCommand = exec.Command
 // exit) exactly once, once the process has terminated; it is buffered so a
 // caller that stops waiting (e.g. after a startup grace period) never
 // leaks the reporting goroutine.
-func RunCommand(pidFile string, stdFile string, errFile string, args ...string) (chan error, error) {
+func RunCommand(dir string, pidFile string, stdFile string, errFile string, args ...string) (chan error, error) {
 	if len(args) == 0 {
 		return nil, fmt.Errorf("at least one argument need to be specified")
 	}
 	log.Info().Str("command", strings.Join(args, " ")).Msg("start Command")
 	cmd := ExecCommand(args[0], args[1:]...)
+	cmd.Dir = dir
 
 	stdout, err := os.OpenFile(stdFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, permission)
 	if err != nil {

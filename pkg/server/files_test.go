@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
 
 	"github.com/rtbrick/bngblaster-controller/pkg/controller"
@@ -56,6 +57,34 @@ func TestServer_fileDownload_isForcedToADownload(t *testing.T) {
 	require.Equal(t, "nosniff", recorder.Header().Get("X-Content-Type-Options"))
 	require.Equal(t, "application/octet-stream", recorder.Header().Get("Content-Type"),
 		"the browser must never be told this is renderable HTML")
+}
+
+// TestServer_fileDownload_rejectsUnsafeFilename exercises fileDownload's own
+// isUnsafeFileName guard directly via mux.SetURLVars, bypassing the router.
+// A real request can't reach the handler with these file_name values in the
+// first place - gorilla/mux cleans "." and ".." path segments and redirects
+// before routing - but the guard is defense in depth for exactly that
+// scenario, so it must be verified independently of the router.
+func TestServer_fileDownload_rejectsUnsafeFilename(t *testing.T) {
+	folder := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(folder, "test"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(folder, "outside.txt"), []byte("secret"), 0o600))
+
+	repository := &controller.RepositoryMock{
+		ConfigFolderFunc: func() string { return folder },
+		ExistsFunc:       func(name string) bool { return true },
+	}
+	handler := NewServer(repository)
+
+	for _, filename := range []string{"..", ".", "/"} {
+		t.Run(filename, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/instances/test/_files/x", nil)
+			req = mux.SetURLVars(req, map[string]string{instanceNameParameter: "test", "file_name": filename})
+			recorder := httptest.NewRecorder()
+			handler.fileDownload()(recorder, req)
+			require.Equal(t, http.StatusBadRequest, recorder.Code)
+		})
+	}
 }
 
 func TestServer_fileDownload_missingInstance(t *testing.T) {
@@ -115,6 +144,30 @@ func TestServer_uploadFile_cannotEscapeInstanceFolder(t *testing.T) {
 	written, err := os.ReadFile(filepath.Join(folder, "test", "pwned.txt"))
 	require.NoError(t, err)
 	require.Equal(t, "payload", string(written))
+}
+
+func TestServer_uploadFile_rejectsUnsafeFilename(t *testing.T) {
+	folder := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(folder, "test"), 0o700))
+
+	repository := &controller.RepositoryMock{
+		ConfigFolderFunc: func() string { return folder },
+		AllowUploadFunc:  func() bool { return true },
+		ExistsFunc:       func(name string) bool { return true },
+	}
+	handler := NewServer(repository)
+
+	for _, filename := range []string{"..", ".", "/"} {
+		t.Run(filename, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, uploadRequest(t, "test", filename, "payload"))
+			require.Equal(t, http.StatusBadRequest, recorder.Code)
+		})
+	}
+
+	entries, err := os.ReadDir(filepath.Join(folder, "test"))
+	require.NoError(t, err)
+	require.Empty(t, entries, "no file should have been written for an unsafe filename")
 }
 
 func TestServer_uploadFile_storesPlainNameUnchanged(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/gorilla/mux"
+	"github.com/rs/zerolog/log"
 )
 
 // files lists the downloadable files present in an instance's config
@@ -47,13 +48,22 @@ func (s *Server) files() http.HandlerFunc {
 // cross-site scripting vector against every other user of this UI.
 func (s *Server) fileDownload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		remoteAddr := clientIP(r)
 		instanceVariable := mux.Vars(r)[instanceNameParameter]
 		instance := cleanPathVariable(instanceVariable)
 		if !s.repository.Exists(instance) {
 			JSONNotFound(w, r)
 			return
 		}
+		// Base's own degenerate outputs ("", ".", "..", "/") are rejected
+		// outright since joining any of them would land outside the
+		// instance folder - see isUnsafeFileName.
 		file := filepath.Base(mux.Vars(r)["file_name"])
+		if isUnsafeFileName(file) {
+			http.Error(w, "invalid filename", http.StatusBadRequest)
+			return
+		}
+		log.Info().Str("remote_addr", remoteAddr).Str("instance", instance).Str("file", file).Msg("file downloaded")
 		w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(file))
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set(contentType, "application/octet-stream")
