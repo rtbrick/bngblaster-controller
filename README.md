@@ -64,13 +64,13 @@ Usage of /usr/local/bin/bngblasterctrl:
   -e string
     	bngblaster executable (default "/usr/bin/bngblaster")
   -interfaces-api
-    	disable the interfaces endpoint (default true)
+    	enable the interfaces endpoint
   -schema string
     	path to the bngblaster configuration JSON schema served on /api/v1/schema (default "/etc/bngblaster/bngblaster-config.json")
   -ui
-    	disable the embedded web UI (default true)
+    	enable the embedded web UI (experimental)
   -upload
-    	disable file upload (default true)
+    	enable file upload
 ```
 
 ## Configuration
@@ -103,6 +103,37 @@ This file is preserved across package upgrades and is the recommended way to
 configure the service; editing the unit file directly (e.g. via
 `systemctl edit rtbrick-bngblasterctrl`) also works but is not required.
 
+## Experimental Web UI
+
+The controller ships with an embedded, experimental web UI for creating and
+observing test instances without calling the REST API directly. It is
+**disabled by default**, along with the two additional endpoints it depends
+on:
+
+* `-ui` — serves the web UI on `/`
+* `-interfaces-api` — serves `/api/v1/interfaces`, used by the web UI to
+  populate the host network interface dropdown when creating a new instance
+* `-upload` — enables the `/api/v1/instances/{instance_name}/_upload`
+  endpoint, used by the web UI (and the REST API) to upload files into a
+  test instance
+
+To try it out, start (or configure the systemd service to start) the
+controller with all three flags enabled:
+
+```
+$ /usr/local/bin/bngblasterctrl -ui -interfaces-api -upload
+```
+
+or, for the systemd-installed service, in `/etc/default/rtbrick-bngblasterctrl`:
+
+```
+BNGBLASTERCTRL_OPTS="-ui -interfaces-api -upload"
+```
+
+Then open `http://<host>:<port>/` in a browser. As the UI is experimental,
+expect rough edges, and only enable it on networks you trust, since none of
+these endpoints require authentication yet.
+
 ## License
 
 BNG Blaster is licensed under the BSD 3-Clause License, which means that you are free to get and use it for
@@ -112,7 +143,7 @@ See the LICENSE file for more details.
 
 ## Copyright
 
-Copyright (C) 2020-2025, RtBrick, Inc.
+Copyright (C) 2020-2026, RtBrick, Inc.
 
 ## Contact
 

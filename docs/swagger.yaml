@@ -542,10 +542,9 @@ paths:
                       - tcp
                       - lag
                       - dpdk
+                      - af_xdp
                       - packet
                       - http
-                      - timer
-                      - timer-detail
                 pcap_capture:
                   description: allows to write a PCAP file
                   type: boolean

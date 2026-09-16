@@ -473,6 +473,52 @@
   //= ========================================================================
   // Start-instance dialog (RunningConfig)
   //= ========================================================================
+  // Enum options mirrored from the "_start" endpoint's request body schema
+  // (docs/swagger.yaml): report_flags, logging_flags and metric_flags.
+  const REPORT_FLAGS = ['sessions', 'streams'];
+  const LOGGING_FLAGS = [
+    'debug', 'error', 'igmp', 'io', 'pppoe', 'info', 'pcap', 'ip', 'loss',
+    'l2tp', 'dhcp', 'isis', 'ospf', 'ldp', 'bgp', 'tcp', 'lag', 'dpdk',
+    'af_xdp', 'packet', 'http',
+  ];
+  const METRIC_FLAGS = ['session_counters', 'interfaces', 'access_interfaces', 'network_interfaces', 'a10nsp_interfaces', 'streams'];
+
+  // Fills a .flags-grid container with one checkbox per flag. Guarded by
+  // childElementCount since the dialog markup and flag lists are static -
+  // this only ever needs to run once, not on every dialog open.
+  function renderFlagCheckboxes(containerId, idPrefix, flags, defaultChecked) {
+    const container = $('#' + containerId);
+    if (!container || container.childElementCount) return;
+    flags.forEach((flag) => {
+      const id = idPrefix + '-' + flag;
+      const cb = el('input', { type: 'checkbox', id, value: flag });
+      cb.checked = defaultChecked.includes(flag);
+      container.appendChild(el('div', { class: 'checkbox-field' }, [cb, el('label', { for: id, text: flag })]));
+    });
+  }
+
+  function collectCheckedFlags(containerId) {
+    return Array.from($('#' + containerId).querySelectorAll('input[type="checkbox"]'))
+      .filter((cb) => cb.checked)
+      .map((cb) => cb.value);
+  }
+
+  // Hides a flag sub-list while its enabling checkbox is unticked, so the
+  // options read as belonging to it rather than always-on settings.
+  function bindFlagsVisibility(toggleId, containerId) {
+    const toggle = $('#' + toggleId);
+    const container = $('#' + containerId);
+    const update = () => { container.hidden = !toggle.checked; };
+    toggle.addEventListener('change', update);
+    update();
+  }
+
+  renderFlagCheckboxes('start-report-flags', 'start-report-flag', REPORT_FLAGS, []);
+  renderFlagCheckboxes('start-logging-flags', 'start-logging-flag', LOGGING_FLAGS, []);
+  renderFlagCheckboxes('start-metric-flags', 'start-metric-flag', METRIC_FLAGS, []);
+  bindFlagsVisibility('start-opt-report', 'start-report-flags');
+  bindFlagsVisibility('start-opt-logging', 'start-logging-flags');
+
   let startDialogTarget = null;
   let startDialogThen = null;
   function openStartDialog(name, andThen) {
@@ -486,13 +532,13 @@
     const sessionCount = parseInt($('#start-opt-session-count').value, 10) || 0;
     return {
       report: $('#start-opt-report').checked,
-      report_flags: $('#start-opt-report').checked ? ['sessions', 'streams'] : [],
+      report_flags: $('#start-opt-report').checked ? collectCheckedFlags('start-report-flags') : [],
       logging: $('#start-opt-logging').checked,
-      logging_flags: [],
+      logging_flags: $('#start-opt-logging').checked ? collectCheckedFlags('start-logging-flags') : [],
       pcap_capture: $('#start-opt-pcap').checked,
       session_count: sessionCount,
       stream_config: $('#start-opt-stream-config').value.trim(),
-      metric_flags: ['session_counters', 'interfaces', 'streams'],
+      metric_flags: collectCheckedFlags('start-metric-flags'),
     };
   }
   $('#btn-start-instance-confirm').addEventListener('click', async () => {
@@ -556,7 +602,19 @@
   }
 
   function isInterfaceField(key) {
+    // "lag-interface" (on links) names a LAG group defined elsewhere in this
+    // same config, not a host NIC, so it must never pull from the
+    // host-interfaces dropdown.
+    if (key === 'lag-interface') return false;
     return /(^|[-_])interface(name)?$/i.test(key);
+  }
+
+  // A lagInterface object's own "interface" property is the name of the
+  // virtual LAG interface being created (e.g. "lag0") - it is picked by the
+  // user, not selected from the host's real network interfaces, so it must
+  // always render as a plain text field rather than the interfaces dropdown.
+  function isLagInterfaceDefSchema(schema) {
+    return !!(schema && schema.properties && schema.properties['lacp-min-active-links']);
   }
 
   // Protocol/unit acronyms used throughout the bngblaster schema that should
@@ -596,7 +654,7 @@
   // Builds a form field for a schema node. Returns { el, getValue } where
   // getValue() returns undefined when the field should be omitted from the
   // submitted document (untouched optional section, empty optional array...).
-  function buildField(key, rawSchema, root, required) {
+  function buildField(key, rawSchema, root, required, opts) {
     const arrayItems = oneOfArrayItems(rawSchema, root);
     if (arrayItems) {
       const arraySchema = { type: 'array', items: arrayItems, description: rawSchema.description };
@@ -636,7 +694,7 @@
     if (type === 'integer' || type === 'number') {
       return buildNumberField(key, schema, required, id, label, type === 'integer');
     }
-    if (isInterfaceField(key)) {
+    if (isInterfaceField(key) && !(opts && opts.plainInterface)) {
       return buildInterfaceField(key, schema, required, id, label);
     }
     return buildStringField(key, schema, required, id, label);
@@ -788,9 +846,11 @@
 
   function buildObjectField(key, schema, root, required, id, label) {
     const requiredChildren = schema.required || [];
+    const isLagInterfaceDef = isLagInterfaceDefSchema(schema);
     const body = el('div', { class: 'form-grid' });
     const children = Object.entries(schema.properties).map(([childKey, childSchema]) => {
-      const field = buildField(childKey, childSchema, root, requiredChildren.includes(childKey));
+      const opts = (childKey === 'interface' && isLagInterfaceDef) ? { plainInterface: true } : undefined;
+      const field = buildField(childKey, childSchema, root, requiredChildren.includes(childKey), opts);
       body.appendChild(field.el);
       return [childKey, field];
     });
@@ -908,11 +968,6 @@
     (newInstanceFields || []).forEach(([k, f]) => { if (f.setValue) f.setValue(obj ? obj[k] : undefined); });
   }
 
-  function updateSchemaPreview() {
-    const preview = $('#schema-json-preview');
-    if (preview) preview.textContent = JSON.stringify(collectFormJSON(), null, 2);
-  }
-
   // Switches the New Instance dialog between the schema-driven form and raw
   // JSON editing, synchronizing the two representations at the switch point
   // (rather than continuously, which would be surprising while typing).
@@ -934,7 +989,6 @@
         return;
       }
       applyJSONToForm(parsed);
-      updateSchemaPreview();
       setStatusMessage(jsonStatus, '');
     }
     configMode = mode;
@@ -942,6 +996,8 @@
     $('#config-mode-btn-json').setAttribute('aria-pressed', String(mode === 'json'));
     $('#schema-form-root').hidden = mode !== 'form';
     $('#schema-json-root').hidden = mode !== 'json';
+    const nav = $('#schema-form-nav');
+    if (nav) nav.hidden = mode !== 'form' || !nav.childElementCount;
     if (mode === 'json') $('#schema-json-textarea').focus();
   }
   $('#config-mode-btn-form').addEventListener('click', () => switchConfigMode('form'));
@@ -954,6 +1010,8 @@
     configMode = 'json';
     $('#config-mode-toggle').hidden = true;
     $('#schema-json-root').hidden = false;
+    const nav = $('#schema-form-nav');
+    if (nav) { nav.hidden = true; nav.innerHTML = ''; }
   }
 
   //= ========================================================================
@@ -1299,6 +1357,7 @@
           label: k,
           required: required.includes(k),
           description: props[k].description || resolveSchema(props[k], rootSchema).description || resolveSchema(props[k], rootSchema).title || '',
+          insertText: JSON.stringify(k) + ': ',
         }));
       return { range: partial ? [partial.start, offset] : [offset, offset], items };
     }
@@ -1316,12 +1375,12 @@
         const prefix = isStringPartial ? text.slice(partial.start + 1, Math.min(offset, partial.end)) : (isIdentPartial ? text.slice(partial.start, offset) : '');
         const items = resolved.enum
           .filter((v) => String(v).toLowerCase().startsWith(prefix.toLowerCase()))
-          .map((v) => ({ label: String(v), description: resolved.description || '' }));
+          .map((v) => ({ label: String(v), description: resolved.description || '', insertText: JSON.stringify(v) }));
         return { range: partial ? [partial.start, offset] : [offset, offset], items };
       }
       if (resolved.type === 'boolean' && (isIdentPartial || !partial)) {
         const prefix = isIdentPartial ? text.slice(partial.start, offset) : '';
-        const items = ['true', 'false'].filter((v) => v.startsWith(prefix)).map((v) => ({ label: v, description: '' }));
+        const items = ['true', 'false'].filter((v) => v.startsWith(prefix)).map((v) => ({ label: v, description: '', insertText: v }));
         return { range: partial ? [partial.start, offset] : [offset, offset], items };
       }
       return null;
@@ -1411,25 +1470,48 @@
     };
   }
 
-  // The suggestion box is a read-only hint - it lists the property/enum
-  // options valid at the cursor (from jsonAutocompleteSuggestions) purely as
-  // information, like a tooltip. It never inserts anything: Tab and Enter
-  // keep their normal textarea behavior (focus-out / newline).
+  // The suggestion box lists the property/enum options valid at the cursor
+  // (from jsonAutocompleteSuggestions). Clicking an entry inserts it in place
+  // of whatever was already typed at that position; Tab and Enter still keep
+  // their normal textarea behavior (focus-out / newline) - insertion is
+  // mouse-only, unlike a typical code editor's autocomplete.
   let jsonSuggestionsShown = false;
+  // The {range, items} last passed to showJSONSuggestions, so a click on one
+  // of the <li> elements it rendered knows what text to insert and where.
+  let jsonSuggestionsState = null;
 
   function hideJSONSuggestions() {
     const box = $('#schema-json-suggest');
     if (box) { box.hidden = true; box.innerHTML = ''; }
     jsonSuggestionsShown = false;
+    jsonSuggestionsState = null;
+  }
+
+  function applyJSONSuggestion(textarea, item) {
+    if (!jsonSuggestionsState) return;
+    const [start, end] = jsonSuggestionsState.range;
+    const value = textarea.value;
+    textarea.value = value.slice(0, start) + item.insertText + value.slice(end);
+    const caret = start + item.insertText.length;
+    textarea.setSelectionRange(caret, caret);
+    hideJSONSuggestions();
+    textarea.focus();
+    refreshJSONEditor();
+    // Picking a property name commonly leaves the caret right after ": ",
+    // ready for a value - if that value has its own enum/boolean
+    // suggestions, show them immediately instead of making the user
+    // re-trigger autocomplete.
+    maybeShowJSONSuggestions(textarea);
   }
 
   function showJSONSuggestions(textarea, sugg) {
     const box = $('#schema-json-suggest');
     if (!box || !sugg || !sugg.items.length) { hideJSONSuggestions(); return; }
     jsonSuggestionsShown = true;
+    jsonSuggestionsState = sugg;
     box.innerHTML = '';
     sugg.items.forEach((item) => {
-      box.appendChild(el('li', {}, [
+      box.appendChild(el('li', { onclick: () => applyJSONSuggestion(textarea, item) }, [
         el('span', { class: 'suggest-name', text: item.label + (item.required ? ' *' : '') }),
         item.description ? el('span', { class: 'suggest-desc', text: item.description }) : null,
       ]));
@@ -1541,6 +1623,11 @@
   function initJSONEditorDOM() {
     const textarea = $('#schema-json-textarea');
     if (!textarea) return;
+    // Without this, clicking a suggestion first blurs the textarea (the
+    // mousedown that precedes the click), which schedules hideJSONSuggestions
+    // and can clear the list out from under the click.
+    const suggestBox = $('#schema-json-suggest');
+    if (suggestBox) suggestBox.addEventListener('mousedown', (ev) => ev.preventDefault());
     textarea.addEventListener('input', () => {
       refreshJSONEditorSyntaxOnly();
       refreshJSONEditorDebounced();
@@ -1567,6 +1654,28 @@
       }
     });
     textarea.addEventListener('blur', () => { setTimeout(hideJSONSuggestions, 100); });
+  }
+
+  // Builds the left-side "jump to section" index for the schema-driven form,
+  // one entry per top-level property. Clicking an entry opens that section
+  // (if it collapses into a <details>) and scrolls it into view.
+  function buildFormSectionNav(fields, properties, schema, requiredTop) {
+    const nav = $('#schema-form-nav');
+    nav.innerHTML = '';
+    if (fields.length < 2) { nav.hidden = true; return; }
+    fields.forEach(([k, field]) => {
+      const label = labelFor(k, resolveSchema(properties[k], schema));
+      nav.appendChild(el('button', {
+        type: 'button',
+        class: 'schema-form-nav-link',
+        text: label + (requiredTop.includes(k) ? ' *' : ''),
+        onclick: () => {
+          if (field.el.tagName === 'DETAILS') field.el.open = true;
+          field.el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        },
+      }));
+    });
+    nav.hidden = false;
   }
 
   // null while creating a new instance; the instance name while editing an
@@ -1598,6 +1707,9 @@
     const root = $('#schema-form-root');
     root.innerHTML = '<p class="hint">Loading configuration schema…</p>';
     root.hidden = false;
+    const nav = $('#schema-form-nav');
+    nav.hidden = true;
+    nav.innerHTML = '';
     openDialog('dialog-new-instance');
 
     const existingConfig = existingName ? await API.getConfig(existingName).catch(() => null) : null;
@@ -1619,13 +1731,9 @@
       const fields = Object.entries(effective.properties).map(([k, s]) => [k, buildField(k, s, schema, requiredTop.includes(k))]);
       fields.forEach(([, f]) => root.appendChild(f.el));
       newInstanceFields = fields;
+      buildFormSectionNav(fields, effective.properties, schema, requiredTop);
 
-      const preview = el('details', {}, [el('summary', { text: 'View generated JSON' }), el('pre', { class: 'command-output', id: 'schema-json-preview' })]);
-      root.appendChild(preview);
-      root.addEventListener('input', debounce(updateSchemaPreview, 200));
-      root.addEventListener('change', updateSchemaPreview);
       if (existingConfig) applyJSONToForm(existingConfig);
-      updateSchemaPreview();
       if (existingConfig) $('#schema-json-textarea').value = JSON.stringify(existingConfig, null, 2);
       refreshJSONEditor();
     } catch (e) {

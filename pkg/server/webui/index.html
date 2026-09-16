@@ -20,7 +20,7 @@
   <img class="logo" src="/static/img/logo.png?v={{.AssetVersion}}" alt="RtBrick" width="28" height="28">
   <div>
     <h1>BNG Blaster Controller</h1>
-    <div class="subtitle">Test instance management</div>
+    <div class="subtitle">Test Instance User Interface</div>
   </div>
   <nav class="app-nav" aria-label="Primary">
     <button type="button" id="nav-dashboard" aria-current="page">Dashboard</button>
@@ -338,8 +338,11 @@
         <button type="button" class="btn btn-sm" id="config-mode-btn-form" aria-pressed="true">Form</button>
         <button type="button" class="btn btn-sm" id="config-mode-btn-json" aria-pressed="false">Edit as JSON</button>
       </div>
-      <div id="schema-form-root">
-        <p class="hint">Loading configuration schema…</p>
+      <div class="schema-form-layout" id="schema-form-layout">
+        <nav class="schema-form-nav" id="schema-form-nav" aria-label="Configuration sections" hidden></nav>
+        <div id="schema-form-root" class="schema-form-content">
+          <p class="hint">Loading configuration schema…</p>
+        </div>
       </div>
       <div id="schema-json-root" hidden>
         <p class="hint">Edit the instance configuration directly as JSON. Switching back to the form
@@ -379,14 +382,21 @@
         <input type="checkbox" id="start-opt-report" checked>
         <label for="start-opt-report">Generate JSON result report on exit</label>
       </div>
+      <div class="flags-grid" id="start-report-flags"></div>
       <div class="checkbox-field field">
         <input type="checkbox" id="start-opt-logging">
         <label for="start-opt-logging">Enable logging to file</label>
       </div>
+      <div class="flags-grid" id="start-logging-flags"></div>
       <div class="checkbox-field field">
         <input type="checkbox" id="start-opt-pcap">
         <label for="start-opt-pcap">Capture traffic to a pcap file</label>
       </div>
+    </fieldset>
+    <fieldset>
+      <legend>Metrics</legend>
+      <p class="hint">Categories exposed on the Prometheus <code>/metrics</code> endpoint while running.</p>
+      <div class="flags-grid" id="start-metric-flags"></div>
     </fieldset>
     <fieldset>
       <legend>Overrides</legend>

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2020-2025, RtBrick, Inc.
+// Copyright (C) 2020-2026, RtBrick, Inc.
 package server
 
 import (
@@ -113,8 +113,8 @@ func NewServer(repository controller.Repository, opts ...Option) *Server {
 		router:           mux.NewRouter(),
 		prom:             controller.NewProm(repository),
 		repository:       repository,
-		enableUI:         true,
-		enableInterfaces: true,
+		enableUI:         false,
+		enableInterfaces: false,
 		schemaPath:       DefaultSchemaPath,
 		authMiddleware:   noopAuthMiddleware,
 		streamCache:      newSummaryCache[[]controller.StreamSummaryStream](),

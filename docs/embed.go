@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2020-2025, RtBrick, Inc.
+// Copyright (C) 2020-2026, RtBrick, Inc.
 
 // Package docs embeds this directory's OpenAPI/Swagger definition and its
 // Swagger UI viewer page - the same files GitHub Pages serves at

@@ -278,6 +278,15 @@ fieldset {
 fieldset fieldset { background: var(--color-surface-alt); }
 .checkbox-field { display: flex; align-items: center; gap: 0.5rem; }
 .checkbox-field input { width: auto; }
+/* Sub-lists of enum flags (report/logging/metric flags in the Start Instance
+   dialog) nested under the checkbox that enables them. */
+.flags-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.25rem var(--space-3);
+  margin: 0.25rem 0 var(--space-3) 1.6rem;
+}
+.flags-grid .checkbox-field { font-size: 0.88rem; }
 .required-mark { color: var(--color-danger); margin-left: 0.15rem; }
 .form-grid {
   display: grid;
@@ -376,6 +385,58 @@ dialog > form[method="dialog"] {
   flex: 0 0 auto;
 }
 
+/* ---------- Configuration form: section index sidebar ---------- */
+.schema-form-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+.schema-form-nav {
+  flex: 0 0 180px;
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: calc(94vh - 220px);
+  overflow-y: auto;
+}
+/* Author rules win over the UA [hidden] stylesheet regardless of
+   specificity (same pattern as the dialog [open] rule above), so the
+   "display: flex" above would otherwise keep the nav visible - and taking
+   up layout space - even while its "hidden" attribute is set in JSON
+   mode. */
+.schema-form-nav[hidden] { display: none; }
+.schema-form-nav-link {
+  background: none;
+  border: none;
+  border-radius: var(--radius);
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+.schema-form-nav-link:hover,
+.schema-form-nav-link:focus-visible {
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+}
+.schema-form-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+@media (max-width: 640px) {
+  .schema-form-layout { flex-direction: column; }
+  .schema-form-nav {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    max-height: none;
+    width: 100%;
+  }
+}
+
 /* ---------- Drop zone ---------- */
 .dropzone {
   border: 2px dashed var(--color-border);
@@ -462,7 +523,6 @@ dialog > form[method="dialog"] {
 .json-suggest {
   position: absolute;
   z-index: 5;
-  pointer-events: none;
   list-style: none;
   margin: 0;
   padding: 0.25rem 0;
@@ -481,6 +541,11 @@ dialog > form[method="dialog"] {
   display: flex;
   gap: 0.5rem;
   align-items: baseline;
+  cursor: pointer;
+}
+.json-suggest li:hover,
+.json-suggest li:focus-visible {
+  background: var(--color-surface-alt);
 }
 .json-suggest li .suggest-name { font-family: ui-monospace, Consolas, monospace; font-weight: 600; white-space: nowrap; }
 .json-suggest li .suggest-desc { color: var(--color-text-muted); font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

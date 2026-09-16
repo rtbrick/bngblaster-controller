@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2020-2025, RtBrick, Inc.
+// Copyright (C) 2020-2026, RtBrick, Inc.
 package server
 
 import "net/http"
@@ -23,8 +23,8 @@ func noopAuthMiddleware(next http.Handler) http.Handler {
 // Option configures optional behavior of the Server.
 type Option func(*Server)
 
-// WithUI enables or disables serving the embedded web UI on "/".
-// Enabled by default.
+// WithUI enables or disables serving the embedded web UI on "/". The web
+// UI is experimental and disabled by default.
 func WithUI(enabled bool) Option {
 	return func(s *Server) {
 		s.enableUI = enabled
@@ -32,7 +32,7 @@ func WithUI(enabled bool) Option {
 }
 
 // WithInterfacesAPI enables or disables the "/api/v1/interfaces" endpoint
-// which reports the network interfaces available on the host. Enabled by
+// which reports the network interfaces available on the host. Disabled by
 // default.
 func WithInterfacesAPI(enabled bool) Option {
 	return func(s *Server) {

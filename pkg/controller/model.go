@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2020-2025, RtBrick, Inc.
+// Copyright (C) 2020-2026, RtBrick, Inc.
 package controller
 
 import "context"
@@ -60,7 +60,7 @@ type RunningConfig struct {
 	// Logging specifies if logging is enabled
 	Logging bool `json:"logging"`
 	// LoggingFlags flags that allows to specify what is logged
-	// Allowed values: debug|error|igmp|io|pppoe|info|pcap|ip|loss|l2tp|dhcp|isis|ospf|ldp|bgp|tcp|lag|dpdk|packet|http|timer|timer-detail
+	// Allowed values: debug|error|igmp|io|pppoe|info|pcap|ip|loss|l2tp|dhcp|isis|ospf|ldp|bgp|tcp|lag|dpdk|af_xdp|packet|http|timer|timer-detail
 	LoggingFlags []string `json:"logging_flags"`
 	// PCAPCapture allows to write a pcap file
 	PCAPCapture bool `json:"pcap_capture"`

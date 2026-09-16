@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2020-2025, RtBrick, Inc.
+// Copyright (C) 2020-2026, RtBrick, Inc.
 package server
 
 import (
@@ -16,7 +16,7 @@ func uiServer(version string) *Server {
 	repository := &controller.RepositoryMock{
 		ConfigFolderFunc: func() string { return configFolder },
 	}
-	server := NewServer(repository)
+	server := NewServer(repository, WithUI(true))
 	server.Version = version
 	return server
 }
