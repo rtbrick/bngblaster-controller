@@ -64,13 +64,13 @@ Usage of /usr/local/bin/bngblasterctrl:
   -e string
     	bngblaster executable (default "/usr/bin/bngblaster")
   -interfaces-api
-    	enable the interfaces endpoint
+    	enable the interfaces endpoint (disable with -interfaces-api=false) (default true)
   -schema string
     	path to the bngblaster configuration JSON schema served on /api/v1/schema (default "/etc/bngblaster/bngblaster-config.json")
   -ui
-    	enable the embedded web UI (experimental)
+    	enable the embedded web UI (experimental, disable with -ui=false) (default true)
   -upload
-    	enable file upload
+    	enable file upload (disable with -upload=false) (default true)
 ```
 
 ## Configuration
@@ -107,7 +107,7 @@ configure the service; editing the unit file directly (e.g. via
 
 The controller ships with an embedded, experimental web UI for creating and
 observing test instances without calling the REST API directly. It is
-**disabled by default**, along with the two additional endpoints it depends
+**enabled by default**, along with the two additional endpoints it depends
 on:
 
 * `-ui` — serves the web UI on `/`
@@ -117,21 +117,25 @@ on:
   endpoint, used by the web UI (and the REST API) to upload files into a
   test instance
 
-To try it out, start (or configure the systemd service to start) the
-controller with all three flags enabled:
+Each of them can be disabled individually by setting the flag to `false`,
+e.g. to run a REST-only controller:
 
 ```
-$ /usr/local/bin/bngblasterctrl -ui -interfaces-api -upload
+$ /usr/local/bin/bngblasterctrl -ui=false -interfaces-api=false -upload=false
 ```
 
 or, for the systemd-installed service, in `/etc/default/rtbrick-bngblasterctrl`:
 
 ```
-BNGBLASTERCTRL_OPTS="-ui -interfaces-api -upload"
+BNGBLASTERCTRL_OPTS="-ui=false -interfaces-api=false -upload=false"
 ```
 
-Then open `http://<host>:<port>/` in a browser. As the UI is experimental,
-expect rough edges, and only enable it on networks you trust, since none of
+Note that the web UI needs the interfaces and upload endpoints for some of
+its features, so disabling them while keeping `-ui` enabled leaves those
+parts of the UI non-functional.
+
+With the defaults, open `http://<host>:<port>/` in a browser. As the UI is experimental,
+expect rough edges, and only expose the controller on networks you trust, since none of
 these endpoints require authentication yet.
 
 ## License

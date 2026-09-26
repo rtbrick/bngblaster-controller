@@ -21,9 +21,9 @@ func main() {
 	addr := flag.String("addr", ":8001", "HTTP network address")
 	directory := flag.String("d", controller.DefaultConfigFolder, "config folder")
 	executable := flag.String("e", controller.DefaultExecutable, "bngblaster executable")
-	upload := flag.Bool("upload", false, "enable file upload")
-	ui := flag.Bool("ui", false, "enable the embedded web UI (experimental)")
-	interfacesAPI := flag.Bool("interfaces-api", false, "enable the interfaces endpoint")
+	upload := flag.Bool("upload", true, "enable file upload (disable with -upload=false)")
+	ui := flag.Bool("ui", true, "enable the embedded web UI (experimental, disable with -ui=false)")
+	interfacesAPI := flag.Bool("interfaces-api", true, "enable the interfaces endpoint (disable with -interfaces-api=false)")
 	schema := flag.String("schema", server.DefaultSchemaPath, "path to the bngblaster configuration JSON schema served on /api/v1/schema")
 
 	// logging

@@ -88,6 +88,7 @@
       <button role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true">Session Overview</button>
       <button role="tab" id="tab-sessions" aria-controls="panel-sessions" aria-selected="false" tabindex="-1">Sessions</button>
       <button role="tab" id="tab-streams" aria-controls="panel-streams" aria-selected="false" tabindex="-1">Streams</button>
+      <button role="tab" id="tab-bgp" aria-controls="panel-bgp" aria-selected="false" tabindex="-1" hidden>BGP</button>
       <button role="tab" id="tab-commands" aria-controls="panel-commands" aria-selected="false" tabindex="-1">Commands</button>
     </div>
 
@@ -296,6 +297,35 @@
       </div>
     </div>
 
+    <!-- ---- BGP ---- -->
+    <div role="tabpanel" id="panel-bgp" aria-labelledby="tab-bgp" tabindex="0" hidden>
+      <div class="card-header">
+        <p class="hint" style="margin:0;">BGP sessions of this instance, as reported by the
+          <code>bgp-sessions</code> command.</p>
+        <button type="button" class="btn btn-sm" id="btn-bgp-refresh">Refresh</button>
+      </div>
+      <div id="bgp-empty" class="empty-state">No BGP session data available. Start the instance to see live
+        BGP sessions here.</div>
+      <div id="bgp-content" hidden>
+        <div class="table-scroll">
+          <table>
+            <caption class="visually-hidden">BGP sessions</caption>
+            <thead>
+              <tr>
+                <th scope="col">Interface</th>
+                <th scope="col">Local Address</th>
+                <th scope="col">Peer Address</th>
+                <th scope="col">State</th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="bgp-tbody"></tbody>
+          </table>
+        </div>
+        <p class="hint" id="bgp-count-hint"></p>
+      </div>
+    </div>
+
     <!-- ---- Commands ---- -->
     <div role="tabpanel" id="panel-commands" aria-labelledby="tab-commands" tabindex="0" hidden>
       <div class="form-grid">
@@ -446,6 +476,21 @@
   <div class="dialog-footer">
     <button type="button" class="btn" id="btn-session-detail-refresh">Refresh</button>
     <button type="button" class="btn" data-close-dialog="dialog-session-detail">Close</button>
+  </div>
+</dialog>
+
+<!-- ===================== BGP SESSION DETAIL DIALOG ===================== -->
+<dialog id="dialog-bgp-detail" aria-labelledby="dialog-bgp-detail-title">
+  <div class="dialog-header">
+    <h2 id="dialog-bgp-detail-title">BGP Session Detail</h2>
+    <button type="button" class="btn btn-sm btn-icon" data-close-dialog="dialog-bgp-detail" aria-label="Close dialog">✕</button>
+  </div>
+  <div class="dialog-body">
+    <dl id="bgp-detail-list" class="detail-grid"></dl>
+  </div>
+  <div class="dialog-footer">
+    <button type="button" class="btn" id="btn-bgp-detail-refresh">Refresh</button>
+    <button type="button" class="btn" data-close-dialog="dialog-bgp-detail">Close</button>
   </div>
 </dialog>
 

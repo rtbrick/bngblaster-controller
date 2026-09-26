@@ -303,6 +303,7 @@
     overviewTimer: null,
     stream: { instance: null, total: 0, rowHeight: 34, buffer: 8, pending: false, timer: null, pollTimer: null, filters: {}, detailFlowId: null, detailTimer: null },
     session: { instance: null, total: 0, rowHeight: 34, buffer: 8, pending: false, timer: null, pollTimer: null, filters: {}, detailSessionId: null, detailTimer: null },
+    bgp: { pollTimer: null, detailKey: null, detailTimer: null },
     // generations maps instance -> the identity of the run.log it last read,
     // so a restarted instance (which recreates the file) is detected.
     log: { instance: null, offsets: {}, generations: {}, paused: false, manualSelect: false, timer: null },
@@ -1787,7 +1788,7 @@
   //= ========================================================================
   // Instance detail view: tabs
   //= ========================================================================
-  const TABS = ['overview', 'sessions', 'streams', 'commands'];
+  const TABS = ['overview', 'sessions', 'streams', 'bgp', 'commands'];
   function isTabActive(name) {
     const tab = $('#tab-' + name);
     return !!tab && tab.getAttribute('aria-selected') === 'true';
@@ -1849,6 +1850,7 @@
     if (name === 'overview') pollOverview();
     if (name === 'sessions') initSessionView(); else stopSessionPolling();
     if (name === 'streams') initStreamView(); else stopStreamPolling();
+    if (name === 'bgp') initBgpView(); else stopBgpPolling();
     if (name === 'commands') loadCommandBuilder();
   }
   $all('[role="tab"]').forEach((tab, idx, all) => {
@@ -1903,6 +1905,14 @@
       state[key].filters = {};
     });
 
+    // BGP tab: hidden again until the new instance's config says otherwise.
+    setTabAvailable('bgp', false);
+    $('#bgp-tbody').innerHTML = '';
+    $('#bgp-content').hidden = true;
+    $('#bgp-empty').hidden = false;
+    $('#bgp-empty').textContent = DEFAULT_EMPTY_TEXT['#bgp-empty'];
+    $('#bgp-count-hint').textContent = '';
+
     // Commands tab: the command list is per instance (it is discovered from
     // the instance itself), as is any response already shown.
     $('#command-select').innerHTML = '';
@@ -1919,6 +1929,7 @@
     stopInstancePolling();
     stopStreamPolling();
     stopSessionPolling();
+    stopBgpPolling();
     $('#view-instance').hidden = true;
     $('#view-dashboard').hidden = false;
     loadInstances();
@@ -1967,6 +1978,7 @@
     } catch (e) {
       announce('Failed to refresh status for ' + name, 'error');
     }
+    updateBgpAvailability(name);
   }
   $('#btn-instance-refresh').addEventListener('click', refreshInstanceStatus);
   $('#btn-instance-start').addEventListener('click', () => openStartDialog(state.currentInstance));
@@ -2729,6 +2741,135 @@
   });
 
   //= ========================================================================
+  // 3b3. BGP sessions
+  //= ========================================================================
+  // Unlike Sessions and Streams, BGP has no counter in session-counters that
+  // could drive the tab's visibility, and polling bgp-sessions from the
+  // overview for every instance just to find out would cost a socket round
+  // trip per tick for the (common) runs without BGP. The instance config
+  // already answers the question - BGP sessions exist only if it has a
+  // non-empty "bgp" section - and is a plain file read that also works while
+  // the instance is stopped.
+  async function updateBgpAvailability(name) {
+    let hasBgp = false;
+    try {
+      const config = await API.getConfig(name);
+      const bgp = config && config.bgp;
+      hasBgp = Array.isArray(bgp) ? bgp.length > 0 : (!!bgp && typeof bgp === 'object');
+    } catch (e) {
+      hasBgp = false;
+    }
+    // The user may have moved on to another instance meanwhile.
+    if (state.currentInstance === name) setTabAvailable('bgp', hasBgp);
+  }
+
+  // bgp-sessions has no session id, so a session is identified by the
+  // interface and address pair it runs on.
+  function bgpSessionKey(item) {
+    return [item.interface, item['local-address'], item['peer-address']].join('|');
+  }
+
+  async function fetchBgpSessions() {
+    const name = state.currentInstance;
+    if (!name) return null;
+    const resp = await API.command(name, 'bgp-sessions');
+    const result = splitCommandResponse(resp).result;
+    return Array.isArray(result) ? result : [];
+  }
+
+  // The number of BGP sessions is small (one per configured peer), so the
+  // whole list is fetched and rendered on every tick - no virtual scrolling.
+  async function loadBgpSessions() {
+    const name = state.currentInstance;
+    if (!name) return;
+    let items;
+    try {
+      items = await fetchBgpSessions();
+    } catch (e) {
+      if (state.currentInstance !== name) return;
+      $('#bgp-empty').hidden = false;
+      $('#bgp-empty').textContent = e.status === 412 ? 'Instance is not running.' : 'Could not load BGP sessions: ' + e.message;
+      $('#bgp-content').hidden = true;
+      return;
+    }
+    if (state.currentInstance !== name) return;
+    if (!items.length) {
+      $('#bgp-empty').hidden = false;
+      $('#bgp-empty').textContent = 'No BGP sessions reported by this instance.';
+      $('#bgp-content').hidden = true;
+      return;
+    }
+    $('#bgp-empty').hidden = true;
+    $('#bgp-content').hidden = false;
+    renderBgpSessions(items);
+    const established = items.filter((i) => i.state === 'established').length;
+    $('#bgp-count-hint').textContent = items.length + ' BGP session' + (items.length === 1 ? '' : 's') + ', ' + established + ' established.';
+  }
+
+  function renderBgpSessions(items) {
+    const tbody = $('#bgp-tbody');
+    tbody.innerHTML = '';
+    items.forEach((item) => {
+      const established = item.state === 'established';
+      tbody.appendChild(el('tr', {}, [
+        el('td', { text: item.interface || '' }),
+        el('td', { text: item['local-address'] || '' }),
+        el('td', { text: item['peer-address'] || '' }),
+        el('td', {}, [el('span', { class: 'badge ' + (established ? 'status-ok' : 'status-code'), text: item.state || 'unknown' })]),
+        el('td', {}, [
+          el('div', { class: 'row-actions-cell' }, [
+            el('button', { class: 'btn btn-sm', type: 'button', text: 'Detail', onclick: () => showBgpDetail(item) }),
+          ]),
+        ]),
+      ]));
+    });
+  }
+
+  function initBgpView() {
+    loadBgpSessions();
+    stopBgpPolling();
+    state.bgp.pollTimer = schedulePoll(loadBgpSessions, 2000);
+  }
+  function stopBgpPolling() {
+    state.bgp.pollTimer = cancelPoll(state.bgp.pollTimer);
+  }
+
+  // There is no per-session info command, so the detail dialog re-fetches
+  // bgp-sessions and shows the full entry of the selected session, rendered
+  // the same way as the session/stream detail dialogs.
+  async function loadBgpDetail(showLoading) {
+    const key = state.bgp.detailKey;
+    if (!state.currentInstance || key == null) return;
+    if (showLoading) renderDetailFields('#bgp-detail-list', { Loading: '…' });
+    try {
+      const items = await fetchBgpSessions();
+      const item = (items || []).find((i) => bgpSessionKey(i) === key);
+      if (item) renderResultFields('#bgp-detail-list', item);
+      else renderDetailFields('#bgp-detail-list', { Error: 'BGP session no longer reported by this instance.' });
+    } catch (e) {
+      renderDetailFields('#bgp-detail-list', { Error: e.message });
+    }
+  }
+
+  function stopBgpDetailPolling() {
+    state.bgp.detailTimer = cancelPoll(state.bgp.detailTimer);
+  }
+
+  function showBgpDetail(item) {
+    state.bgp.detailKey = bgpSessionKey(item);
+    $('#dialog-bgp-detail-title').textContent = 'BGP Session Detail — ' + (item['local-address'] || '?') + ' → ' + (item['peer-address'] || '?');
+    openDialog('dialog-bgp-detail');
+    renderResultFields('#bgp-detail-list', item);
+    stopBgpDetailPolling();
+    state.bgp.detailTimer = schedulePoll(() => loadBgpDetail(false), 2000);
+  }
+
+  // See the session detail dialog: "close" also covers Escape/backdrop.
+  $('#dialog-bgp-detail').addEventListener('close', stopBgpDetailPolling);
+  $('#btn-bgp-detail-refresh').addEventListener('click', () => loadBgpDetail(true));
+  $('#btn-bgp-refresh').addEventListener('click', loadBgpSessions);
+
+  //= ========================================================================
   // 3c. Dynamic command builder
   //= ========================================================================
   function pick(obj, keys) {
@@ -3038,7 +3179,7 @@
   //= ========================================================================
   // Boot
   //= ========================================================================
-  ['#streams-empty', '#sessions-empty', '#command-output-empty'].forEach((sel) => {
+  ['#streams-empty', '#sessions-empty', '#bgp-empty', '#command-output-empty'].forEach((sel) => {
     DEFAULT_EMPTY_TEXT[sel] = $(sel).textContent;
   });
   initJSONEditorDOM();

@@ -54,6 +54,8 @@ paths:
       summary: List network interfaces.
       description: >-
         Get list of all host network interfaces.
+
+        Enabled by default; not available (404) if the controller is started with `-interfaces-api=false`.
       responses:
         200:
           description: ok
@@ -811,7 +813,7 @@ paths:
         400:
           description: error retrieving file
         403:
-          description: forbidden, controller not started with upload flag
+          description: forbidden, upload disabled (controller started with `-upload=false`)
         413:
           description: file to large (> 4GB)
         500:
