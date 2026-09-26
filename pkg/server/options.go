@@ -6,7 +6,7 @@ import "net/http"
 
 // DefaultSchemaPath is the default location of the bngblaster configuration
 // JSON schema, used to drive the "New Instance" config editor in the web UI.
-const DefaultSchemaPath = "/etc/bngblaster/bngblaster-config.json"
+const DefaultSchemaPath = "/usr/share/bngblaster/bngblaster-config.json"
 
 // AuthMiddleware is the function signature used to plug in authentication.
 // It wraps a http.Handler and is invoked for every request routed through

@@ -66,7 +66,7 @@ Usage of /usr/local/bin/bngblasterctrl:
   -interfaces-api
     	enable the interfaces endpoint (disable with -interfaces-api=false) (default true)
   -schema string
-    	path to the bngblaster configuration JSON schema served on /api/v1/schema (default "/etc/bngblaster/bngblaster-config.json")
+    	path to the bngblaster configuration JSON schema served on /api/v1/schema (default "/usr/share/bngblaster/bngblaster-config.json")
   -ui
     	enable the embedded web UI (experimental, disable with -ui=false) (default true)
   -upload
