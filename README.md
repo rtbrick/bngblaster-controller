@@ -53,6 +53,8 @@ $ /usr/local/bin/bngblasterctrl -h
 Usage of /usr/local/bin/bngblasterctrl:
   -addr string
     	HTTP network address (default ":8001")
+  -allowed-hosts string
+    	comma-separated host names clients may use to reach the controller, against DNS rebinding (IP addresses and localhost are always allowed; empty allows any host)
   -color
     	turn on color of color output
   -console
@@ -106,6 +108,13 @@ configure the service; editing the unit file directly (e.g. via
 A fresh install enables and starts the service. Upgrades keep whether the
 service is enabled and only restart it if it was running.
 
+The unit applies a conservative systemd sandbox: `/usr`, `/boot`, `/efi` and
+`/etc` are read-only, `/home` and `/root` are read-only, `/tmp` is private to
+the service, and kernel modules, kernel logs, cgroups, the clock and the
+hostname cannot be changed. The config folder (`-d`) must therefore live
+outside those paths (the default `/var/bngblaster` is fine). If a setup needs
+more, relax individual settings with `systemctl edit rtbrick-bngblasterctrl`.
+
 Note that the `bngblaster` instances run inside the service's control group,
 so stopping or restarting the service (including through a package upgrade)
 also stops every running test instance.
@@ -144,6 +153,30 @@ parts of the UI non-functional.
 With the defaults, open `http://<host>:<port>/` in a browser. As the UI is experimental,
 expect rough edges, and only expose the controller on networks you trust, since none of
 these endpoints require authentication yet.
+
+## Security
+
+The REST API and web UI do not require authentication yet, so restrict who
+can reach the port (bind `-addr` to a management address, firewall it, or
+tunnel through SSH). On top of that, the controller:
+
+* rejects state-changing requests (`PUT`, `POST`, `DELETE`) that a browser
+  sends on behalf of another site (checked via the `Sec-Fetch-Site` and
+  `Origin` headers), so a malicious web page cannot drive the controller
+  through the browser of someone on the lab network. Clients such as curl or
+  scripts send neither header and are not affected;
+* with `-allowed-hosts`, rejects requests addressed to any other host name,
+  which prevents DNS rebinding attacks from reading API responses. IP
+  addresses and `localhost` are always accepted. Set it to the names used to
+  reach the controller, e.g. `-allowed-hosts lab01,lab01.example.com`;
+* sends `X-Frame-Options`, a restrictive `Content-Security-Policy` and
+  related headers on every response;
+* only accepts a `stream_config` (`_start`) that lies inside the instance
+  folder, since bngblaster reads it as root. Upload the file into the
+  instance instead of referencing it elsewhere on the host;
+* limits request sizes (32 MB per configuration, 4000 MB per upload) and
+  rejects uploads larger than the free disk space;
+* logs the client address of every request and of each lifecycle change.
 
 ## License
 

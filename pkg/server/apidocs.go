@@ -13,7 +13,7 @@ import (
 // (registered regardless of WithUI) since it documents the REST API itself.
 func (s *Server) registerAPIDocsRoutes() {
 	s.router.Path("/docs").Methods(http.MethodGet).Handler(http.RedirectHandler("/docs/", http.StatusMovedPermanently))
-	s.router.Path("/docs/").Methods(http.MethodGet).Handler(s.apiDocsAsset("index.html", "text/html; charset=utf-8"))
+	s.router.Path("/docs/").Methods(http.MethodGet).Handler(withCSP(apiDocsCSP, s.apiDocsAsset("index.html", "text/html; charset=utf-8")))
 	s.router.Path("/docs/swagger.yaml").Methods(http.MethodGet).Handler(s.apiDocsAsset("swagger.yaml", "application/yaml"))
 }
 
@@ -28,4 +28,13 @@ func (s *Server) apiDocsAsset(name, ct string) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(content)
 	}
+}
+
+// withCSP replaces the default Content-Security-Policy for a handler that
+// serves an actual page.
+func withCSP(policy string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", policy)
+		next.ServeHTTP(w, r)
+	})
 }

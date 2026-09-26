@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -166,6 +167,8 @@ func TestDefaultRepository_States(t *testing.T) {
 
 func TestDefaultRepository_commandlineParameters(t *testing.T) {
 	const rootFolder = "td"
+	absRoot, err := filepath.Abs(rootFolder)
+	require.NoError(t, err)
 	r := NewDefaultRepository(WithConfigFolder(rootFolder))
 	tests := []struct {
 		name          string
@@ -214,20 +217,38 @@ func TestDefaultRepository_commandlineParameters(t *testing.T) {
 		}, {
 			name: "stream config absolute path",
 			runningConfig: RunningConfig{
-				StreamConfig: "/etc/bngblaster/streams.json",
+				StreamConfig: filepath.Join(absRoot, "stream config absolute path", "streams.json"),
 			},
 			want: []string{
 				"/usr/bin/bngblaster",
 				"-C", "td/stream config absolute path/config.json",
 				"-S", "td/stream config absolute path/run.sock",
-				"-T", "/etc/bngblaster/streams.json",
+				"-T", filepath.Join(absRoot, "stream config absolute path", "streams.json"),
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, want := r.commandlineParameters(tt.name, tt.runningConfig), tt.want
-			require.Equal(t, want, got)
+			got, err := r.commandlineParameters(tt.name, tt.runningConfig)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestDefaultRepository_commandlineParameters_rejectsStreamConfigOutsideInstance(t *testing.T) {
+	// bngblaster reads the stream config as root, so it must not be usable
+	// to probe arbitrary files on the host.
+	r := NewDefaultRepository(WithConfigFolder("td"))
+	for _, streamConfig := range []string{
+		"/etc/shadow",
+		"../other/streams.json",
+		"sub/../../streams.json",
+		".",
+	} {
+		t.Run(streamConfig, func(t *testing.T) {
+			_, err := r.commandlineParameters("test", RunningConfig{StreamConfig: streamConfig})
+			require.ErrorIs(t, err, ErrInvalidStreamConfig)
 		})
 	}
 }

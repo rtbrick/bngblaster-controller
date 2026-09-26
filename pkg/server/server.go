@@ -5,8 +5,10 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"os"
@@ -15,9 +17,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	"github.com/rtbrick/bngblaster-controller/pkg/controller"
@@ -59,6 +63,23 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
+// auditLog starts an info log event for a state-changing request. Without
+// authentication the client address is the only record of who did what.
+func auditLog(r *http.Request, instance string) *zerolog.Event {
+	return log.Info().Str("remote_addr", clientIP(r)).Str("instance", instance) //nolint:zerologlint // callers dispatch it
+}
+
+// availableDiskSpace returns the bytes available to the controller on the
+// file system holding dir. ok is false if that cannot be determined, in
+// which case the caller should not reject anything based on it.
+func availableDiskSpace(dir string) (uint64, bool) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(dir, &stat); err != nil {
+		return 0, false
+	}
+	return stat.Bavail * uint64(stat.Bsize), true //nolint:gosec // block size is never negative
+}
+
 // Server implementation for the rest api.
 type Server struct {
 	Version    string
@@ -72,6 +93,9 @@ type Server struct {
 	enableInterfaces bool
 	// schemaPath is the file system location of the bngblaster config schema.
 	schemaPath string
+	// allowedHosts restricts the Host header of incoming requests (see
+	// hostAllowlistMiddleware). Empty accepts any host.
+	allowedHosts []string
 	// authMiddleware is invoked for every request. It is a no-op unless
 	// WithAuthMiddleware is used, and is the extension point for plugging
 	// in authentication/login later.
@@ -135,7 +159,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Do stuff here.
-		log.Info().Str("method", r.Method).Msg(r.RequestURI)
+		log.Info().Str("method", r.Method).Str("remote_addr", clientIP(r)).Msg(r.RequestURI)
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
 		next.ServeHTTP(w, r)
 	})
@@ -144,6 +168,11 @@ func loggingMiddleware(next http.Handler) http.Handler {
 func (s *Server) routes() {
 	const instanceURL = "/api/v1/instances/{instance_name}"
 	s.router.Use(loggingMiddleware)
+	// Hardening that does not depend on authentication; see hardening.go.
+	// Security headers come first so that rejections carry them too.
+	s.router.Use(securityHeadersMiddleware)
+	s.router.Use(hostAllowlistMiddleware(s.allowedHosts))
+	s.router.Use(crossOriginMiddleware())
 	// authMiddleware is a no-op unless WithAuthMiddleware(...) was supplied.
 	// It sits in front of both the UI and the API so a future login system
 	// can be introduced here without touching individual handlers.
@@ -363,7 +392,11 @@ func (s *Server) create() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		instanceVariable := mux.Vars(r)[instanceNameParameter]
 		instance := cleanPathVariable(instanceVariable)
-		content, err := io.ReadAll(r.Body)
+		content, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxConfigSize))
+		if isBodyTooLarge(err) {
+			http.Error(w, "config too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		if err != nil || len(content) == 0 {
 			http.Error(w, "body not readable", http.StatusBadRequest)
 			return
@@ -381,6 +414,7 @@ func (s *Server) create() http.HandlerFunc {
 			http.Error(w, "not able to create instance", http.StatusInternalServerError)
 			return
 		}
+		auditLog(r, instance).Msg("instance configured")
 		w.WriteHeader(status)
 	}
 }
@@ -422,6 +456,7 @@ func (s *Server) delete() http.HandlerFunc {
 			JSONError(w, "not able to delete instance", http.StatusInternalServerError)
 			return
 		}
+		auditLog(r, instance).Msg("instance deleted")
 		w.WriteHeader(status)
 	}
 }
@@ -431,7 +466,11 @@ func (s *Server) start() http.HandlerFunc {
 		instanceVariable := mux.Vars(r)[instanceNameParameter]
 		instance := cleanPathVariable(instanceVariable)
 		var runningConfig controller.RunningConfig
-		err := json.NewDecoder(r.Body).Decode(&runningConfig)
+		err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestSize)).Decode(&runningConfig)
+		if isBodyTooLarge(err) {
+			JSONError(w, "request too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		if err != nil {
 			JSONError(w, err.Error(), http.StatusBadRequest)
 			return
@@ -449,10 +488,17 @@ func (s *Server) start() http.HandlerFunc {
 			JSONError(w, errInstanceIsRunning, http.StatusPreconditionFailed)
 			return
 		}
+		if err == controller.ErrInvalidStreamConfig {
+			auditLog(r, instance).Str("stream_config", runningConfig.StreamConfig).Msg("start rejected: invalid stream config")
+			JSONError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if err != nil {
+			auditLog(r, instance).Err(err).Msg("instance start failed")
 			JSONError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		auditLog(r, instance).Msg("instance started")
 		w.WriteHeader(status)
 	}
 }
@@ -464,6 +510,7 @@ func (s *Server) stop() http.HandlerFunc {
 		status := http.StatusAccepted
 		s.repository.Stop(instance)
 		s.invalidateInstanceCaches(instance)
+		auditLog(r, instance).Msg("instance stop requested")
 		w.WriteHeader(status)
 	}
 }
@@ -475,6 +522,7 @@ func (s *Server) kill() http.HandlerFunc {
 		status := http.StatusAccepted
 		s.repository.Kill(instance)
 		s.invalidateInstanceCaches(instance)
+		auditLog(r, instance).Msg("instance kill requested")
 		w.WriteHeader(status)
 	}
 }
@@ -487,11 +535,19 @@ func (s *Server) command() http.HandlerFunc {
 		instanceVariable := mux.Vars(r)[instanceNameParameter]
 		instance := cleanPathVariable(instanceVariable)
 		var command controller.SocketCommand
-		err := json.NewDecoder(r.Body).Decode(&command)
+		err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestSize)).Decode(&command)
+		if isBodyTooLarge(err) {
+			JSONError(w, "request too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		if err != nil {
 			JSONError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		// Debug only: the web UI issues read-only commands on every poll,
+		// and the request itself is already logged by loggingMiddleware.
+		log.Debug().Str("remote_addr", clientIP(r)).Str("instance", instance).Str("command", command.Command).
+			Msg("instance command")
 
 		status := http.StatusOK
 
@@ -542,29 +598,42 @@ func (s *Server) uploadFile() http.HandlerFunc {
 
 		// Reading a multi-GB body counts against the write timeout too.
 		disableWriteDeadline(w)
-		err := r.ParseMultipartForm(4000 << 20) // Max upload size set to 4000 MB
-		if err != nil {
-			http.Error(w, "error parsing multipart form", http.StatusRequestEntityTooLarge)
-			return
+		instanceFolder := filepath.Join(s.repository.ConfigFolder(), instance)
+		if r.ContentLength > 0 {
+			if available, ok := availableDiskSpace(instanceFolder); ok && uint64(r.ContentLength) > available {
+				log.Warn().Str("remote_addr", remoteAddr).Str("instance", instance).Int64("size", r.ContentLength).
+					Uint64("available", available).Msg("upload rejected: insufficient disk space")
+				http.Error(w, "insufficient disk space", http.StatusInsufficientStorage)
+				return
+			}
 		}
 
-		file, handler, err := r.FormFile("file")
+		// The multipart body is streamed straight into the instance folder
+		// rather than parsed with ParseMultipartForm, which would spool it
+		// through os.TempDir (often a small tmpfs) first and does not bound
+		// the total size at all. MaxBytesReader does.
+		r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
+		part, err := uploadFilePart(r)
+		if isBodyTooLarge(err) {
+			http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		if err != nil {
 			http.Error(w, "error retrieving file", http.StatusBadRequest)
 			return
 		}
-		defer file.Close()
+		defer part.Close()
 
-		// Only ever the base name. net/http already strips directory
-		// components from a multipart filename (RFC 7578 requires it), so
-		// this is belt and braces - but the guarantee that an upload cannot
-		// escape the instance folder is worth stating at the point where the
-		// path is built rather than relying on a caller's behavior. Base's
-		// own degenerate outputs ("", ".", "..", "/") are rejected outright
-		// since joining any of them would land outside the instance folder.
-		name := filepath.Base(handler.Filename)
+		// Only ever the base name. Part.FileName already strips directory
+		// components (RFC 7578 requires it), so this is belt and braces -
+		// but the guarantee that an upload cannot escape the instance folder
+		// is worth stating at the point where the path is built rather than
+		// relying on a library's behavior. Base's own degenerate outputs
+		// ("", ".", "..", "/") are rejected outright since joining any of
+		// them would land outside the instance folder.
+		name := filepath.Base(part.FileName())
 		if isUnsafeFileName(name) {
-			log.Warn().Str("remote_addr", remoteAddr).Str("instance", instance).Str("file", handler.Filename).
+			log.Warn().Str("remote_addr", remoteAddr).Str("instance", instance).Str("file", part.FileName()).
 				Msg("upload rejected: invalid filename")
 			http.Error(w, "invalid filename", http.StatusBadRequest)
 			return
@@ -575,17 +644,18 @@ func (s *Server) uploadFile() http.HandlerFunc {
 			http.Error(w, "reserved filename", http.StatusBadRequest)
 			return
 		}
-		filePath := filepath.Join(s.repository.ConfigFolder(), instance, name)
 
-		destFile, err := os.Create(filePath)
-		if err != nil {
-			http.Error(w, "failed to create file", http.StatusInternalServerError)
+		err = saveUpload(instanceFolder, name, part)
+		switch {
+		case isBodyTooLarge(err):
+			http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
 			return
-		}
-		defer destFile.Close()
-
-		_, err = io.Copy(destFile, file)
-		if err != nil {
+		case errors.Is(err, syscall.ENOSPC):
+			log.Warn().Str("remote_addr", remoteAddr).Str("instance", instance).Str("file", name).
+				Msg("upload failed: disk full")
+			http.Error(w, "insufficient disk space", http.StatusInsufficientStorage)
+			return
+		case err != nil:
 			http.Error(w, "failed to save file", http.StatusInternalServerError)
 			return
 		}
@@ -594,6 +664,44 @@ func (s *Server) uploadFile() http.HandlerFunc {
 
 		w.WriteHeader(http.StatusOK)
 	}
+}
+
+// uploadFilePart returns the multipart part carrying the uploaded file (the
+// "file" field), skipping any other form fields before it.
+func uploadFilePart(r *http.Request) (*multipart.Part, error) {
+	reader, err := r.MultipartReader()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		part, err := reader.NextPart()
+		if err != nil {
+			return nil, err
+		}
+		if part.FormName() == "file" && part.FileName() != "" {
+			return part, nil
+		}
+	}
+}
+
+// saveUpload stores src as folder/name. It writes to a temporary file next
+// to the target and renames it into place, so an aborted, oversized or
+// disk-full upload never leaves a truncated file behind or clobbers the
+// previous version.
+func saveUpload(folder, name string, src io.Reader) error {
+	tmpFile, err := os.CreateTemp(folder, ".upload-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmpFile.Name()) // no-op once renamed
+	_, err = io.Copy(tmpFile, src)
+	if closeErr := tmpFile.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(tmpFile.Name(), filepath.Join(folder, name))
 }
 
 type message struct {

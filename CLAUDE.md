@@ -37,6 +37,9 @@ Run locally without root by pointing at a writable folder:
 - `pkg/server/` – gorilla/mux router (`server.go` `routes()`), one file per feature
   (streams, sessions, overview, logs, files, ui, apidocs). `cache.go` is a short-TTL,
   per-instance summary cache with in-flight dedup; invalidate it on any lifecycle change.
+  `hardening.go` holds the auth-independent protections (cross-origin check for
+  state-changing requests, `-allowed-hosts`, security headers/CSP, body size limits); bound every
+  new request body with `http.MaxBytesReader` and log lifecycle changes via `auditLog`.
 - `pkg/server/webui/` – experimental embedded SPA. Vanilla HTML/CSS/JS, **no build step,
   no framework, no npm** – files are `go:embed`ed and served as-is. `index.html` is a Go
   template (`{{.AssetVersion}}` cache-busting).

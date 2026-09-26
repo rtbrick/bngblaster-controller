@@ -7,5 +7,6 @@
 #   BNGBLASTERCTRL_OPTS="-addr :8080 -d /var/bngblaster"
 #   BNGBLASTERCTRL_OPTS="-ui=false -interfaces-api=false -upload=false"
 #   BNGBLASTERCTRL_OPTS="-schema /opt/bngblaster/bngblaster-config.json"
+#   BNGBLASTERCTRL_OPTS="-allowed-hosts lab01,lab01.example.com"
 #
 #BNGBLASTERCTRL_OPTS=""

@@ -16,6 +16,27 @@ StandardError=file:/var/log/rtbrick-bngblasterctrl-service-err.log
 Restart=on-failure
 RestartSec=30s
 
+# Sandboxing. The controller and the bngblaster instances it starts run as
+# root with raw socket access, and the REST API has no authentication yet,
+# so limit what a misused request can reach. Only settings that leave
+# bngblaster's needs (raw sockets, netlink, /dev, /sys, hugepages, DPDK and
+# AF_XDP) untouched are used; the config folder (-d) may live anywhere
+# except /usr, /boot, /efi, /etc, /home and /root (one under /tmp is private
+# to the service). Override with "systemctl edit" if a setup needs more.
+# Makes /usr, /boot, /efi and /etc read-only.
+ProtectSystem=full
+# Home directories stay readable (e.g. a bngblaster built there, -e) but
+# cannot be written.
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
 [Install]
 WantedBy=multi-user.target
 Alias=rtbrick-bngblasterctrl.service

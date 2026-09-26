@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -236,6 +237,12 @@ func (r *DefaultRepository) Start(ctx context.Context, name string, runningConfi
 	if r.Running(name) {
 		return ErrBlasterRunning
 	}
+	// Validate before touching any run file, so a rejected request leaves
+	// the previous run's report and logs in place.
+	params, err := r.commandlineParameters(name, runningConfig)
+	if err != nil {
+		return err
+	}
 	if err := r.cleanupRunFiles(name); err != nil {
 		return err
 	}
@@ -248,7 +255,6 @@ func (r *DefaultRepository) Start(ctx context.Context, name string, runningConfi
 	if err := os.WriteFile(file, config, permission); err != nil {
 		return err
 	}
-	params := r.commandlineParameters(name, runningConfig)
 	// folder as the working directory lets bngblaster resolve any relative
 	// file reference in config.json (e.g. an isis mrt-file or a bgp
 	// raw-update-file) against the instance directory, which is also where
@@ -330,7 +336,7 @@ func (r *DefaultRepository) sendSignal(name string, signal os.Signal) {
 	}
 }
 
-func (r *DefaultRepository) commandlineParameters(name string, runningConfig RunningConfig) []string {
+func (r *DefaultRepository) commandlineParameters(name string, runningConfig RunningConfig) ([]string, error) {
 	folder := path.Join(r.configFolder, name)
 	var params []string
 	params = append(params, r.executable)
@@ -358,13 +364,42 @@ func (r *DefaultRepository) commandlineParameters(name string, runningConfig Run
 		params = append(params, "-c", fmt.Sprintf("%d", runningConfig.PPPoESessionCount))
 	}
 	if len(runningConfig.StreamConfig) > 0 {
-		streamConfig := runningConfig.StreamConfig
-		if !path.IsAbs(streamConfig) {
-			streamConfig = path.Join(folder, streamConfig)
+		streamConfig, err := streamConfigPath(folder, runningConfig.StreamConfig)
+		if err != nil {
+			return nil, err
 		}
 		params = append(params, "-T", streamConfig)
 	}
-	return params
+	return params, nil
+}
+
+// streamConfigPath resolves the stream configuration file of a start
+// request and makes sure it lies inside the instance folder.
+//
+// bngblaster reads that file as root and its parse errors end up in the
+// downloadable run.stderr, so an arbitrary path would let any API caller
+// probe (and partly read) files anywhere on the host. Files a test needs
+// can be uploaded into the instance folder instead. A relative path is
+// resolved against the instance folder; an absolute one is accepted as long
+// as it points into it, which keeps the paths the web UI suggests working.
+func streamConfigPath(folder, streamConfig string) (string, error) {
+	resolved := streamConfig
+	if !path.IsAbs(resolved) {
+		resolved = path.Join(folder, resolved)
+	}
+	absFolder, err := filepath.Abs(folder)
+	if err != nil {
+		return "", err
+	}
+	absResolved, err := filepath.Abs(resolved)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(absFolder, absResolved)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
+		return "", ErrInvalidStreamConfig
+	}
+	return resolved, nil
 }
 
 func (r *DefaultRepository) config(name string) ([]byte, error) {

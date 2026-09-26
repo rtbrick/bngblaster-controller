@@ -87,6 +87,7 @@ func (s *Server) index() http.HandlerFunc {
 		// asset URLs and defeat the versioning entirely.
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", uiCSP)
 		w.Header().Set(contentType, "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(rendered.Bytes())

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -29,6 +30,9 @@ func main() {
 	ui := flag.Bool("ui", true, "enable the embedded web UI (experimental, disable with -ui=false)")
 	interfacesAPI := flag.Bool("interfaces-api", true, "enable the interfaces endpoint (disable with -interfaces-api=false)")
 	schema := flag.String("schema", server.DefaultSchemaPath, "path to the bngblaster configuration JSON schema served on /api/v1/schema")
+	allowedHosts := flag.String("allowed-hosts", "",
+		"comma-separated host names clients may use to reach the controller, against DNS rebinding "+
+			"(IP addresses and localhost are always allowed; empty allows any host)")
 
 	// logging
 	debug := flag.Bool("debug", false, "turn on debug logging")
@@ -47,9 +51,21 @@ func main() {
 	srv := server.NewServer(repo,
 		server.WithUI(*ui),
 		server.WithInterfacesAPI(*interfacesAPI),
-		server.WithSchemaPath(*schema))
+		server.WithSchemaPath(*schema),
+		server.WithAllowedHosts(splitList(*allowedHosts)))
 	srv.Version = Version
 	serve(*addr, srv)
+}
+
+// splitList splits a comma-separated flag value, dropping empty entries.
+func splitList(value string) []string {
+	var items []string
+	for item := range strings.SplitSeq(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 func serve(addr string, handler http.Handler) {

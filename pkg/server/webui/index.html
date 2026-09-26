@@ -438,7 +438,9 @@
         </div>
         <div class="field">
           <label for="start-opt-stream-config">Stream config file (optional)</label>
-          <input type="text" id="start-opt-stream-config" placeholder="/var/bngblaster/&lt;instance&gt;/streams.json">
+          <input type="text" id="start-opt-stream-config" placeholder="streams.json"
+                 aria-describedby="start-opt-stream-config-hint">
+          <span class="hint" id="start-opt-stream-config-hint">A file inside this instance's folder; upload it first.</span>
         </div>
       </div>
     </fieldset>

@@ -49,6 +49,16 @@ func WithSchemaPath(path string) Option {
 	}
 }
 
+// WithAllowedHosts restricts the host names clients may use to address the
+// server (the Host header), as a defense against DNS rebinding. IP literals
+// and localhost are always accepted. An empty list, the default, accepts
+// any host.
+func WithAllowedHosts(hosts []string) Option {
+	return func(s *Server) {
+		s.allowedHosts = hosts
+	}
+}
+
 // WithAuthMiddleware installs the given middleware in front of every route
 // (UI and API alike). This is the extension point intended for adding
 // login/session/token based authentication later without restructuring the

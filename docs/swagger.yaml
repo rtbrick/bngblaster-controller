@@ -6,6 +6,11 @@ info:
 
     It allows to manage instances in the sense that new instances can be created, started, stopped 
     and also controlled via command socket of the BNG Blaster.
+
+    The API does not require authentication. Every endpoint may answer `403` when a browser sends a
+    state-changing request (`PUT`, `POST`, `DELETE`) on behalf of another site (`Sec-Fetch-Site` /
+    `Origin` headers), or when the controller runs with `-allowed-hosts` and the `Host` header names
+    a host that is not listed. Non-browser clients such as curl are not affected by the former.
   contact:
     email: bngblaster@rtbrick.com
     url: https://github.com/rtbrick/bngblaster-controller
@@ -207,6 +212,12 @@ paths:
           description: no content, the instance was updated
         400:
           description: bad request, body not parsable
+          content:
+            text/plain:
+              schema:
+                type: string
+        413:
+          description: request entity too large, config exceeds 32 MB
           content:
             text/plain:
               schema:
@@ -623,7 +634,10 @@ paths:
                   type: integer
                   deprecated: true
                 stream_config:
-                  description: specifies an optional stream configuration file. An absolute path (starting with "/") is used as-is; a relative path is resolved against the instance's directory.
+                  description: >-
+                    specifies an optional stream configuration file inside the instance's directory
+                    (upload it there first). A relative path is resolved against the instance's
+                    directory; an absolute path must point into it. Any other path is rejected with 400.
                   type: string
                 metric_flags:
                   description: flags that allows to specify what is exposed as metric
@@ -648,11 +662,17 @@ paths:
         204:
           description: no content, the instance was started
         400:
-          description: bad request, body not parsable
+          description: bad request, body not parsable or stream_config outside the instance directory
           content:
             text/plain:
               schema:
                 type: string
+        413:
+          description: request entity too large, body exceeds 1 MB
+          content:
+            application/json:
+              schema:
+                type: object
         404:
           description: not found, if instance does not exist
           content:
@@ -757,6 +777,12 @@ paths:
             text/plain:
               schema:
                 type: string
+        413:
+          description: request entity too large, body exceeds 1 MB
+          content:
+            application/json:
+              schema:
+                type: object
         412:
           description: precondition failed, if instance is not running or not existent
           content:
@@ -883,9 +909,11 @@ paths:
         403:
           description: forbidden, upload disabled (controller started with `-upload=false`)
         413:
-          description: file to large (> 4GB)
+          description: file too large (> 4000 MB)
         500:
           description: internal server error
+        507:
+          description: insufficient storage, the file does not fit on the controller's disk
 
 components:
   schemas:
