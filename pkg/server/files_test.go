@@ -170,6 +170,31 @@ func TestServer_uploadFile_rejectsUnsafeFilename(t *testing.T) {
 	require.Empty(t, entries, "no file should have been written for an unsafe filename")
 }
 
+func TestServer_uploadFile_rejectsRunFiles(t *testing.T) {
+	folder := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(folder, "test"), 0o700))
+
+	repository := &controller.RepositoryMock{
+		ConfigFolderFunc: func() string { return folder },
+		AllowUploadFunc:  func() bool { return true },
+		ExistsFunc:       func(_ string) bool { return true },
+	}
+	handler := NewServer(repository)
+
+	// A planted run.pid would make _kill signal an arbitrary process as root.
+	for _, filename := range []string{"run.pid", "run.sock", "run.json"} {
+		t.Run(filename, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, uploadRequest(t, "test", filename, "1"))
+			require.Equal(t, http.StatusBadRequest, recorder.Code)
+		})
+	}
+
+	entries, err := os.ReadDir(filepath.Join(folder, "test"))
+	require.NoError(t, err)
+	require.Empty(t, entries, "no run file should have been written")
+}
+
 func TestServer_uploadFile_storesPlainNameUnchanged(t *testing.T) {
 	folder := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(folder, "test"), 0o700))

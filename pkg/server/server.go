@@ -17,11 +17,10 @@ import (
 	"sync"
 
 	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog/log"
 
 	"github.com/rtbrick/bngblaster-controller/pkg/controller"
-
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
@@ -202,6 +201,7 @@ func (s *Server) fileServing(directory string) http.HandlerFunc {
 		instanceVariable := mux.Vars(r)[instanceNameParameter]
 		instance := cleanPathVariable(instanceVariable)
 		file := mux.Vars(r)["file_name"]
+		disableWriteDeadline(w)
 		http.ServeFile(w, r, path.Join(directory, instance, file))
 	}
 }
@@ -306,7 +306,6 @@ func (s *Server) interfaces() http.HandlerFunc {
 
 // getVersion returns server and bngblaster version informations.
 func getVersion(s *Server) VersionInfo {
-
 	versionInfo := VersionInfo{
 		Version:         s.Version,
 		BlasterVersion:  "NA",
@@ -541,6 +540,8 @@ func (s *Server) uploadFile() http.HandlerFunc {
 			return
 		}
 
+		// Reading a multi-GB body counts against the write timeout too.
+		disableWriteDeadline(w)
 		err := r.ParseMultipartForm(4000 << 20) // Max upload size set to 4000 MB
 		if err != nil {
 			http.Error(w, "error parsing multipart form", http.StatusRequestEntityTooLarge)
@@ -566,6 +567,12 @@ func (s *Server) uploadFile() http.HandlerFunc {
 			log.Warn().Str("remote_addr", remoteAddr).Str("instance", instance).Str("file", handler.Filename).
 				Msg("upload rejected: invalid filename")
 			http.Error(w, "invalid filename", http.StatusBadRequest)
+			return
+		}
+		if controller.IsRunFile(name) {
+			log.Warn().Str("remote_addr", remoteAddr).Str("instance", instance).Str("file", name).
+				Msg("upload rejected: reserved run file")
+			http.Error(w, "reserved filename", http.StatusBadRequest)
 			return
 		}
 		filePath := filepath.Join(s.repository.ConfigFolder(), instance, name)

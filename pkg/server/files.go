@@ -7,10 +7,22 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 )
+
+// disableWriteDeadline lifts the server-wide WriteTimeout for the current
+// request. That timeout protects the JSON endpoints against stuck clients,
+// but it is measured from the end of the request headers, so it would also
+// abort any pcap or log download (and any upload response) that simply
+// takes longer than the timeout over a slow link.
+func disableWriteDeadline(w http.ResponseWriter) {
+	// An error only means the writer does not support deadlines (e.g. in
+	// tests); the server-wide timeout then keeps applying, which is safe.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+}
 
 // files lists the downloadable files present in an instance's config
 // folder, used by the web UI's "Download" view.
@@ -67,6 +79,7 @@ func (s *Server) fileDownload() http.HandlerFunc {
 		w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(file))
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set(contentType, "application/octet-stream")
+		disableWriteDeadline(w)
 		http.ServeFile(w, r, filepath.Join(s.repository.ConfigFolder(), instance, file))
 	}
 }

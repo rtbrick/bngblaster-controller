@@ -508,3 +508,72 @@ func TestDefaultRepository_Start_returnsWhenTheCallerGivesUp(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultRepository_ignoresPidsThatCannotBeAnInstance(t *testing.T) {
+	// 0 and negative pids address process groups in kill(2) and 1 is init;
+	// a pid file holding one of them (corrupt, or planted) must never be
+	// signalled. The negated pgid of the test itself is the case that is
+	// observable without root: kill(-pgid, 0) succeeds for our own group.
+	// Stop and Kill share pid(), but are not exercised with it here since a
+	// regression would interrupt the whole test run instead of failing it.
+	ownGroup := strconv.Itoa(-syscall.Getpgrp())
+	for _, content := range []string{"0", "1", "-1", ownGroup, "", "abc"} {
+		t.Run(content, func(t *testing.T) {
+			folder := t.TempDir()
+			require.NoError(t, os.MkdirAll(path.Join(folder, "test"), permission))
+			pidFile := path.Join(folder, "test", runPidFilename)
+			require.NoError(t, os.WriteFile(pidFile, []byte(content), permission))
+
+			r := NewDefaultRepository(WithConfigFolder(folder))
+			require.False(t, r.Running("test"))
+			require.NoFileExists(t, pidFile, "a stale pid file is cleaned up")
+		})
+	}
+}
+
+func TestIsRunFile(t *testing.T) {
+	for _, name := range []string{
+		runPidFilename, RunSockFilename, RunConfigFilename, RunLogFilename,
+		RunReportFilename, RunPcapFilename, RunStdErr, RunStdOut,
+	} {
+		require.True(t, IsRunFile(name), name)
+	}
+	// config.json and user files are legitimately replaced by uploads.
+	for _, name := range []string{ConfigFilename, "streams.json", "run.pid.bak"} {
+		require.False(t, IsRunFile(name), name)
+	}
+}
+
+func TestDefaultRepository_Instances(t *testing.T) {
+	folder := t.TempDir()
+	require.NoError(t, os.MkdirAll(path.Join(folder, "a"), permission))
+	require.NoError(t, os.MkdirAll(path.Join(folder, "b"), permission))
+	require.NoError(t, os.WriteFile(path.Join(folder, "not-an-instance"), nil, permission))
+
+	require.Equal(t, []string{"a", "b"}, NewDefaultRepository(WithConfigFolder(folder)).Instances())
+
+	missing := NewDefaultRepository(WithConfigFolder(path.Join(folder, "missing")))
+	require.Equal(t, []string{}, missing.Instances(), "a missing config folder is an empty list, not nil")
+}
+
+func TestDefaultRepository_Files(t *testing.T) {
+	folder := t.TempDir()
+	instance := path.Join(folder, "test")
+	require.NoError(t, os.MkdirAll(path.Join(instance, "subdir"), permission))
+	require.NoError(t, os.WriteFile(path.Join(instance, ConfigFilename), []byte("{}"), permission))
+	require.NoError(t, os.WriteFile(path.Join(instance, RunLogFilename), []byte("log"), permission))
+	require.NoError(t, os.WriteFile(path.Join(instance, runPidFilename), []byte("42"), permission))
+	require.NoError(t, os.WriteFile(path.Join(instance, RunSockFilename), nil, permission))
+
+	r := NewDefaultRepository(WithConfigFolder(folder))
+	files, err := r.Files("test")
+	require.NoError(t, err)
+	// The pid file and socket are internal and directories are skipped.
+	require.ElementsMatch(t, []InstanceFile{
+		{Name: ConfigFilename, Size: 2},
+		{Name: RunLogFilename, Size: 3},
+	}, files)
+
+	_, err = r.Files("missing")
+	require.ErrorIs(t, err, ErrBlasterNotExists)
+}

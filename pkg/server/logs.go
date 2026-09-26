@@ -75,7 +75,7 @@ func logGeneration(f *os.File, info os.FileInfo) uint64 {
 	}
 	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
 		for shift := 0; shift < 64; shift += 8 {
-			mix(byte(stat.Ino >> shift))
+			mix(byte(stat.Ino >> shift)) //nolint:gosec // truncation to the low byte is the point
 		}
 	}
 	for _, b := range prefix {
@@ -179,10 +179,8 @@ func tailLogFile(file string, offset int64, limit int) (logsResponse, error) {
 	// Only emit complete lines; keep any trailing partial line for the next
 	// poll by not advancing nextOffset past the last newline.
 	lastNewline := bytes.LastIndexByte(buf, '\n')
-	complete := buf
-	if lastNewline == -1 {
-		complete = nil
-	} else {
+	var complete []byte
+	if lastNewline != -1 {
 		complete = buf[:lastNewline+1]
 		nextOffset = offset + int64(lastNewline+1)
 	}

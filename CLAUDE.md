@@ -12,7 +12,7 @@ on top of that REST API to manage instances from a browser.
 make build            # -> bin/<os>_<arch>/bngblasterctrl (version from latest git tag)
 make test             # go test -v -cover ./...  (what CI runs, with make build)
 go test ./pkg/server -run TestServer_create   # single test
-make lint             # golangci-lint (enable-all, see .golangci.yml)
+make lint             # golangci-lint v2 (default: all, see .golangci.yml); CI only fails on new issues
 make fumpt            # gofumpt formatting
 make gci              # import order: standard, default, github.com/rtbrick
 go generate ./pkg/controller   # regenerate repositorymock.go (needs matryer/moq)

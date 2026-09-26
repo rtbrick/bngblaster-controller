@@ -25,3 +25,25 @@ jobs:
 
     - name: Test
       run: make test
+
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # only-new-issues reads the pull request diff
+      pull-requests: read
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: 1.25
+
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v8
+      with:
+        version: v2.14
+        # The code predates most of the linters "default: all" now enables;
+        # fail on issues introduced by a change instead of the whole backlog.
+        only-new-issues: true

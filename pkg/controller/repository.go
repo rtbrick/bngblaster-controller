@@ -62,6 +62,19 @@ const (
 	RunStdOut = "run.stdout"
 )
 
+// IsRunFile reports whether name is one of the files the controller itself
+// writes into an instance folder for a run. Uploads must never replace
+// these: run.pid in particular decides which process _stop and _kill signal,
+// and the controller runs as root.
+func IsRunFile(name string) bool {
+	switch name {
+	case runPidFilename, RunSockFilename, RunConfigFilename, RunLogFilename,
+		RunReportFilename, RunPcapFilename, RunStdErr, RunStdOut:
+		return true
+	}
+	return false
+}
+
 // make sure the DefaultRepository implements UseRepository.
 var _ Repository = &DefaultRepository{}
 
@@ -177,24 +190,37 @@ func (r *DefaultRepository) Exists(name string) bool {
 	return true
 }
 
+// pid returns the process id recorded in the instance's pid file.
+//
+// Only values above 1 are accepted: the pid is handed straight to kill(2),
+// where 0 and negative values address whole process groups (-1 is every
+// process) and 1 is init - none of which can ever be a bngblaster instance,
+// whatever ended up in the file.
+func (r *DefaultRepository) pid(name string) (int, bool) {
+	piddata, err := os.ReadFile(path.Join(r.configFolder, name, runPidFilename))
+	if err != nil {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(piddata)))
+	if err != nil || pid <= 1 {
+		return 0, false
+	}
+	return pid, true
+}
+
 // Running implements Repository.
 func (r *DefaultRepository) Running(name string) bool {
-	folder := path.Join(r.configFolder, name)
-	file := path.Join(folder, runPidFilename)
+	file := path.Join(r.configFolder, name, runPidFilename)
 	if _, err := os.Stat(file); os.IsNotExist(err) {
 		return false
 	}
-	// Read in the pid file as a slice of bytes.
-	if piddata, err := os.ReadFile(file); err == nil {
-		// Convert the file contents to an integer.
-		if pid, err := strconv.Atoi(string(piddata)); err == nil {
-			// Look for the pid in the process list.
-			if process, err := os.FindProcess(pid); err == nil {
-				// Send the process a signal zero kill.
-				if err := process.Signal(syscall.Signal(0)); err == nil {
-					// We only get an error if the pid isn't running, or it's not ours.
-					return true
-				}
+	if pid, ok := r.pid(name); ok {
+		// Look for the pid in the process list.
+		if process, err := os.FindProcess(pid); err == nil {
+			// Send the process a signal zero kill.
+			if err := process.Signal(syscall.Signal(0)); err == nil {
+				// We only get an error if the pid isn't running, or it's not ours.
+				return true
 			}
 		}
 	}
@@ -295,18 +321,11 @@ func (r *DefaultRepository) Kill(name string) {
 }
 
 func (r *DefaultRepository) sendSignal(name string, signal os.Signal) {
-	folder := path.Join(r.configFolder, name)
-	file := path.Join(folder, runPidFilename)
-	// Read in the pid file as a slice of bytes.
-	if piddata, err := os.ReadFile(file); err == nil {
-		// Convert the file contents to an integer.
-		if pid, err := strconv.Atoi(string(piddata)); err == nil {
-			// Look for the pid in the process list.
-			if process, err := os.FindProcess(pid); err == nil {
-				// Send the process a signal.
-				_ = process.Signal(signal)
-				return
-			}
+	if pid, ok := r.pid(name); ok {
+		// Look for the pid in the process list.
+		if process, err := os.FindProcess(pid); err == nil {
+			// Send the process a signal.
+			_ = process.Signal(signal)
 		}
 	}
 }

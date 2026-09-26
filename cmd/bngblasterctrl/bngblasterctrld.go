@@ -1,6 +1,10 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (C) 2020-2026, RtBrick, Inc.
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"io"
 	"net/http"
@@ -52,6 +56,7 @@ func serve(addr string, handler http.Handler) {
 	const idleTimeout = time.Second * 80
 	const writeTimeout = time.Second * 40
 	const readHeaderTimeout = time.Second * 40
+	const shutdownTimeout = time.Second * 30
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           handler,
@@ -62,10 +67,19 @@ func serve(addr string, handler http.Handler) {
 
 	log.Info().Msgf("Starting server on %s\n", addr)
 	sig, err := daemonize.Daemonize(func() error { return srv.ListenAndServe() })
-	if err != nil {
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal().Err(err).Send()
 	}
 	log.Info().Msgf("Shutdown server on signal %s\n", sig)
+
+	// Let in-flight requests (e.g. a start/stop call or a running download)
+	// finish instead of cutting them off; systemd's default stop timeout is
+	// 90s, so stay well below it.
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Warn().Err(err).Msg("graceful shutdown incomplete")
+	}
 }
 
 func initializeLogger(debug, console bool, color bool) {

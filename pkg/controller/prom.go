@@ -4,7 +4,6 @@ package controller
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path"
 	"strconv"
@@ -786,7 +785,6 @@ func (p *Prom) collectInstance(wg *sync.WaitGroup, instance string, ch chan<- pr
 	file, err := os.Open(path)
 	if err != nil {
 		log.Warn().Msgf("failed to open %s: %s", path, err.Error())
-		fmt.Println(err)
 		return
 	}
 

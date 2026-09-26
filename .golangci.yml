@@ -1,43 +1,72 @@
-linters-settings:
-  gci:
-    sections:
-      - standard
-      - default
-      - prefix(github.com/rtbrick)
-  godot:
-    # list of regexps for excluding particular comment lines from check
-    exclude:
-    - '@.*'
-
-issues:
-  exclude-rules:
-    - linters:
-        - funlen
-        - dupl
-        - bodyclose
-        - gocritic
-        - unparam
-        - lll
-      path: _test.go
-
+version: "2"
 linters:
-  enable-all: true
+  default: all
+  # "all" keeps growing with every golangci-lint release; the linters below
+  # are pure style preferences this codebase deliberately does not follow
+  # (or are deprecated, or need per-project config that adds nothing here,
+  # like depguard).
   disable:
-    - scopelint
-    - golint
-    - interfacer
-    - maligned
-    - prealloc
-    - gochecknoglobals
-    - wrapcheck
-    - testpackage
-    - nlreturn
-    - exhaustivestruct
-    - wsl
-    - paralleltest
-    - varnamelen
-    - goerr113
-    - tagliatelle
-    - errorlint
+    - depguard
+    - err113
     - errchkjson
+    - errorlint
+    - exhaustruct
+    - exhaustruct_v5
+    - funcorder
+    - gochecknoglobals
+    - godoclint
+    - gomodguard
+    - lll
     - nestif
+    - nlreturn
+    - noinlineerr
+    - paralleltest
+    - prealloc
+    - tagliatelle
+    - testpackage
+    - varnamelen
+    - wrapcheck
+    - wsl
+    - wsl_v5
+  settings:
+    godot:
+      exclude:
+        - '@.*'
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - bodyclose
+          - dupl
+          - funlen
+          - gocritic
+          - lll
+          - unparam
+        path: _test.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/rtbrick)
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

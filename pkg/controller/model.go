@@ -5,6 +5,8 @@ package controller
 import "context"
 
 //go:generate moq -out repositorymock.go . Repository
+// moq cannot emit a license header, so prepend the one every Go file carries.
+//go:generate sh -c "{ printf '// SPDX-License-Identifier: BSD-3-Clause\\n// Copyright (C) 2020-2026, RtBrick, Inc.\\n'; cat repositorymock.go; } > repositorymock.go.tmp && mv repositorymock.go.tmp repositorymock.go"
 
 // Repository for managing the bng blaster.
 type Repository interface {

@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/rtbrick/bngblaster-controller/pkg/controller"
@@ -230,7 +231,8 @@ func TestSummaryCache_coalescesConcurrentMisses(t *testing.T) {
 				<-release
 				return 42, nil
 			})
-			require.NoError(t, err)
+			// require's FailNow must not be called off the test goroutine.
+			assert.NoError(t, err)
 			results[idx] = value
 		}(i)
 	}

@@ -28,6 +28,10 @@ nfpms:
       - deb
     bindir: /usr/local/bin
     section: utils
+    # bngblaster ships as a GitHub release .deb rather than from an apt
+    # repository, so a hard dependency would make a plain dpkg -i fail.
+    recommends:
+      - bngblaster
     contents:
       - src: debian/scripts/systemd/rtbrick-bngblasterctrl.service
         dst: /lib/systemd/system/rtbrick-bngblasterctrl.service
@@ -46,6 +50,7 @@ nfpms:
     scripts:
       postinstall: debian/scripts/postinstall.sh
       preremove: debian/scripts/preremove.sh
+      postremove: debian/scripts/postremove.sh
 checksum:
   name_template: 'checksums.txt'
 snapshot:

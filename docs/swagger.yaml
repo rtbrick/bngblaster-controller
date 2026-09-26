@@ -250,6 +250,71 @@ paths:
             text/plain:
               schema:
                 type: string
+  /api/v1/instances/{instance_name}/_overview:
+    get:
+      summary: Aggregated overview of a running instance.
+      description: >-
+        Get the results of the bngblaster control socket commands "session-counters",
+        "network-interfaces", "access-interfaces", "a10nsp-interfaces" and "test-info"
+        in a single, briefly cached response. Used by the web UI's instance overview.
+
+        Every key is always present; a command that is unsupported or not applicable
+        for this instance yields null.
+      parameters:
+        - name: instance_name
+          description: instance name of the bngblaster
+          in: path
+          required: true
+          example: sample
+          schema:
+            type: string
+      responses:
+        200:
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session-counters:
+                    type: object
+                    nullable: true
+                  network-interfaces:
+                    type: array
+                    nullable: true
+                    items:
+                      type: object
+                  access-interfaces:
+                    type: array
+                    nullable: true
+                    items:
+                      type: object
+                  a10nsp-interfaces:
+                    type: array
+                    nullable: true
+                    items:
+                      type: object
+                  test-info:
+                    type: object
+                    nullable: true
+        404:
+          description: not found, instance does not exist
+          content:
+            text/plain:
+              schema:
+                type: string
+        412:
+          description: precondition failed, if instance is not running
+          content:
+            text/plain:
+              schema:
+                type: string
+        500:
+          description: internal server error
+          content:
+            text/plain:
+              schema:
+                type: string
   /api/v1/instances/{instance_name}/_streams:
     get:
       summary: List traffic streams of a running instance.
@@ -797,6 +862,9 @@ paths:
         This API endpoint allows files to be uploaded into the test instance directory, 
         with a limit of 4GB per file.
 
+        The files the controller itself manages for a run (`run.pid`, `run.sock`, `run.json`,
+        `run.log`, `run_report.json`, `run.pcap`, `run.stdout`, `run.stderr`) cannot be uploaded.
+
         **Example:**
         `curl --location --request POST 'http://<host>:<port>/api/v1/instances/<instance_name>/_upload' --form 'file=@<local-filename>'`
       parameters:
@@ -811,7 +879,7 @@ paths:
         200:
           description: ok, upload success
         400:
-          description: error retrieving file
+          description: error retrieving file, invalid or reserved filename
         403:
           description: forbidden, upload disabled (controller started with `-upload=false`)
         413:

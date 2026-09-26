@@ -103,6 +103,13 @@ This file is preserved across package upgrades and is the recommended way to
 configure the service; editing the unit file directly (e.g. via
 `systemctl edit rtbrick-bngblasterctrl`) also works but is not required.
 
+A fresh install enables and starts the service. Upgrades keep whether the
+service is enabled and only restart it if it was running.
+
+Note that the `bngblaster` instances run inside the service's control group,
+so stopping or restarting the service (including through a package upgrade)
+also stops every running test instance.
+
 ## Experimental Web UI
 
 The controller ships with an embedded, experimental web UI for creating and
