@@ -299,7 +299,7 @@
     currentInstance: null,
     instanceCommands: {}, // name -> normalized command list
     // Drives the whole instance detail view: header badge on every tab, plus
-    // the Session Overview sections while that tab is visible.
+    // the Overview sections while that tab is visible.
     overviewTimer: null,
     stream: { instance: null, total: 0, rowHeight: 34, buffer: 8, pending: false, timer: null, pollTimer: null, filters: {}, detailFlowId: null, detailTimer: null },
     session: { instance: null, total: 0, rowHeight: 34, buffer: 8, pending: false, timer: null, pollTimer: null, filters: {}, detailSessionId: null, detailTimer: null },
@@ -2000,7 +2000,7 @@
   // test-info reports the running test's overall state ("active", "stopped",
   // ...) and elapsed duration in seconds. Rendered from the shared overview
   // poll so the header badge stays current across every tab, not just while
-  // the Session Overview tab is visible.
+  // the Overview tab is visible.
   function renderTestDuration(testInfo) {
     const pill = $('#instance-duration-pill');
     if (!testInfo || typeof testInfo.duration !== 'number') {
@@ -2016,10 +2016,16 @@
   // 3a. Session overview + progress bars
   //= ========================================================================
   function meter(labelText, value, max, variant) {
-    const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
+    // Three decimals, rounded down: with thousands of sessions a plain
+    // rounded percentage reads "100%" while some are still missing (e.g.
+    // 9999 / 10000), so only a truly complete bar may show 100.000%.
+    // Counts are integers, so multiplying before dividing keeps this exact
+    // (29 / 100 must not floor to 28.999%).
+    const milli = max > 0 ? Math.min(100000, Math.floor((value * 100000) / max)) : 0;
+    const pct = (milli / 1000).toFixed(3);
     let cls = 'session-meter';
     if (variant) cls += ' session-meter--' + variant;
-    if (pct >= 100) cls += ' is-complete';
+    if (max > 0 && value >= max) cls += ' is-complete';
     const wrap = el('div', { class: cls });
     const id = nextId('meter');
     wrap.appendChild(el('div', { class: 'meter-label' }, [
@@ -2116,6 +2122,23 @@
     if (kbps >= 1000) return (kbps / 1000).toFixed(2) + ' Mbps';
     return kbps.toLocaleString() + ' kbps';
   }
+  // Builds an RX cell with the packet count and, when bngblaster reports a
+  // loss counter for that traffic type, the lost packets plus the loss ratio.
+  // The ratio is relative to the packets that should have arrived (received
+  // + lost), with three decimals so a handful of drops in a long run still
+  // shows up instead of rounding to 0%. Any loss is highlighted in red.
+  function rxWithLoss(rx, pps, loss) {
+    const cell = el('span', { text: (rx || 0).toLocaleString() + ' (' + fmtPPS(pps) + ')' });
+    if (loss === undefined) return cell;
+    const expected = (rx || 0) + loss;
+    const pct = expected ? (loss / expected) * 100 : 0;
+    cell.appendChild(document.createTextNode(' · '));
+    cell.appendChild(el('span', {
+      class: loss > 0 ? 'rx-loss-nonzero' : '',
+      text: 'loss ' + loss.toLocaleString() + ' (' + pct.toFixed(3) + '%)',
+    }));
+    return cell;
+  }
   function buildInterfaceStatCard(iface) {
     const rows = [];
     rows.push(['Packets',
@@ -2128,31 +2151,26 @@
       const txKey = 'tx-packets-session-' + fam;
       const rxKey = 'rx-packets-session-' + fam;
       if (iface[txKey] === undefined && iface[rxKey] === undefined) return;
-      const loss = iface['rx-loss-packets-session-' + fam];
       rows.push(['Session ' + prettyLabel(fam),
         (iface[txKey] || 0).toLocaleString() + ' (' + fmtPPS(iface['tx-pps-session-' + fam]) + ')',
-        (iface[rxKey] || 0).toLocaleString() + ' (' + fmtPPS(iface['rx-pps-session-' + fam]) + ')' +
-          (loss ? ' · loss ' + loss.toLocaleString() : '')]);
+        rxWithLoss(iface[rxKey], iface['rx-pps-session-' + fam], iface['rx-loss-packets-session-' + fam])]);
     });
     if (iface['tx-packets-streams'] !== undefined || iface['rx-packets-streams'] !== undefined) {
-      const loss = iface['rx-loss-packets-streams'];
       rows.push(['Stream Traffic',
         (iface['tx-packets-streams'] || 0).toLocaleString() + ' (' + fmtPPS(iface['tx-pps-streams']) + ')',
-        (iface['rx-packets-streams'] || 0).toLocaleString() + ' (' + fmtPPS(iface['rx-pps-streams']) + ')' +
-          (loss ? ' · loss ' + loss.toLocaleString() : '')]);
+        rxWithLoss(iface['rx-packets-streams'], iface['rx-pps-streams'], iface['rx-loss-packets-streams'])]);
     }
     if (iface['rx-packets-multicast'] !== undefined) {
-      const loss = iface['rx-loss-packets-multicast'];
       rows.push(['Multicast', '—',
-        (iface['rx-packets-multicast'] || 0).toLocaleString() + ' (' + fmtPPS(iface['rx-pps-multicast']) + ')' +
-          (loss ? ' · loss ' + loss.toLocaleString() : '')]);
+        rxWithLoss(iface['rx-packets-multicast'], iface['rx-pps-multicast'], iface['rx-loss-packets-multicast'])]);
     }
     const table = el('table', { class: 'iface-stat-table' }, [
       el('thead', {}, [el('tr', {}, [el('th', { scope: 'col', text: '' }), el('th', { scope: 'col', text: 'TX' }), el('th', { scope: 'col', text: 'RX' })])]),
       el('tbody', {}, rows.map(([label, tx, rx]) => el('tr', {}, [
         el('th', { scope: 'row', text: label }),
         el('td', { text: tx }),
-        el('td', { text: rx }),
+        // RX is either plain text or a node carrying the loss highlight.
+        typeof rx === 'string' ? el('td', { text: rx }) : el('td', {}, [rx]),
       ]))),
     ]);
     return el('div', { class: 'iface-card' }, [

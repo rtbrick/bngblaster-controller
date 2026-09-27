@@ -659,7 +659,7 @@ dialog > form[method="dialog"] {
 .session-meter--terminated progress::-webkit-progress-value { background: var(--color-danger); }
 .session-meter--terminated progress::-moz-progress-bar { background: var(--color-danger); }
 
-/* ---------- Interface statistics (Session Overview) ---------- */
+/* ---------- Interface statistics (Overview) ---------- */
 .iface-group { margin-top: var(--space-4); }
 .iface-group h3 { margin-bottom: var(--space-2); }
 .iface-card-grid {

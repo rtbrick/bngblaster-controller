@@ -25,7 +25,7 @@ var overviewCommands = []string{
 // overview aggregates every control socket command the instance detail view
 // polls into a single cached response: GET .../_overview
 //
-// The Session Overview tab previously issued one request per command every
+// The Overview tab previously issued one request per command every
 // two seconds, and the header duration badge a fifth, so a single open
 // browser tab meant five uncached unix socket round-trips every two seconds
 // and N tabs meant 5*N. Serving them from one endpoint behind the shared
