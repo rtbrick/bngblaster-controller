@@ -179,7 +179,7 @@ func TestDefaultRepository_commandlineParameters(t *testing.T) {
 			name:          "default",
 			runningConfig: RunningConfig{},
 			want: []string{
-				"/usr/bin/bngblaster",
+				DefaultExecutable,
 				"-C", "td/default/config.json",
 				"-S", "td/default/run.sock",
 			},
@@ -193,7 +193,7 @@ func TestDefaultRepository_commandlineParameters(t *testing.T) {
 				PPPoESessionCount: 1000,
 			},
 			want: []string{
-				"/usr/bin/bngblaster",
+				DefaultExecutable,
 				"-C", "td/all/config.json",
 				"-S", "td/all/run.sock",
 				"-J", "td/all/run_report.json",
@@ -209,7 +209,7 @@ func TestDefaultRepository_commandlineParameters(t *testing.T) {
 				StreamConfig: "streams.json",
 			},
 			want: []string{
-				"/usr/bin/bngblaster",
+				DefaultExecutable,
 				"-C", "td/stream config relative path/config.json",
 				"-S", "td/stream config relative path/run.sock",
 				"-T", "td/stream config relative path/streams.json",
@@ -220,7 +220,7 @@ func TestDefaultRepository_commandlineParameters(t *testing.T) {
 				StreamConfig: filepath.Join(absRoot, "stream config absolute path", "streams.json"),
 			},
 			want: []string{
-				"/usr/bin/bngblaster",
+				DefaultExecutable,
 				"-C", "td/stream config absolute path/config.json",
 				"-S", "td/stream config absolute path/run.sock",
 				"-T", filepath.Join(absRoot, "stream config absolute path", "streams.json"),
@@ -233,7 +233,7 @@ func TestDefaultRepository_commandlineParameters(t *testing.T) {
 				StreamConfig: "/home/user/tests/streams.json",
 			},
 			want: []string{
-				"/usr/bin/bngblaster",
+				DefaultExecutable,
 				"-C", "td/stream config absolute path outside instance/config.json",
 				"-S", "td/stream config absolute path outside instance/run.sock",
 				"-T", "/home/user/tests/streams.json",
@@ -376,7 +376,7 @@ func TestDefaultRepository_Command(t *testing.T) {
 			name: "instance_not_found",
 			command: SocketCommand{
 				Command: "session-counters",
-				Arguments: map[string]interface{}{
+				Arguments: map[string]any{
 					"outer-vlan": 1,
 					"inner-vlan": 1,
 					"group":      "232.1.1.3",
@@ -501,8 +501,8 @@ func TestDefaultRepository_Start_returnsWhenTheCallerGivesUp(t *testing.T) {
 	// A process that stays alive without ever creating a control socket:
 	// exactly the case Start waits out, up to startupMaxWait.
 	defaultExecCommand := ExecCommand
-	ExecCommand = func(command string, args ...string) *exec.Cmd {
-		return exec.Command("sleep", "10")
+	ExecCommand = func(_ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(t.Context(), "sleep", "10")
 	}
 	defer func() { ExecCommand = defaultExecCommand }()
 

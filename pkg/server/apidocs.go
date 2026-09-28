@@ -18,7 +18,7 @@ func (s *Server) registerAPIDocsRoutes() {
 }
 
 func (s *Server) apiDocsAsset(name, ct string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, _ *http.Request) {
 		content, err := docs.Assets.ReadFile(name)
 		if err != nil {
 			JSONError(w, "api docs not available", http.StatusInternalServerError)

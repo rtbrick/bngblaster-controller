@@ -4,9 +4,11 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -23,7 +25,7 @@ import (
 func streamSummaryJSON(flowIDs ...int) []byte {
 	streams := make([]controller.StreamSummaryStream, 0, len(flowIDs))
 	for _, id := range flowIDs {
-		streams = append(streams, controller.StreamSummaryStream{FlowId: id, Name: fmt.Sprintf("stream-%d", id)})
+		streams = append(streams, controller.StreamSummaryStream{FlowID: id, Name: fmt.Sprintf("stream-%d", id)})
 	}
 	payload, err := json.Marshal(controller.StreamSummaryResponse{Code: 200, Streams: streams})
 	if err != nil {
@@ -35,7 +37,7 @@ func streamSummaryJSON(flowIDs ...int) []byte {
 func sessionSummaryJSON(sessionIDs ...int) []byte {
 	sessions := make([]controller.SessionSummarySession, 0, len(sessionIDs))
 	for _, id := range sessionIDs {
-		sessions = append(sessions, controller.SessionSummarySession{SessionId: id})
+		sessions = append(sessions, controller.SessionSummarySession{SessionID: id})
 	}
 	payload, err := json.Marshal(controller.SessionSummaryResponse{Code: 200, Sessions: sessions})
 	if err != nil {
@@ -55,15 +57,15 @@ func rangeOf(from, to int) []int {
 func doGet(t *testing.T, handler http.Handler, target string) *httptest.ResponseRecorder {
 	t.Helper()
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, target, nil))
+	handler.ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil))
 	return recorder
 }
 
 func TestServer_streams_windowedRangeKeepsAbsoluteOffset(t *testing.T) {
 	repository := &controller.RepositoryMock{
 		ConfigFolderFunc: func() string { return configFolder },
-		ExistsFunc:       func(name string) bool { return true },
-		CommandFunc: func(name string, command controller.SocketCommand) ([]byte, error) {
+		ExistsFunc:       func(_ string) bool { return true },
+		CommandFunc: func(_ string, _ controller.SocketCommand) ([]byte, error) {
 			// bngblaster has already narrowed the result to the requested range.
 			return streamSummaryJSON(rangeOf(101, 110)...), nil
 		},
@@ -80,14 +82,14 @@ func TestServer_streams_windowedRangeKeepsAbsoluteOffset(t *testing.T) {
 	// starts at, so the client can position it without re-deriving anything.
 	require.Equal(t, 100, resp.Offset)
 	require.Len(t, resp.Items, 10)
-	require.Equal(t, 101, resp.Items[0].FlowId)
+	require.Equal(t, 101, resp.Items[0].FlowID)
 }
 
 func TestServer_streams_userRangeIsPaginatedAsAFlatList(t *testing.T) {
 	repository := &controller.RepositoryMock{
 		ConfigFolderFunc: func() string { return configFolder },
-		ExistsFunc:       func(name string) bool { return true },
-		CommandFunc: func(name string, command controller.SocketCommand) ([]byte, error) {
+		ExistsFunc:       func(_ string) bool { return true },
+		CommandFunc: func(_ string, _ controller.SocketCommand) ([]byte, error) {
 			return streamSummaryJSON(rangeOf(100001, 100010)...), nil
 		},
 	}
@@ -106,7 +108,7 @@ func TestServer_streams_userRangeIsPaginatedAsAFlatList(t *testing.T) {
 	require.Equal(t, 0, resp.Offset, "offset must be a row index, not a flow id")
 	require.Equal(t, 10, resp.Total, "total must be the full filtered count")
 	require.Len(t, resp.Items, 5)
-	require.Equal(t, 100001, resp.Items[0].FlowId)
+	require.Equal(t, 100001, resp.Items[0].FlowID)
 
 	// ... and the second page continues from where the first left off.
 	recorder = doGet(t, handler,
@@ -114,14 +116,14 @@ func TestServer_streams_userRangeIsPaginatedAsAFlatList(t *testing.T) {
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
 	require.Equal(t, 5, resp.Offset)
 	require.Equal(t, 10, resp.Total)
-	require.Equal(t, 100006, resp.Items[0].FlowId)
+	require.Equal(t, 100006, resp.Items[0].FlowID)
 }
 
 func TestServer_streams_onlyMinBoundIsNotAWindow(t *testing.T) {
 	repository := &controller.RepositoryMock{
 		ConfigFolderFunc: func() string { return configFolder },
-		ExistsFunc:       func(name string) bool { return true },
-		CommandFunc: func(name string, command controller.SocketCommand) ([]byte, error) {
+		ExistsFunc:       func(_ string) bool { return true },
+		CommandFunc: func(_ string, _ controller.SocketCommand) ([]byte, error) {
 			return streamSummaryJSON(rangeOf(50, 59)...), nil
 		},
 	}
@@ -137,14 +139,14 @@ func TestServer_streams_onlyMinBoundIsNotAWindow(t *testing.T) {
 	require.Equal(t, 2, resp.Offset)
 	require.Equal(t, 10, resp.Total)
 	require.Len(t, resp.Items, 3)
-	require.Equal(t, 52, resp.Items[0].FlowId)
+	require.Equal(t, 52, resp.Items[0].FlowID)
 }
 
 func TestServer_streams_offsetBeyondEnd(t *testing.T) {
 	repository := &controller.RepositoryMock{
 		ConfigFolderFunc: func() string { return configFolder },
-		ExistsFunc:       func(name string) bool { return true },
-		CommandFunc: func(name string, command controller.SocketCommand) ([]byte, error) {
+		ExistsFunc:       func(_ string) bool { return true },
+		CommandFunc: func(_ string, _ controller.SocketCommand) ([]byte, error) {
 			return streamSummaryJSON(1, 2, 3), nil
 		},
 	}
@@ -163,8 +165,8 @@ func TestServer_streams_offsetBeyondEnd(t *testing.T) {
 func TestServer_streams_notRunning(t *testing.T) {
 	repository := &controller.RepositoryMock{
 		ConfigFolderFunc: func() string { return configFolder },
-		ExistsFunc:       func(name string) bool { return true },
-		CommandFunc: func(name string, command controller.SocketCommand) ([]byte, error) {
+		ExistsFunc:       func(_ string) bool { return true },
+		CommandFunc: func(_ string, _ controller.SocketCommand) ([]byte, error) {
 			return nil, controller.ErrBlasterNotRunning
 		},
 	}
@@ -177,8 +179,8 @@ func TestServer_streams_notRunning(t *testing.T) {
 func TestServer_sessions_windowedRangeKeepsAbsoluteOffset(t *testing.T) {
 	repository := &controller.RepositoryMock{
 		ConfigFolderFunc: func() string { return configFolder },
-		ExistsFunc:       func(name string) bool { return true },
-		CommandFunc: func(name string, command controller.SocketCommand) ([]byte, error) {
+		ExistsFunc:       func(_ string) bool { return true },
+		CommandFunc: func(_ string, _ controller.SocketCommand) ([]byte, error) {
 			return sessionSummaryJSON(rangeOf(21, 30)...), nil
 		},
 	}
@@ -197,8 +199,8 @@ func TestServer_sessions_windowedRangeKeepsAbsoluteOffset(t *testing.T) {
 func TestServer_sessions_userRangeIsPaginatedAsAFlatList(t *testing.T) {
 	repository := &controller.RepositoryMock{
 		ConfigFolderFunc: func() string { return configFolder },
-		ExistsFunc:       func(name string) bool { return true },
-		CommandFunc: func(name string, command controller.SocketCommand) ([]byte, error) {
+		ExistsFunc:       func(_ string) bool { return true },
+		CommandFunc: func(_ string, _ controller.SocketCommand) ([]byte, error) {
 			return sessionSummaryJSON(rangeOf(9001, 9010)...), nil
 		},
 	}
@@ -217,7 +219,7 @@ func TestServer_sessions_userRangeIsPaginatedAsAFlatList(t *testing.T) {
 
 func TestSummaryCache_coalescesConcurrentMisses(t *testing.T) {
 	cache := newSummaryCache[int]()
-	var fetches int32
+	var fetches atomic.Int32
 	release := make(chan struct{})
 
 	var wg sync.WaitGroup
@@ -227,7 +229,7 @@ func TestSummaryCache_coalescesConcurrentMisses(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			value, err := cache.get("instance", func() (int, error) {
-				atomic.AddInt32(&fetches, 1)
+				fetches.Add(1)
 				<-release
 				return 42, nil
 			})
@@ -238,12 +240,13 @@ func TestSummaryCache_coalescesConcurrentMisses(t *testing.T) {
 	}
 
 	// Let every goroutine reach the cache before the single fetch completes.
-	for atomic.LoadInt32(&fetches) == 0 {
+	for fetches.Load() == 0 {
+		runtime.Gosched()
 	}
 	close(release)
 	wg.Wait()
 
-	require.Equal(t, int32(1), atomic.LoadInt32(&fetches),
+	require.Equal(t, int32(1), fetches.Load(),
 		"concurrent misses for one key must share a single control socket round-trip")
 	for _, value := range results {
 		require.Equal(t, 42, value)
@@ -302,8 +305,8 @@ func TestServer_overview_aggregatesCommandsIntoOneCall(t *testing.T) {
 	var mu sync.Mutex
 	repository := &controller.RepositoryMock{
 		ConfigFolderFunc: func() string { return configFolder },
-		ExistsFunc:       func(name string) bool { return true },
-		CommandFunc: func(name string, command controller.SocketCommand) ([]byte, error) {
+		ExistsFunc:       func(_ string) bool { return true },
+		CommandFunc: func(_ string, command controller.SocketCommand) ([]byte, error) {
 			mu.Lock()
 			issued = append(issued, command.Command)
 			mu.Unlock()
@@ -316,7 +319,7 @@ func TestServer_overview_aggregatesCommandsIntoOneCall(t *testing.T) {
 				return []byte(`{"status":"ok","code":200,"network-interfaces":[{"name":"eth0"}]}`), nil
 			}
 			// The remaining interface commands are unsupported by this build.
-			return nil, fmt.Errorf("unknown command")
+			return nil, errors.New("unknown command")
 		},
 	}
 	handler := NewServer(repository)
@@ -346,8 +349,8 @@ func TestServer_overview_aggregatesCommandsIntoOneCall(t *testing.T) {
 func TestServer_overview_notRunning(t *testing.T) {
 	repository := &controller.RepositoryMock{
 		ConfigFolderFunc: func() string { return configFolder },
-		ExistsFunc:       func(name string) bool { return true },
-		CommandFunc: func(name string, command controller.SocketCommand) ([]byte, error) {
+		ExistsFunc:       func(_ string) bool { return true },
+		CommandFunc: func(_ string, _ controller.SocketCommand) ([]byte, error) {
 			return nil, controller.ErrBlasterNotRunning
 		},
 	}

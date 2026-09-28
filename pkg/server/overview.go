@@ -45,31 +45,7 @@ func (s *Server) overview() http.HandlerFunc {
 		}
 
 		result, err := s.overviewCache.get(instance, func() (map[string]json.RawMessage, error) {
-			out := map[string]json.RawMessage{}
-			var firstErr error
-			for _, command := range overviewCommands {
-				payload, err := s.repository.Command(instance, controller.SocketCommand{Command: command})
-				if err != nil {
-					// ErrBlasterNotRunning applies to every command equally, so
-					// remember it and report it once the loop is done; anything
-					// else is treated as "this command is unavailable".
-					if firstErr == nil {
-						firstErr = err
-					}
-					continue
-				}
-				var envelope map[string]json.RawMessage
-				if err := json.Unmarshal(payload, &envelope); err != nil {
-					continue
-				}
-				if value, ok := envelope[command]; ok {
-					out[command] = value
-				}
-			}
-			if len(out) == 0 && firstErr != nil {
-				return nil, firstErr
-			}
-			return out, nil
+			return s.fetchOverview(instance)
 		})
 		if err == controller.ErrBlasterNotRunning {
 			JSONError(w, "instance is not running", http.StatusPreconditionFailed)
@@ -91,4 +67,34 @@ func (s *Server) overview() http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(response)
 	}
+}
+
+// fetchOverview runs every overview command against the instance, keyed by
+// command name. Only a failure of every command fails the whole fetch.
+func (s *Server) fetchOverview(instance string) (map[string]json.RawMessage, error) {
+	out := map[string]json.RawMessage{}
+	var firstErr error
+	for _, command := range overviewCommands {
+		payload, err := s.repository.Command(instance, controller.SocketCommand{Command: command})
+		if err != nil {
+			// ErrBlasterNotRunning applies to every command equally, so
+			// remember it and report it once the loop is done; anything
+			// else is treated as "this command is unavailable".
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		var envelope map[string]json.RawMessage
+		if err := json.Unmarshal(payload, &envelope); err != nil {
+			continue
+		}
+		if value, ok := envelope[command]; ok {
+			out[command] = value
+		}
+	}
+	if len(out) == 0 && firstErr != nil {
+		return nil, firstErr
+	}
+	return out, nil
 }

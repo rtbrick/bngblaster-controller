@@ -269,18 +269,25 @@ func (r *DefaultRepository) Start(ctx context.Context, name string, runningConfi
 		return err
 	}
 
-	// bngblaster only creates its control socket once it has fully come up
-	// (config parsed and validated, interfaces set up); a bad configuration
-	// instead makes it print an error and exit - usually within
-	// milliseconds, but a very large configuration can take a few seconds
-	// to either come up or fail. So: wait for whichever happens first,
-	// bounded by startupMaxWait so this can never hang the request forever,
-	// and by ctx so a caller that has gone away (a disconnected HTTP client)
-	// stops the wait immediately instead of pinning a goroutine for it.
-	//
-	// Note that returning early never stops the instance: it has been
-	// spawned either way, and giving up on *observing* the outcome only
-	// means the caller has to ask for the status separately.
+	return waitForStartup(ctx, folder, done)
+}
+
+// waitForStartup waits for a freshly spawned bngblaster to either come up
+// or fail, returning its stderr output as the error in the latter case.
+//
+// bngblaster only creates its control socket once it has fully come up
+// (config parsed and validated, interfaces set up); a bad configuration
+// instead makes it print an error and exit - usually within
+// milliseconds, but a very large configuration can take a few seconds
+// to either come up or fail. So: wait for whichever happens first,
+// bounded by startupMaxWait so this can never hang the request forever,
+// and by ctx so a caller that has gone away (a disconnected HTTP client)
+// stops the wait immediately instead of pinning a goroutine for it.
+//
+// Note that returning early never stops the instance: it has been
+// spawned either way, and giving up on *observing* the outcome only
+// means the caller has to ask for the status separately.
+func waitForStartup(ctx context.Context, folder string, done <-chan error) error {
 	sockFile := path.Join(folder, RunSockFilename)
 	deadline := time.Now().Add(startupMaxWait)
 	ticker := time.NewTicker(startupPollInterval)

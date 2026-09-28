@@ -125,7 +125,7 @@ func TestApplication_runCommandNoTimeOut(t *testing.T) {
 // than the controller's own working directory.
 func TestApplication_RunCommand_WorkingDirectory(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(dir+"/relative.txt", []byte("hello"), 0o644))
+	require.NoError(t, os.WriteFile(dir+"/relative.txt", []byte("hello"), 0o600))
 
 	localPidFile := dir + "/pid"
 	localStdoutFile := dir + "/out"

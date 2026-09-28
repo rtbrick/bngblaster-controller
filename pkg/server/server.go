@@ -360,12 +360,12 @@ func getVersion(s *Server) VersionInfo {
 		return versionInfo
 	}
 
-	lines := strings.Split(out.String(), "\n")
-	for _, line := range lines {
-		if strings.HasPrefix(line, "Version:") {
-			versionInfo.BlasterVersion = strings.TrimSpace(strings.TrimPrefix(line, "Version:"))
-		} else if strings.HasPrefix(line, "Compiler:") {
-			versionInfo.BlasterCompiler = strings.TrimSpace(strings.TrimPrefix(line, "Compiler:"))
+	lines := strings.SplitSeq(out.String(), "\n")
+	for line := range lines {
+		if after, ok := strings.CutPrefix(line, "Version:"); ok {
+			versionInfo.BlasterVersion = strings.TrimSpace(after)
+		} else if after, ok := strings.CutPrefix(line, "Compiler:"); ok {
+			versionInfo.BlasterCompiler = strings.TrimSpace(after)
 		} else if strings.HasPrefix(line, "IO Modes:") {
 			ioModes := strings.TrimSpace(strings.TrimPrefix(strings.Replace(line, " (default)", "", 1), "IO Modes:"))
 			versionInfo.BlasterIOModes = strings.Split(ioModes, ", ")
@@ -387,7 +387,7 @@ func (s *Server) version() http.HandlerFunc {
 // schema serves the bngblaster configuration JSON schema used by the web UI
 // to render and validate the "New Instance" config editor.
 func (s *Server) schema() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, _ *http.Request) {
 		content, err := os.ReadFile(s.schemaPath)
 		if err != nil {
 			JSONError(w, "schema not available", http.StatusNotFound)
@@ -716,14 +716,14 @@ func saveUpload(folder, name string, src io.Reader) error {
 }
 
 type message struct {
-	Message interface{} `json:"message"`
+	Message any `json:"message"`
 }
 
 // JSONError replies to the request with the specified error message and HTTP code.
 // It does not otherwise end the request; the caller should ensure no further
 // writes are done to w.
 // The error message should be plain text.
-func JSONError(w http.ResponseWriter, err interface{}, code int) {
+func JSONError(w http.ResponseWriter, err any, code int) {
 	m := &message{Message: err}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")

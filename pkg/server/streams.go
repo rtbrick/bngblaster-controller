@@ -6,9 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
-
-	"github.com/gorilla/mux"
 
 	"github.com/rtbrick/bngblaster-controller/pkg/controller"
 )
@@ -53,18 +50,6 @@ func parseStreamFilters(r *http.Request) streamFilters {
 	return f
 }
 
-func parseOptionalIntQuery(r *http.Request, name string) *int {
-	raw := r.URL.Query().Get(name)
-	if raw == "" {
-		return nil
-	}
-	v, err := strconv.Atoi(raw)
-	if err != nil {
-		return nil
-	}
-	return &v
-}
-
 // cacheKey is a stable string encoding of the filter set, used as (part of)
 // the stream-summary cache key.
 func (f streamFilters) cacheKey() string {
@@ -101,32 +86,16 @@ func (f streamFilters) cacheKey() string {
 
 // arguments builds the "arguments" object sent alongside the
 // "stream-summary" socket command.
-func (f streamFilters) arguments() map[string]interface{} {
-	args := map[string]interface{}{}
-	if f.SessionID != nil {
-		args["session-id"] = *f.SessionID
-	}
-	if f.SessionGroupID != nil {
-		args["session-group-id"] = *f.SessionGroupID
-	}
-	if f.FlowID != nil {
-		args["flow-id"] = *f.FlowID
-	}
-	if f.FlowIDMin != nil {
-		args["flow-id-min"] = *f.FlowIDMin
-	}
-	if f.FlowIDMax != nil {
-		args["flow-id-max"] = *f.FlowIDMax
-	}
-	if f.Name != "" {
-		args["name"] = f.Name
-	}
-	if f.Interface != "" {
-		args["interface"] = f.Interface
-	}
-	if f.Direction != "" {
-		args["direction"] = f.Direction
-	}
+func (f streamFilters) arguments() map[string]any {
+	args := map[string]any{}
+	setIntArgument(args, "session-id", f.SessionID)
+	setIntArgument(args, "session-group-id", f.SessionGroupID)
+	setIntArgument(args, "flow-id", f.FlowID)
+	setIntArgument(args, "flow-id-min", f.FlowIDMin)
+	setIntArgument(args, "flow-id-max", f.FlowIDMax)
+	setStringArgument(args, "name", f.Name)
+	setStringArgument(args, "interface", f.Interface)
+	setStringArgument(args, "direction", f.Direction)
 	switch f.State {
 	case "verified":
 		args["verified-only"] = true
@@ -139,116 +108,27 @@ func (f streamFilters) arguments() map[string]interface{} {
 }
 
 // streamsResponse is the paginated view of stream-summary returned to the UI.
-// This is the "floating range" contract used by the virtual scrolling stream
-// table: the client only ever asks for the slice of rows currently in (or
-// near) the viewport instead of downloading the entire stream list.
-type streamsResponse struct {
-	Total  int                              `json:"total"`
-	Offset int                              `json:"offset"`
-	Limit  int                              `json:"limit"`
-	Items  []controller.StreamSummaryStream `json:"items"`
-}
+type streamsResponse = summaryPage[controller.StreamSummaryStream]
 
 // streams implements the "floating range" pagination endpoint backing the
-// virtual-scrolling stream table: GET .../_streams?offset=&limit=
+// virtual-scrolling stream table (GET .../_streams?offset=&limit=).
 func (s *Server) streams() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		instanceVariable := mux.Vars(r)[instanceNameParameter]
-		instance := cleanPathVariable(instanceVariable)
-		if !s.repository.Exists(instance) {
-			JSONNotFound(w, r)
-			return
-		}
-
-		offset := parseNonNegativeIntQuery(r, "offset", 0)
-		limit := parseNonNegativeIntQuery(r, "limit", defaultStreamPageSize)
-		if limit <= 0 {
-			limit = defaultStreamPageSize
-		}
-		if limit > maxStreamPageSize {
-			limit = maxStreamPageSize
-		}
-
-		filters := parseStreamFilters(r)
-		// "window=1" marks a flow-id range the UI's virtual scroller derived
-		// from its scroll position rather than one the user typed into the
-		// filter panel. The two need different pagination semantics (see
-		// below), and only the client knows which is which.
-		windowed := r.URL.Query().Get("window") == "1" && filters.FlowIDMin != nil && filters.FlowIDMax != nil
-		cacheKey := instance + filters.cacheKey()
-
-		streamsData, err := s.streamCache.get(cacheKey, func() ([]controller.StreamSummaryStream, error) {
-			result, err := s.repository.Command(instance, controller.SocketCommand{
-				Command:   "stream-summary",
-				Arguments: filters.arguments(),
-			})
-			if err != nil {
-				return nil, err
-			}
+	return serveSummaryPage(s, summaryEndpoint[controller.StreamSummaryStream]{
+		command:      "stream-summary",
+		errorMessage: "not able to fetch stream summary",
+		defaultLimit: defaultStreamPageSize,
+		maxLimit:     maxStreamPageSize,
+		cache:        s.streamCache,
+		query: func(r *http.Request) (map[string]any, string, *int) {
+			filters := parseStreamFilters(r)
+			return filters.arguments(), filters.cacheKey(), windowStart(r, filters.FlowIDMin, filters.FlowIDMax)
+		},
+		items: func(payload []byte) ([]controller.StreamSummaryStream, error) {
 			var parsed controller.StreamSummaryResponse
-			if err := json.Unmarshal(result, &parsed); err != nil {
+			if err := json.Unmarshal(payload, &parsed); err != nil {
 				return nil, err
 			}
 			return parsed.Streams, nil
-		})
-		if err == controller.ErrBlasterNotRunning {
-			JSONError(w, "instance is not running", http.StatusPreconditionFailed)
-			return
-		}
-		if err != nil {
-			JSONError(w, "not able to fetch stream summary", http.StatusInternalServerError)
-			return
-		}
-
-		var resp streamsResponse
-		if windowed {
-			// The flow-id range was generated by the UI's virtual-scroll
-			// window, not typed by a user: it asked bngblaster for exactly the
-			// slice of streams it is about to render, so that slice is returned
-			// as-is. Offset is the absolute row index the slice starts at,
-			// which for a sequentially assigned flow-id chain is FlowIDMin-1.
-			resp = streamsResponse{
-				Total:  len(streamsData),
-				Offset: *filters.FlowIDMin - 1,
-				Limit:  limit,
-				Items:  streamsData,
-			}
-		} else {
-			// Everything else - including a user-entered flow-id range - is
-			// plain offset/limit pagination over the filtered result. Offset
-			// is a row index into that result and Total is its full length, so
-			// the client can size a scrollbar for the filtered list correctly.
-			total := len(streamsData)
-			start := offset
-			if start > total {
-				start = total
-			}
-			end := start + limit
-			if end > total {
-				end = total
-			}
-			resp = streamsResponse{
-				Total:  total,
-				Offset: start,
-				Limit:  limit,
-				Items:  streamsData[start:end],
-			}
-		}
-
-		w.Header().Set(contentType, applicationJSON)
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(resp)
-	}
-}
-
-func parseNonNegativeIntQuery(r *http.Request, name string, def int) int {
-	raw := r.URL.Query().Get(name)
-	if raw == "" {
-		return def
-	}
-	v, err := strconv.Atoi(raw)
-	if err != nil || v < 0 {
-		return def
-	}
-	return v
+		},
+	})
 }

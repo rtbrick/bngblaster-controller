@@ -767,8 +767,8 @@ func (p *Prom) collectInstanceStreams(instance string, ch chan<- prometheus.Metr
 	}
 	// Return Metrics.
 	for _, stream := range cr.Streams {
-		fid := strconv.Itoa(stream.FlowId)
-		sid := strconv.Itoa(stream.SessionId)
+		fid := strconv.Itoa(stream.FlowID)
+		sid := strconv.Itoa(stream.SessionID)
 		ch <- prometheus.MustNewConstMetric(p.StreamTxPackets, prometheus.CounterValue, float64(stream.TxPackets), instance, fid, sid, stream.Name, stream.Direction, stream.Type, stream.SubType)
 		ch <- prometheus.MustNewConstMetric(p.StreamTxBytes, prometheus.CounterValue, float64(stream.TxBytes), instance, fid, sid, stream.Name, stream.Direction, stream.Type, stream.SubType)
 		ch <- prometheus.MustNewConstMetric(p.StreamRxPackets, prometheus.CounterValue, float64(stream.RxPackets), instance, fid, sid, stream.Name, stream.Direction, stream.Type, stream.SubType)

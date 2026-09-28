@@ -29,6 +29,15 @@ linters:
     - wsl
     - wsl_v5
   settings:
+    ireturn:
+      # The defaults, plus type parameters: generic containers such as the
+      # summary cache necessarily return T.
+      allow:
+        - anon
+        - error
+        - empty
+        - stdlib
+        - generic
     godot:
       exclude:
         - '@.*'

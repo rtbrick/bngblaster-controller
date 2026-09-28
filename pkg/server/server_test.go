@@ -259,7 +259,7 @@ func TestServer_start(t *testing.T) {
 				ConfigFolderFunc: func() string {
 					return configFolder
 				},
-				StartFunc: func(_ context.Context, name string, config controller.RunningConfig) error {
+				StartFunc: func(_ context.Context, _ string, _ controller.RunningConfig) error {
 					return tt.resultStart
 				},
 			}
@@ -388,7 +388,7 @@ func TestServer_command(t *testing.T) {
 		resultStart []byte
 		resultError error
 		body        *controller.SocketCommand
-		wantBody    interface{}
+		wantBody    any
 		wantCode    int
 		want        int
 	}{
@@ -479,7 +479,7 @@ func TestServer_fileServing_noCache(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "test"), 0o755))
 	file := filepath.Join(dir, "test", controller.ConfigFilename)
-	require.NoError(t, os.WriteFile(file, []byte(`{"old":true}`), 0o644))
+	require.NoError(t, os.WriteFile(file, []byte(`{"old":true}`), 0o600))
 	repository := &controller.RepositoryMock{
 		ConfigFolderFunc: func() string { return dir },
 	}
@@ -490,7 +490,7 @@ func TestServer_fileServing_noCache(t *testing.T) {
 	e.GET("/api/v1/instances/test/config.json").Expect().
 		Status(http.StatusOK).
 		Header("Cache-Control").Equal("no-cache")
-	require.NoError(t, os.WriteFile(file, []byte(`{"new":true}`), 0o644))
+	require.NoError(t, os.WriteFile(file, []byte(`{"new":true}`), 0o600))
 	e.GET("/api/v1/instances/test/config.json").Expect().
 		Status(http.StatusOK).
 		Body().Equal(`{"new":true}`)

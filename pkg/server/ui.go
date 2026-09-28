@@ -71,7 +71,7 @@ var indexTemplate = sync.OnceValues(func() (*template.Template, error) {
 })
 
 func (s *Server) index() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, _ *http.Request) {
 		tmpl, err := indexTemplate()
 		if err != nil {
 			JSONError(w, "ui not available", http.StatusInternalServerError)

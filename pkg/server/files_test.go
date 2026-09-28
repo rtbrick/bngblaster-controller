@@ -21,8 +21,8 @@ import (
 func TestServer_files(t *testing.T) {
 	repository := &controller.RepositoryMock{
 		ConfigFolderFunc: func() string { return configFolder },
-		ExistsFunc:       func(name string) bool { return true },
-		FilesFunc: func(name string) ([]controller.InstanceFile, error) {
+		ExistsFunc:       func(_ string) bool { return true },
+		FilesFunc: func(_ string) ([]controller.InstanceFile, error) {
 			return []controller.InstanceFile{{Name: "run_report.json", Size: 12}}, nil
 		},
 	}
@@ -46,7 +46,7 @@ func TestServer_fileDownload_isForcedToADownload(t *testing.T) {
 
 	repository := &controller.RepositoryMock{
 		ConfigFolderFunc: func() string { return folder },
-		ExistsFunc:       func(name string) bool { return true },
+		ExistsFunc:       func(_ string) bool { return true },
 	}
 	handler := NewServer(repository)
 
@@ -72,13 +72,13 @@ func TestServer_fileDownload_rejectsUnsafeFilename(t *testing.T) {
 
 	repository := &controller.RepositoryMock{
 		ConfigFolderFunc: func() string { return folder },
-		ExistsFunc:       func(name string) bool { return true },
+		ExistsFunc:       func(_ string) bool { return true },
 	}
 	handler := NewServer(repository)
 
 	for _, filename := range []string{"..", ".", "/"} {
 		t.Run(filename, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/instances/test/_files/x", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/instances/test/_files/x", nil)
 			req = mux.SetURLVars(req, map[string]string{instanceNameParameter: "test", "file_name": filename})
 			recorder := httptest.NewRecorder()
 			handler.fileDownload()(recorder, req)
@@ -90,7 +90,7 @@ func TestServer_fileDownload_rejectsUnsafeFilename(t *testing.T) {
 func TestServer_fileDownload_missingInstance(t *testing.T) {
 	repository := &controller.RepositoryMock{
 		ConfigFolderFunc: func() string { return configFolder },
-		ExistsFunc:       func(name string) bool { return false },
+		ExistsFunc:       func(_ string) bool { return false },
 	}
 	handler := NewServer(repository)
 
@@ -110,7 +110,7 @@ func uploadRequest(t *testing.T, instance, filename, content string) *http.Reque
 	require.NoError(t, err)
 	require.NoError(t, writer.Close())
 
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/instances/"+instance+"/_upload", &body)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/instances/"+instance+"/_upload", &body)
 	request.Header.Set("Content-Type", writer.FormDataContentType())
 	return request
 }
@@ -123,7 +123,7 @@ func TestServer_uploadFile_cannotEscapeInstanceFolder(t *testing.T) {
 	repository := &controller.RepositoryMock{
 		ConfigFolderFunc: func() string { return folder },
 		AllowUploadFunc:  func() bool { return true },
-		ExistsFunc:       func(name string) bool { return true },
+		ExistsFunc:       func(_ string) bool { return true },
 	}
 	handler := NewServer(repository)
 
@@ -153,7 +153,7 @@ func TestServer_uploadFile_rejectsUnsafeFilename(t *testing.T) {
 	repository := &controller.RepositoryMock{
 		ConfigFolderFunc: func() string { return folder },
 		AllowUploadFunc:  func() bool { return true },
-		ExistsFunc:       func(name string) bool { return true },
+		ExistsFunc:       func(_ string) bool { return true },
 	}
 	handler := NewServer(repository)
 
@@ -202,7 +202,7 @@ func TestServer_uploadFile_storesPlainNameUnchanged(t *testing.T) {
 	repository := &controller.RepositoryMock{
 		ConfigFolderFunc: func() string { return folder },
 		AllowUploadFunc:  func() bool { return true },
-		ExistsFunc:       func(name string) bool { return true },
+		ExistsFunc:       func(_ string) bool { return true },
 	}
 	handler := NewServer(repository)
 
@@ -212,5 +212,5 @@ func TestServer_uploadFile_storesPlainNameUnchanged(t *testing.T) {
 
 	written, err := os.ReadFile(filepath.Join(folder, "test", "streams.json"))
 	require.NoError(t, err)
-	require.Equal(t, `{"streams":[]}`, string(written))
+	require.JSONEq(t, `{"streams":[]}`, string(written))
 }

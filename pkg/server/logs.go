@@ -20,6 +20,9 @@ import (
 const (
 	defaultLogReadLimit = 64 * 1024
 	maxLogReadLimit     = 1 << 20
+	// A single log line can never be longer than one read, so the line
+	// scanner never needs a bigger buffer than maxLogReadLimit.
+	logScanBufferSize = 64 * 1024
 )
 
 // logsResponse is returned by the log tail endpoint. NextOffset should be
@@ -156,13 +159,7 @@ func tailLogFile(file string, offset int64, limit int) (logsResponse, error) {
 		offset = 0
 	}
 
-	toRead := size - offset
-	if toRead > int64(limit) {
-		toRead = int64(limit)
-	}
-	if toRead < 0 {
-		toRead = 0
-	}
+	toRead := max(min(size-offset, int64(limit)), 0)
 
 	if _, err := f.Seek(offset, io.SeekStart); err != nil {
 		return logsResponse{}, err
@@ -185,14 +182,12 @@ func tailLogFile(file string, offset int64, limit int) (logsResponse, error) {
 		nextOffset = offset + int64(lastNewline+1)
 	}
 
-	var lines []string
+	// Never nil, so an empty poll encodes as [] rather than null.
+	lines := []string{}
 	scanner := bufio.NewScanner(bytes.NewReader(complete))
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, logScanBufferSize), maxLogReadLimit)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
-	}
-	if lines == nil {
-		lines = []string{}
 	}
 
 	return logsResponse{

@@ -85,7 +85,7 @@ type SocketCommand struct {
 	// Command
 	Command string `json:"command"`
 	// Arguments for the command
-	Arguments map[string]interface{} `json:"arguments"`
+	Arguments map[string]any `json:"arguments"`
 }
 
 // SessionCountersResponse response for session-counters socket command.
@@ -253,7 +253,7 @@ type A10nspInterfacesResponse struct {
 // StreamSummaryStream describes a single stream as reported by the
 // stream-summary socket command.
 type StreamSummaryStream struct {
-	FlowId         int    `json:"flow-id"`
+	FlowID         int    `json:"flow-id"`
 	Name           string `json:"name"`
 	Type           string `json:"type"`
 	SubType        string `json:"sub-type"`
@@ -269,7 +269,7 @@ type StreamSummaryStream struct {
 	RxLoss         int    `json:"rx-loss"`
 	TxPPS          int    `json:"tx-pps"`
 	RxPPS          int    `json:"rx-pps"`
-	SessionId      int    `json:"session-id"`
+	SessionID      int    `json:"session-id"`
 	SessionTraffic bool   `json:"session-traffic"`
 }
 
@@ -286,8 +286,8 @@ type StreamSummaryResponse struct {
 // untyped session-info response backs the session detail view.
 type SessionSummarySession struct {
 	Type           string `json:"type"`
-	SessionId      int    `json:"session-id"`
-	PPPoESessionId int    `json:"pppoe-session-id"`
+	SessionID      int    `json:"session-id"`
+	PPPoESessionID int    `json:"pppoe-session-id"`
 	SessionState   string `json:"session-state"`
 	Flapped        int    `json:"flapped"`
 	Interface      string `json:"interface"`
