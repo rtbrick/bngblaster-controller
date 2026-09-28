@@ -14,6 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
+      with:
+        # goreleaser derives the dev version from the latest tag.
+        fetch-depth: 0
 
     - name: Set up Go
       uses: actions/setup-go@v7
@@ -25,6 +28,23 @@ jobs:
 
     - name: Test
       run: make test
+
+    - name: Build dev package
+      uses: goreleaser/goreleaser-action@v7
+      with:
+        version: '~> v2'
+        # The before hooks only repeat the build and test steps above.
+        args: release --snapshot --clean --skip=before
+
+    - name: Upload dev package
+      uses: actions/upload-artifact@v7
+      with:
+        name: bngblasterctrl-dev
+        path: |
+          dist/*.deb
+          dist/checksums.txt
+          dist/*.tar.gz
+        if-no-files-found: error
 
   lint:
     runs-on: ubuntu-latest
