@@ -374,19 +374,20 @@ func (r *DefaultRepository) commandlineParameters(name string, runningConfig Run
 }
 
 // streamConfigPath resolves the stream configuration file of a start
-// request and makes sure it lies inside the instance folder.
+// request.
 //
-// bngblaster reads that file as root and its parse errors end up in the
-// downloadable run.stderr, so an arbitrary path would let any API caller
-// probe (and partly read) files anywhere on the host. Files a test needs
-// can be uploaded into the instance folder instead. A relative path is
-// resolved against the instance folder; an absolute one is accepted as long
-// as it points into it, which keeps the paths the web UI suggests working.
+// An absolute path is used as-is: test setups keep stream files outside
+// the controller (e.g. in a home directory, next to other test material)
+// and bngblaster, running as root, reads them from there just like the
+// files config.json references. A relative path is resolved against the
+// instance folder and must stay inside it, so "../other/streams.json"
+// cannot silently reach into another instance or out of the config folder;
+// whoever means a file elsewhere has to say so with an absolute path.
 func streamConfigPath(folder, streamConfig string) (string, error) {
-	resolved := streamConfig
-	if !path.IsAbs(resolved) {
-		resolved = path.Join(folder, resolved)
+	if path.IsAbs(streamConfig) {
+		return streamConfig, nil
 	}
+	resolved := path.Join(folder, streamConfig)
 	absFolder, err := filepath.Abs(folder)
 	if err != nil {
 		return "", err

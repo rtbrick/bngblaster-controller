@@ -111,9 +111,11 @@ service is enabled and only restart it if it was running.
 The unit applies a conservative systemd sandbox: `/usr`, `/boot`, `/efi` and
 `/etc` are read-only, `/home` and `/root` are read-only, `/tmp` is private to
 the service, and kernel modules, kernel logs, cgroups, the clock and the
-hostname cannot be changed. The config folder (`-d`) must therefore live
-outside those paths (the default `/var/bngblaster` is fine). If a setup needs
-more, relax individual settings with `systemctl edit rtbrick-bngblasterctrl`.
+hostname cannot be changed. Home directories remain readable, so
+configurations may reference stream, BGP or MRT files kept there. The config
+folder (`-d`) must live outside the read-only paths and `/tmp` (the default
+`/var/bngblaster` is fine). If a setup needs more, relax individual settings
+with `systemctl edit rtbrick-bngblasterctrl`.
 
 Note that the `bngblaster` instances run inside the service's control group,
 so stopping or restarting the service (including through a package upgrade)
@@ -171,9 +173,10 @@ tunnel through SSH). On top of that, the controller:
   reach the controller, e.g. `-allowed-hosts lab01,lab01.example.com`;
 * sends `X-Frame-Options`, a restrictive `Content-Security-Policy` and
   related headers on every response;
-* only accepts a `stream_config` (`_start`) that lies inside the instance
-  folder, since bngblaster reads it as root. Upload the file into the
-  instance instead of referencing it elsewhere on the host;
+* confines file uploads and downloads to the instance folder, and rejects a
+  relative `stream_config` (`_start`) that escapes it (e.g. `../x`). An
+  absolute `stream_config` is passed to bngblaster as-is, so files kept
+  elsewhere on the host (e.g. in a home directory) can be used;
 * limits request sizes (32 MB per configuration, 4000 MB per upload) and
   rejects uploads larger than the free disk space;
 * logs the client address of every request and of each lifecycle change.

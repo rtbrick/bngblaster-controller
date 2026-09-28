@@ -25,8 +25,9 @@ RestartSec=30s
 # to the service). Override with "systemctl edit" if a setup needs more.
 # Makes /usr, /boot, /efi and /etc read-only.
 ProtectSystem=full
-# Home directories stay readable (e.g. a bngblaster built there, -e) but
-# cannot be written.
+# Home directories stay readable, since test setups keep stream, BGP and
+# MRT files (or a bngblaster built there, -e) in them and reference them
+# from config.json or stream_config, but they cannot be written.
 ProtectHome=read-only
 PrivateTmp=yes
 ProtectKernelModules=yes

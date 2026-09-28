@@ -635,9 +635,9 @@ paths:
                   deprecated: true
                 stream_config:
                   description: >-
-                    specifies an optional stream configuration file inside the instance's directory
-                    (upload it there first). A relative path is resolved against the instance's
-                    directory; an absolute path must point into it. Any other path is rejected with 400.
+                    specifies an optional stream configuration file. An absolute path (starting with "/")
+                    is used as-is; a relative path is resolved against the instance's directory and must
+                    stay inside it, otherwise the request is rejected with 400.
                   type: string
                 metric_flags:
                   description: flags that allows to specify what is exposed as metric
@@ -662,7 +662,7 @@ paths:
         204:
           description: no content, the instance was started
         400:
-          description: bad request, body not parsable or stream_config outside the instance directory
+          description: bad request, body not parsable or relative stream_config escapes the instance directory
           content:
             text/plain:
               schema:

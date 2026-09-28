@@ -225,6 +225,19 @@ func TestDefaultRepository_commandlineParameters(t *testing.T) {
 				"-S", "td/stream config absolute path/run.sock",
 				"-T", filepath.Join(absRoot, "stream config absolute path", "streams.json"),
 			},
+		}, {
+			// Absolute paths outside the instance folder (e.g. a home
+			// directory) are passed through unchanged.
+			name: "stream config absolute path outside instance",
+			runningConfig: RunningConfig{
+				StreamConfig: "/home/user/tests/streams.json",
+			},
+			want: []string{
+				"/usr/bin/bngblaster",
+				"-C", "td/stream config absolute path outside instance/config.json",
+				"-S", "td/stream config absolute path outside instance/run.sock",
+				"-T", "/home/user/tests/streams.json",
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -236,12 +249,11 @@ func TestDefaultRepository_commandlineParameters(t *testing.T) {
 	}
 }
 
-func TestDefaultRepository_commandlineParameters_rejectsStreamConfigOutsideInstance(t *testing.T) {
-	// bngblaster reads the stream config as root, so it must not be usable
-	// to probe arbitrary files on the host.
+func TestDefaultRepository_commandlineParameters_rejectsRelativeStreamConfigEscape(t *testing.T) {
+	// A relative stream config must not climb out of the instance folder;
+	// files elsewhere have to be referenced by an absolute path.
 	r := NewDefaultRepository(WithConfigFolder("td"))
 	for _, streamConfig := range []string{
-		"/etc/shadow",
 		"../other/streams.json",
 		"sub/../../streams.json",
 		".",
