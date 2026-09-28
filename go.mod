@@ -1,6 +1,6 @@
 module github.com/rtbrick/bngblaster-controller
 
-go 1.25.0
+go 1.27.1
 
 require (
 	github.com/gavv/httpexpect/v2 v2.3.1
