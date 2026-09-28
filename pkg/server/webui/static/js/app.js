@@ -44,8 +44,10 @@
     getConfig(name) {
       // config.json is served as a plain file (also used for the download
       // link), so it doesn't follow the {status,message} JSON error contract
-      // used elsewhere and can't go through fetchJSON as-is.
-      return fetch('/api/v1/instances/' + encodeURIComponent(name) + '/config.json').then((res) => {
+      // used elsewhere and can't go through fetchJSON as-is. no-store: the
+      // editor must show what was just saved, never a cached older copy
+      // (e.g. from a proxy or an older controller without Cache-Control).
+      return fetch('/api/v1/instances/' + encodeURIComponent(name) + '/config.json', { cache: 'no-store' }).then((res) => {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();
       });

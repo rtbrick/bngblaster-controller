@@ -80,6 +80,7 @@ func (s *Server) fileDownload() http.HandlerFunc {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set(contentType, "application/octet-stream")
 		disableWriteDeadline(w)
+		noCache(w)
 		http.ServeFile(w, r, filepath.Join(s.repository.ConfigFolder(), instance, file))
 	}
 }

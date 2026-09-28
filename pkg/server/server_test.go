@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/gavv/httpexpect/v2"
@@ -469,4 +471,27 @@ func TestServer_command(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestServer_fileServing_noCache(t *testing.T) {
+	// A saved config must not be served from the browser cache afterwards,
+	// otherwise the web UI editor reopens the previous version.
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "test"), 0o755))
+	file := filepath.Join(dir, "test", controller.ConfigFilename)
+	require.NoError(t, os.WriteFile(file, []byte(`{"old":true}`), 0o644))
+	repository := &controller.RepositoryMock{
+		ConfigFolderFunc: func() string { return dir },
+	}
+	server := httptest.NewServer(NewServer(repository))
+	defer server.Close()
+	e := httpexpect.New(t, server.URL)
+
+	e.GET("/api/v1/instances/test/config.json").Expect().
+		Status(http.StatusOK).
+		Header("Cache-Control").Equal("no-cache")
+	require.NoError(t, os.WriteFile(file, []byte(`{"new":true}`), 0o644))
+	e.GET("/api/v1/instances/test/config.json").Expect().
+		Status(http.StatusOK).
+		Body().Equal(`{"new":true}`)
 }

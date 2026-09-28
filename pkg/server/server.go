@@ -231,8 +231,19 @@ func (s *Server) fileServing(directory string) http.HandlerFunc {
 		instance := cleanPathVariable(instanceVariable)
 		file := mux.Vars(r)["file_name"]
 		disableWriteDeadline(w)
+		noCache(w)
 		http.ServeFile(w, r, path.Join(directory, instance, file))
 	}
+}
+
+// noCache makes browsers revalidate an instance file on every request.
+// ServeFile sends Last-Modified but no Cache-Control, which lets browsers
+// cache heuristically: the web UI then reopened a just-saved config.json
+// from its cache and showed the previous version. Instance files change
+// with every save and run, and revalidation stays cheap via
+// If-Modified-Since.
+func noCache(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-cache")
 }
 
 // instanceDetail is one entry of the detailed instance listing.
