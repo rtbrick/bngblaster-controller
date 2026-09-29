@@ -14,6 +14,12 @@ WARNING: the web UI and REST API do not require authentication yet;
 restrict access to the port or disable features as described in
 /etc/default/rtbrick-bngblasterctrl
 MSG
+elif dpkg --compare-versions "$2" lt 0.1.4~; then
+    # Upgrade from 0.1.3 or older: the old package's prerm (which dpkg runs
+    # on upgrade too) unconditionally stopped and disabled the service, so
+    # its current state is not what the administrator chose. Those versions
+    # always enabled it on install; restore that.
+    systemctl enable --now rtbrick-bngblasterctrl
 else
     # Upgrade: pick up the new binary without touching the enabled/disabled
     # state the administrator chose, and only if the service was running.
