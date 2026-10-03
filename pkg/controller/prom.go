@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2020-2025, RtBrick, Inc.
+// Copyright (C) 2020-2026, RtBrick, Inc.
 package controller
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path"
 	"strconv"
@@ -768,8 +767,8 @@ func (p *Prom) collectInstanceStreams(instance string, ch chan<- prometheus.Metr
 	}
 	// Return Metrics.
 	for _, stream := range cr.Streams {
-		fid := strconv.Itoa(stream.FlowId)
-		sid := strconv.Itoa(stream.SessionId)
+		fid := strconv.Itoa(stream.FlowID)
+		sid := strconv.Itoa(stream.SessionID)
 		ch <- prometheus.MustNewConstMetric(p.StreamTxPackets, prometheus.CounterValue, float64(stream.TxPackets), instance, fid, sid, stream.Name, stream.Direction, stream.Type, stream.SubType)
 		ch <- prometheus.MustNewConstMetric(p.StreamTxBytes, prometheus.CounterValue, float64(stream.TxBytes), instance, fid, sid, stream.Name, stream.Direction, stream.Type, stream.SubType)
 		ch <- prometheus.MustNewConstMetric(p.StreamRxPackets, prometheus.CounterValue, float64(stream.RxPackets), instance, fid, sid, stream.Name, stream.Direction, stream.Type, stream.SubType)
@@ -786,7 +785,6 @@ func (p *Prom) collectInstance(wg *sync.WaitGroup, instance string, ch chan<- pr
 	file, err := os.Open(path)
 	if err != nil {
 		log.Warn().Msgf("failed to open %s: %s", path, err.Error())
-		fmt.Println(err)
 		return
 	}
 

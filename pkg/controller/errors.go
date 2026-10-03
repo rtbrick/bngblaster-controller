@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2020-2025, RtBrick, Inc.
+// Copyright (C) 2020-2026, RtBrick, Inc.
 package controller
 
 // BlasterControllerError represents an blaster error.
@@ -17,4 +17,7 @@ var (
 	ErrBlasterRunning = &BlasterControllerError{"blaster instance is running"}
 	// ErrBlasterNotRunning there is no BlasterInstance running.
 	ErrBlasterNotRunning = &BlasterControllerError{"blaster instance is not running"}
+	// ErrInvalidStreamConfig a relative stream configuration path escapes
+	// the instance folder.
+	ErrInvalidStreamConfig = &BlasterControllerError{"relative stream config must be a file inside the instance folder"}
 )

@@ -13,15 +13,62 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
+      with:
+        # goreleaser derives the dev version from the latest tag.
+        fetch-depth: 0
 
     - name: Set up Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@v7
       with:
-        go-version: 1.25
+        go-version: "1.27"
 
     - name: Build
       run: make build
 
     - name: Test
       run: make test
+
+    - name: Build dev package
+      uses: goreleaser/goreleaser-action@v7
+      with:
+        version: '~> v2'
+        # The before hooks only repeat the build and test steps above.
+        args: release --snapshot --clean --skip=before
+
+    - name: Upload dev package
+      uses: actions/upload-artifact@v7
+      with:
+        name: bngblasterctrl-dev
+        path: |
+          dist/*.deb
+          dist/checksums.txt
+          dist/*.tar.gz
+        if-no-files-found: error
+
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # only-new-issues reads the pull request diff
+      pull-requests: read
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Go
+      uses: actions/setup-go@v7
+      with:
+        go-version: "1.27"
+
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v9
+      with:
+        version: v2.14.0
+        # The prebuilt v2.14 binaries are built with Go 1.26 and refuse to
+        # load a module targeting Go 1.27; build it with the Go set up above
+        # instead. Switch back to the default binary install once a release
+        # built with Go >= 1.27 is out.
+        install-mode: goinstall
+        # The code predates most of the linters "default: all" now enables;
+        # fail on issues introduced by a change instead of the whole backlog.
+        only-new-issues: true

@@ -12,22 +12,49 @@ as REST API and provides endpoints to download logs and reports.
 
 ![BNG Blaster Controller](docs/controller.png "BNG Blaster Controller")
 
+## Installation
+
+Pre-built debian packages, as well as plain `tar.gz` archives, are
+published on the [GitHub releases page](https://github.com/rtbrick/bngblaster-controller/releases).
+
+Installing the Debian package registers and starts a systemd service:
+
+```
+$ sudo dpkg -i bngblaster-controller_<version>_amd64.deb
+```
+
+This installs the `bngblasterctrl` binary to `/usr/local/bin/bngblasterctrl`,
+a systemd unit (`rtbrick-bngblasterctrl.service`), a default environment
+file at `/etc/default/rtbrick-bngblasterctrl` (see
+[Configuration](#configuration) below), and a logrotate policy at
+`/etc/logrotate.d/rtbrick-bngblasterctrl` for the service's stdout/stderr log
+files under `/var/log/`. The service is enabled and started automatically.
+
+Alternatively, build from source:
+
+```
+$ make build
+$ sudo ./bin/<os>_<arch>/bngblasterctrl
+```
+
+The blaster instance needs at least the permissions required to run
+the `bngblaster` itself.
+
 ## Usage
 
 The controller comes with good defaults, just starting the controller will give you an instance that:
 
 * runs on port `8001`
-* assumes bngblaster is installed at `/usr/sbin/bngblaster`
+* assumes bngblaster is installed at `/usr/bin/bngblaster`
 * uses `/var/bngblaster` as storage directory 
 
-The blaster instance needs at least the permissions required to run 
-the `bngblaster` itself.
-
 ```
-$ ./bngblasterctrl -h
-Usage of bngblasterctrl:
+$ /usr/local/bin/bngblasterctrl -h
+Usage of /usr/local/bin/bngblasterctrl:
   -addr string
     	HTTP network address (default ":8001")
+  -allowed-hosts string
+    	comma-separated host names clients may use to reach the controller, against DNS rebinding (IP addresses and localhost are always allowed; empty allows any host)
   -color
     	turn on color of color output
   -console
@@ -37,10 +64,122 @@ Usage of bngblasterctrl:
   -debug
     	turn on debug logging
   -e string
-    	bngblaster executable (default "/usr/sbin/bngblaster")
+    	bngblaster executable (default "/usr/bin/bngblaster")
+  -interfaces-api
+    	enable the interfaces endpoint (disable with -interfaces-api=false) (default true)
+  -schema string
+    	path to the bngblaster configuration JSON schema served on /api/v1/schema (default "/usr/share/bngblaster/bngblaster-config.json")
+  -ui
+    	enable the embedded web UI (experimental, disable with -ui=false) (default true)
   -upload
-    	allow file upload
+    	enable file upload (disable with -upload=false) (default true)
 ```
+
+## Configuration
+
+### Command line
+
+All options above can be passed directly on the command line when running
+`bngblasterctrl` manually.
+
+### systemd service
+
+When installed via the debian package, the service is started by
+systemd and does not take command-line arguments directly. Instead, flags are
+configured through `/etc/default/rtbrick-bngblasterctrl`, which is sourced by
+the unit as an `EnvironmentFile` and expanded into `ExecStart` via the
+`BNGBLASTERCTRL_OPTS` variable:
+
+```
+# /etc/default/rtbrick-bngblasterctrl
+BNGBLASTERCTRL_OPTS="-addr :8080 -d /var/bngblaster"
+```
+
+After editing the file, apply the change with:
+
+```
+$ sudo systemctl restart rtbrick-bngblasterctrl
+```
+
+This file is preserved across package upgrades and is the recommended way to
+configure the service; editing the unit file directly (e.g. via
+`systemctl edit rtbrick-bngblasterctrl`) also works but is not required.
+
+A fresh install enables and starts the service. Upgrades keep whether the
+service is enabled and only restart it if it was running.
+
+The unit applies a conservative systemd sandbox: `/usr`, `/boot`, `/efi` and
+`/etc` are read-only, `/home` and `/root` are read-only, `/tmp` is private to
+the service, and kernel modules, kernel logs, cgroups, the clock and the
+hostname cannot be changed. Home directories remain readable, so
+configurations may reference stream, BGP or MRT files kept there. The config
+folder (`-d`) must live outside the read-only paths and `/tmp` (the default
+`/var/bngblaster` is fine). If a setup needs more, relax individual settings
+with `systemctl edit rtbrick-bngblasterctrl`.
+
+Note that the `bngblaster` instances run inside the service's control group,
+so stopping or restarting the service (including through a package upgrade)
+also stops every running test instance.
+
+## Experimental Web UI
+
+The controller ships with an embedded, experimental web UI for creating and
+observing test instances without calling the REST API directly. It is
+**enabled by default**, along with the two additional endpoints it depends
+on:
+
+* `-ui` — serves the web UI on `/`
+* `-interfaces-api` — serves `/api/v1/interfaces`, used by the web UI to
+  populate the host network interface dropdown when creating a new instance
+* `-upload` — enables the `/api/v1/instances/{instance_name}/_upload`
+  endpoint, used by the web UI (and the REST API) to upload files into a
+  test instance
+
+Each of them can be disabled individually by setting the flag to `false`,
+e.g. to run a REST-only controller:
+
+```
+$ /usr/local/bin/bngblasterctrl -ui=false -interfaces-api=false -upload=false
+```
+
+or, for the systemd-installed service, in `/etc/default/rtbrick-bngblasterctrl`:
+
+```
+BNGBLASTERCTRL_OPTS="-ui=false -interfaces-api=false -upload=false"
+```
+
+Note that the web UI needs the interfaces and upload endpoints for some of
+its features, so disabling them while keeping `-ui` enabled leaves those
+parts of the UI non-functional.
+
+With the defaults, open `http://<host>:<port>/` in a browser. As the UI is experimental,
+expect rough edges, and only expose the controller on networks you trust, since none of
+these endpoints require authentication yet.
+
+## Security
+
+The REST API and web UI do not require authentication yet, so restrict who
+can reach the port (bind `-addr` to a management address, firewall it, or
+tunnel through SSH). On top of that, the controller:
+
+* rejects state-changing requests (`PUT`, `POST`, `DELETE`) that a browser
+  sends on behalf of another site (checked via the `Sec-Fetch-Site` and
+  `Origin` headers), so a malicious web page cannot drive the controller
+  through the browser of someone on the lab network. Clients such as curl or
+  scripts send neither header and are not affected;
+* with `-allowed-hosts`, rejects requests addressed to any other host name,
+  which prevents DNS rebinding attacks from reading API responses. IP
+  addresses and `localhost` are always accepted. Set it to the names used to
+  reach the controller, e.g. `-allowed-hosts lab01,lab01.example.com`;
+* sends `X-Frame-Options`, a restrictive `Content-Security-Policy` and
+  related headers on every response;
+* confines file uploads and downloads to the instance folder, and rejects a
+  relative `stream_config` (`_start`) that escapes it (e.g. `../x`). An
+  absolute `stream_config` is passed to bngblaster as-is, so files kept
+  elsewhere on the host (e.g. in a home directory) can be used;
+* limits request sizes (32 MB per configuration, 4000 MB per upload) and
+  rejects uploads larger than the free disk space;
+* logs the client address of every request and of each lifecycle change.
 
 ## License
 
@@ -51,7 +190,7 @@ See the LICENSE file for more details.
 
 ## Copyright
 
-Copyright (C) 2020-2025, RtBrick, Inc.
+Copyright (C) 2020-2026, RtBrick, Inc.
 
 ## Contact
 

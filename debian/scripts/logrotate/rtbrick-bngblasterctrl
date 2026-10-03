@@ -1,0 +1,12 @@
+/var/log/rtbrick-bngblasterctrl-service-err.log
+/var/log/rtbrick-bngblasterctrl-service-out.log {
+    su root root
+    size 10M
+    rotate 10
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    create 0644 root root
+}

@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2020-2025, RtBrick, Inc.
+// Copyright (C) 2020-2026, RtBrick, Inc.
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/gavv/httpexpect/v2"
@@ -246,7 +249,7 @@ func TestServer_start(t *testing.T) {
 			name:        "error",
 			resultStart: fmt.Errorf("other error"),
 			body:        &controller.RunningConfig{},
-			wantBody:    "not able to start",
+			wantBody:    "other error",
 			want:        http.StatusInternalServerError,
 		},
 	}
@@ -256,7 +259,7 @@ func TestServer_start(t *testing.T) {
 				ConfigFolderFunc: func() string {
 					return configFolder
 				},
-				StartFunc: func(name string, config controller.RunningConfig) error {
+				StartFunc: func(_ context.Context, _ string, _ controller.RunningConfig) error {
 					return tt.resultStart
 				},
 			}
@@ -385,7 +388,7 @@ func TestServer_command(t *testing.T) {
 		resultStart []byte
 		resultError error
 		body        *controller.SocketCommand
-		wantBody    interface{}
+		wantBody    any
 		wantCode    int
 		want        int
 	}{
@@ -468,4 +471,27 @@ func TestServer_command(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestServer_fileServing_noCache(t *testing.T) {
+	// A saved config must not be served from the browser cache afterwards,
+	// otherwise the web UI editor reopens the previous version.
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "test"), 0o755))
+	file := filepath.Join(dir, "test", controller.ConfigFilename)
+	require.NoError(t, os.WriteFile(file, []byte(`{"old":true}`), 0o600))
+	repository := &controller.RepositoryMock{
+		ConfigFolderFunc: func() string { return dir },
+	}
+	server := httptest.NewServer(NewServer(repository))
+	defer server.Close()
+	e := httpexpect.New(t, server.URL)
+
+	e.GET("/api/v1/instances/test/config.json").Expect().
+		Status(http.StatusOK).
+		Header("Cache-Control").Equal("no-cache")
+	require.NoError(t, os.WriteFile(file, []byte(`{"new":true}`), 0o600))
+	e.GET("/api/v1/instances/test/config.json").Expect().
+		Status(http.StatusOK).
+		Body().Equal(`{"new":true}`)
 }

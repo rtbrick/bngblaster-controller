@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2020-2025, RtBrick, Inc.
+// Copyright (C) 2020-2026, RtBrick, Inc.
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +11,9 @@ import (
 	"net"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -20,7 +23,7 @@ const (
 	DefaultConfigFolder = "/var/bngblaster"
 
 	// DefaultExecutable is the default executable for bngblaster.
-	DefaultExecutable = "/usr/sbin/bngblaster"
+	DefaultExecutable = "/usr/bin/bngblaster"
 
 	// permission file and folder permissions to use.
 	permission os.FileMode = 0o777
@@ -29,6 +32,16 @@ const (
 	writeTimeout               = 5 * time.Second
 	bufferLength               = 512
 	initialReceiveBufferLength = 20000
+
+	// startupPollInterval is how often Start polls for the control socket
+	// while waiting to see whether bngblaster came up successfully.
+	startupPollInterval = 100 * time.Millisecond
+	// startupMaxWait bounds how long Start waits for the control socket to
+	// appear before giving up on detecting failure and reporting success
+	// anyway. A very large configuration can legitimately take a few
+	// seconds to come up, so this needs real headroom above the common
+	// "bad config, fails in milliseconds" case.
+	startupMaxWait = 30 * time.Second
 
 	// ConfigFilename configuration file of the blaster.
 	ConfigFilename = "config.json"
@@ -49,6 +62,19 @@ const (
 	// RunStdOut redirected standard output of the bngblaster.
 	RunStdOut = "run.stdout"
 )
+
+// IsRunFile reports whether name is one of the files the controller itself
+// writes into an instance folder for a run. Uploads must never replace
+// these: run.pid in particular decides which process _stop and _kill signal,
+// and the controller runs as root.
+func IsRunFile(name string) bool {
+	switch name {
+	case runPidFilename, RunSockFilename, RunConfigFilename, RunLogFilename,
+		RunReportFilename, RunPcapFilename, RunStdErr, RunStdOut:
+		return true
+	}
+	return false
+}
 
 // make sure the DefaultRepository implements UseRepository.
 var _ Repository = &DefaultRepository{}
@@ -165,24 +191,37 @@ func (r *DefaultRepository) Exists(name string) bool {
 	return true
 }
 
+// pid returns the process id recorded in the instance's pid file.
+//
+// Only values above 1 are accepted: the pid is handed straight to kill(2),
+// where 0 and negative values address whole process groups (-1 is every
+// process) and 1 is init - none of which can ever be a bngblaster instance,
+// whatever ended up in the file.
+func (r *DefaultRepository) pid(name string) (int, bool) {
+	piddata, err := os.ReadFile(path.Join(r.configFolder, name, runPidFilename))
+	if err != nil {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(piddata)))
+	if err != nil || pid <= 1 {
+		return 0, false
+	}
+	return pid, true
+}
+
 // Running implements Repository.
 func (r *DefaultRepository) Running(name string) bool {
-	folder := path.Join(r.configFolder, name)
-	file := path.Join(folder, runPidFilename)
+	file := path.Join(r.configFolder, name, runPidFilename)
 	if _, err := os.Stat(file); os.IsNotExist(err) {
 		return false
 	}
-	// Read in the pid file as a slice of bytes.
-	if piddata, err := os.ReadFile(file); err == nil {
-		// Convert the file contents to an integer.
-		if pid, err := strconv.Atoi(string(piddata)); err == nil {
-			// Look for the pid in the process list.
-			if process, err := os.FindProcess(pid); err == nil {
-				// Send the process a signal zero kill.
-				if err := process.Signal(syscall.Signal(0)); err == nil {
-					// We only get an error if the pid isn't running, or it's not ours.
-					return true
-				}
+	if pid, ok := r.pid(name); ok {
+		// Look for the pid in the process list.
+		if process, err := os.FindProcess(pid); err == nil {
+			// Send the process a signal zero kill.
+			if err := process.Signal(syscall.Signal(0)); err == nil {
+				// We only get an error if the pid isn't running, or it's not ours.
+				return true
 			}
 		}
 	}
@@ -191,12 +230,18 @@ func (r *DefaultRepository) Running(name string) bool {
 }
 
 // Start implements Repository.
-func (r *DefaultRepository) Start(name string, runningConfig RunningConfig) error {
+func (r *DefaultRepository) Start(ctx context.Context, name string, runningConfig RunningConfig) error {
 	if !r.Exists(name) {
 		return ErrBlasterNotExists
 	}
 	if r.Running(name) {
 		return ErrBlasterRunning
+	}
+	// Validate before touching any run file, so a rejected request leaves
+	// the previous run's report and logs in place.
+	params, err := r.commandlineParameters(name, runningConfig)
+	if err != nil {
+		return err
 	}
 	if err := r.cleanupRunFiles(name); err != nil {
 		return err
@@ -210,13 +255,72 @@ func (r *DefaultRepository) Start(name string, runningConfig RunningConfig) erro
 	if err := os.WriteFile(file, config, permission); err != nil {
 		return err
 	}
-	params := r.commandlineParameters(name, runningConfig)
-	_, err = RunCommand(
+	// folder as the working directory lets bngblaster resolve any relative
+	// file reference in config.json (e.g. an isis mrt-file or a bgp
+	// raw-update-file) against the instance directory, which is also where
+	// uploaded files are stored.
+	done, err := RunCommand(
+		folder,
 		path.Join(folder, runPidFilename),
 		path.Join(folder, RunStdOut),
 		path.Join(folder, RunStdErr),
 		params...)
-	return err
+	if err != nil {
+		return err
+	}
+
+	return waitForStartup(ctx, folder, done)
+}
+
+// waitForStartup waits for a freshly spawned bngblaster to either come up
+// or fail, returning its stderr output as the error in the latter case.
+//
+// bngblaster only creates its control socket once it has fully come up
+// (config parsed and validated, interfaces set up); a bad configuration
+// instead makes it print an error and exit - usually within
+// milliseconds, but a very large configuration can take a few seconds
+// to either come up or fail. So: wait for whichever happens first,
+// bounded by startupMaxWait so this can never hang the request forever,
+// and by ctx so a caller that has gone away (a disconnected HTTP client)
+// stops the wait immediately instead of pinning a goroutine for it.
+//
+// Note that returning early never stops the instance: it has been
+// spawned either way, and giving up on *observing* the outcome only
+// means the caller has to ask for the status separately.
+func waitForStartup(ctx context.Context, folder string, done <-chan error) error {
+	sockFile := path.Join(folder, RunSockFilename)
+	deadline := time.Now().Add(startupMaxWait)
+	ticker := time.NewTicker(startupPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			// Caller gave up waiting; the instance itself keeps running.
+			return nil
+		case waitErr := <-done:
+			if waitErr == nil {
+				// Exited on its own without an error before creating a
+				// socket: not the failure case this is guarding against.
+				return nil
+			}
+			stderrContent, _ := os.ReadFile(path.Join(folder, RunStdErr))
+			msg := strings.TrimSpace(string(stderrContent))
+			if msg == "" {
+				msg = waitErr.Error()
+			}
+			return fmt.Errorf("%s", msg)
+		case <-ticker.C:
+			if _, statErr := os.Stat(sockFile); statErr == nil {
+				return nil
+			}
+			if time.Now().After(deadline) {
+				// Still running, just hasn't created its socket yet after a
+				// generous wait: report success rather than blocking (or
+				// misreporting failure) any longer.
+				return nil
+			}
+		}
+	}
 }
 
 // Stop implements Repository.
@@ -230,23 +334,16 @@ func (r *DefaultRepository) Kill(name string) {
 }
 
 func (r *DefaultRepository) sendSignal(name string, signal os.Signal) {
-	folder := path.Join(r.configFolder, name)
-	file := path.Join(folder, runPidFilename)
-	// Read in the pid file as a slice of bytes.
-	if piddata, err := os.ReadFile(file); err == nil {
-		// Convert the file contents to an integer.
-		if pid, err := strconv.Atoi(string(piddata)); err == nil {
-			// Look for the pid in the process list.
-			if process, err := os.FindProcess(pid); err == nil {
-				// Send the process a signal.
-				_ = process.Signal(signal)
-				return
-			}
+	if pid, ok := r.pid(name); ok {
+		// Look for the pid in the process list.
+		if process, err := os.FindProcess(pid); err == nil {
+			// Send the process a signal.
+			_ = process.Signal(signal)
 		}
 	}
 }
 
-func (r *DefaultRepository) commandlineParameters(name string, runningConfig RunningConfig) []string {
+func (r *DefaultRepository) commandlineParameters(name string, runningConfig RunningConfig) ([]string, error) {
 	folder := path.Join(r.configFolder, name)
 	var params []string
 	params = append(params, r.executable)
@@ -274,15 +371,73 @@ func (r *DefaultRepository) commandlineParameters(name string, runningConfig Run
 		params = append(params, "-c", fmt.Sprintf("%d", runningConfig.PPPoESessionCount))
 	}
 	if len(runningConfig.StreamConfig) > 0 {
-		params = append(params, "-T", runningConfig.StreamConfig)
+		streamConfig, err := streamConfigPath(folder, runningConfig.StreamConfig)
+		if err != nil {
+			return nil, err
+		}
+		params = append(params, "-T", streamConfig)
 	}
-	return params
+	return params, nil
+}
+
+// streamConfigPath resolves the stream configuration file of a start
+// request.
+//
+// An absolute path is used as-is: test setups keep stream files outside
+// the controller (e.g. in a home directory, next to other test material)
+// and bngblaster, running as root, reads them from there just like the
+// files config.json references. A relative path is resolved against the
+// instance folder and must stay inside it, so "../other/streams.json"
+// cannot silently reach into another instance or out of the config folder;
+// whoever means a file elsewhere has to say so with an absolute path.
+func streamConfigPath(folder, streamConfig string) (string, error) {
+	if path.IsAbs(streamConfig) {
+		return streamConfig, nil
+	}
+	resolved := path.Join(folder, streamConfig)
+	absFolder, err := filepath.Abs(folder)
+	if err != nil {
+		return "", err
+	}
+	absResolved, err := filepath.Abs(resolved)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(absFolder, absResolved)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
+		return "", ErrInvalidStreamConfig
+	}
+	return resolved, nil
 }
 
 func (r *DefaultRepository) config(name string) ([]byte, error) {
 	folder := path.Join(r.configFolder, name)
 	file := path.Join(folder, ConfigFilename)
 	return os.ReadFile(file)
+}
+
+// Files implements Repository.
+func (r *DefaultRepository) Files(name string) ([]InstanceFile, error) {
+	if !r.Exists(name) {
+		return nil, ErrBlasterNotExists
+	}
+	folder := path.Join(r.configFolder, name)
+	entries, err := os.ReadDir(folder)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]InstanceFile, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Name() == runPidFilename || entry.Name() == RunSockFilename {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, InstanceFile{Name: entry.Name(), Size: info.Size()})
+	}
+	return files, nil
 }
 
 // Command implements Repository.

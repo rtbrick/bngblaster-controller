@@ -1,3 +1,5 @@
+version: 2
+
 before:
   hooks:
     # You may remove this if you don't use go modules.
@@ -28,18 +30,36 @@ nfpms:
       - deb
     bindir: /usr/local/bin
     section: utils
+    # bngblaster ships as a GitHub release .deb rather than from an apt
+    # repository, so a hard dependency would make a plain dpkg -i fail.
+    recommends:
+      - bngblaster
     contents:
       - src: debian/scripts/systemd/rtbrick-bngblasterctrl.service
         dst: /lib/systemd/system/rtbrick-bngblasterctrl.service
         file_info:
           mode: 0644
+      - src: debian/scripts/default/rtbrick-bngblasterctrl
+        dst: /etc/default/rtbrick-bngblasterctrl
+        type: config|noreplace
+        file_info:
+          mode: 0644
+      - src: debian/scripts/logrotate/rtbrick-bngblasterctrl
+        dst: /etc/logrotate.d/rtbrick-bngblasterctrl
+        type: config|noreplace
+        file_info:
+          mode: 0644
     scripts:
       postinstall: debian/scripts/postinstall.sh
       preremove: debian/scripts/preremove.sh
+      postremove: debian/scripts/postremove.sh
 checksum:
   name_template: 'checksums.txt'
 snapshot:
-  name_template: "{{ incpatch .Version }}-next"
+  # Dev builds from CI. The "~" makes dpkg sort them below the upcoming
+  # release (0.1.4~dev... < 0.1.4), so installing the release upgrades over
+  # a dev build; the commit timestamp orders successive dev builds.
+  version_template: "{{ incpatch .Version }}~dev.{{ .CommitTimestamp }}.{{ .ShortCommit }}"
 changelog:
   sort: asc
   filters:

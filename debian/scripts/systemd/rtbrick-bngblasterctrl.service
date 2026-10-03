@@ -9,11 +9,34 @@ User=root
 Group=root
 Environment="USER=root"
 Environment="GROUP=root"
-ExecStart=/usr/local/bin/bngblasterctrl
+EnvironmentFile=-/etc/default/rtbrick-bngblasterctrl
+ExecStart=/usr/local/bin/bngblasterctrl $BNGBLASTERCTRL_OPTS
 StandardOutput=file:/var/log/rtbrick-bngblasterctrl-service-out.log
 StandardError=file:/var/log/rtbrick-bngblasterctrl-service-err.log
 Restart=on-failure
 RestartSec=30s
+
+# Sandboxing. The controller and the bngblaster instances it starts run as
+# root with raw socket access, and the REST API has no authentication yet,
+# so limit what a misused request can reach. Only settings that leave
+# bngblaster's needs (raw sockets, netlink, /dev, /sys, hugepages, DPDK and
+# AF_XDP) untouched are used; the config folder (-d) may live anywhere
+# except /usr, /boot, /efi, /etc, /home and /root (one under /tmp is private
+# to the service). Override with "systemctl edit" if a setup needs more.
+# Makes /usr, /boot, /efi and /etc read-only.
+ProtectSystem=full
+# Home directories stay readable, since test setups keep stream, BGP and
+# MRT files (or a bngblaster built there, -e) in them and reference them
+# from config.json or stream_config, but they cannot be written.
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
 
 [Install]
 WantedBy=multi-user.target

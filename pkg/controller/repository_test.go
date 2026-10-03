@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2020-2025, RtBrick, Inc.
+// Copyright (C) 2020-2026, RtBrick, Inc.
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -163,6 +167,8 @@ func TestDefaultRepository_States(t *testing.T) {
 
 func TestDefaultRepository_commandlineParameters(t *testing.T) {
 	const rootFolder = "td"
+	absRoot, err := filepath.Abs(rootFolder)
+	require.NoError(t, err)
 	r := NewDefaultRepository(WithConfigFolder(rootFolder))
 	tests := []struct {
 		name          string
@@ -173,7 +179,7 @@ func TestDefaultRepository_commandlineParameters(t *testing.T) {
 			name:          "default",
 			runningConfig: RunningConfig{},
 			want: []string{
-				"/usr/sbin/bngblaster",
+				DefaultExecutable,
 				"-C", "td/default/config.json",
 				"-S", "td/default/run.sock",
 			},
@@ -187,7 +193,7 @@ func TestDefaultRepository_commandlineParameters(t *testing.T) {
 				PPPoESessionCount: 1000,
 			},
 			want: []string{
-				"/usr/sbin/bngblaster",
+				DefaultExecutable,
 				"-C", "td/all/config.json",
 				"-S", "td/all/run.sock",
 				"-J", "td/all/run_report.json",
@@ -197,12 +203,64 @@ func TestDefaultRepository_commandlineParameters(t *testing.T) {
 				"-P", "td/all/run.pcap",
 				"-c", "1000",
 			},
+		}, {
+			name: "stream config relative path",
+			runningConfig: RunningConfig{
+				StreamConfig: "streams.json",
+			},
+			want: []string{
+				DefaultExecutable,
+				"-C", "td/stream config relative path/config.json",
+				"-S", "td/stream config relative path/run.sock",
+				"-T", "td/stream config relative path/streams.json",
+			},
+		}, {
+			name: "stream config absolute path",
+			runningConfig: RunningConfig{
+				StreamConfig: filepath.Join(absRoot, "stream config absolute path", "streams.json"),
+			},
+			want: []string{
+				DefaultExecutable,
+				"-C", "td/stream config absolute path/config.json",
+				"-S", "td/stream config absolute path/run.sock",
+				"-T", filepath.Join(absRoot, "stream config absolute path", "streams.json"),
+			},
+		}, {
+			// Absolute paths outside the instance folder (e.g. a home
+			// directory) are passed through unchanged.
+			name: "stream config absolute path outside instance",
+			runningConfig: RunningConfig{
+				StreamConfig: "/home/user/tests/streams.json",
+			},
+			want: []string{
+				DefaultExecutable,
+				"-C", "td/stream config absolute path outside instance/config.json",
+				"-S", "td/stream config absolute path outside instance/run.sock",
+				"-T", "/home/user/tests/streams.json",
+			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, want := r.commandlineParameters(tt.name, tt.runningConfig), tt.want
-			require.Equal(t, want, got)
+			got, err := r.commandlineParameters(tt.name, tt.runningConfig)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestDefaultRepository_commandlineParameters_rejectsRelativeStreamConfigEscape(t *testing.T) {
+	// A relative stream config must not climb out of the instance folder;
+	// files elsewhere have to be referenced by an absolute path.
+	r := NewDefaultRepository(WithConfigFolder("td"))
+	for _, streamConfig := range []string{
+		"../other/streams.json",
+		"sub/../../streams.json",
+		".",
+	} {
+		t.Run(streamConfig, func(t *testing.T) {
+			_, err := r.commandlineParameters("test", RunningConfig{StreamConfig: streamConfig})
+			require.ErrorIs(t, err, ErrInvalidStreamConfig)
 		})
 	}
 }
@@ -240,7 +298,7 @@ func TestDefaultRepository_Start(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := r.Start(tt.name, tt.runningConfig); (err != nil) != tt.wantErr {
+			if err := r.Start(context.Background(), tt.name, tt.runningConfig); (err != nil) != tt.wantErr {
 				t.Fatalf("Start() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantErr {
@@ -318,7 +376,7 @@ func TestDefaultRepository_Command(t *testing.T) {
 			name: "instance_not_found",
 			command: SocketCommand{
 				Command: "session-counters",
-				Arguments: map[string]interface{}{
+				Arguments: map[string]any{
 					"outer-vlan": 1,
 					"inner-vlan": 1,
 					"group":      "232.1.1.3",
@@ -437,4 +495,118 @@ func waitSig(t *testing.T, c <-chan os.Signal, sig os.Signal) {
 		}
 	}
 	t.Fatalf("timeout after %v waiting for %v", settleTime, sig)
+}
+
+func TestDefaultRepository_Start_returnsWhenTheCallerGivesUp(t *testing.T) {
+	// A process that stays alive without ever creating a control socket:
+	// exactly the case Start waits out, up to startupMaxWait.
+	defaultExecCommand := ExecCommand
+	ExecCommand = func(_ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(t.Context(), "sleep", "10")
+	}
+	defer func() { ExecCommand = defaultExecCommand }()
+
+	// Its own config folder: Start writes run files into the instance folder,
+	// and the checked-in td/ fixtures are shared with the other tests.
+	configFolder := t.TempDir()
+	folder := path.Join(configFolder, "instance")
+	require.NoError(t, os.MkdirAll(folder, 0o700))
+	r := NewDefaultRepository(WithConfigFolder(configFolder), WithExecutable("test"))
+
+	// The caller's HTTP client has gone away. The instance has been spawned
+	// either way; only the observation of its outcome is abandoned, so Start
+	// must return at once instead of blocking for the full startup window.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	started := time.Now()
+	done := make(chan error, 1)
+	go func() { done <- r.Start(ctx, "instance", RunningConfig{}) }()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+		if waited := time.Since(started); waited >= 2*time.Second {
+			t.Fatalf("Start() waited %s: it ignored the cancelled context and "+
+				"blocked on the process instead", waited)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start() ignored the cancelled context and kept waiting")
+	}
+
+	// Leave no stray process behind.
+	if piddata, err := os.ReadFile(path.Join(folder, runPidFilename)); err == nil {
+		if pid, err := strconv.Atoi(string(piddata)); err == nil {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	}
+}
+
+func TestDefaultRepository_ignoresPidsThatCannotBeAnInstance(t *testing.T) {
+	// 0 and negative pids address process groups in kill(2) and 1 is init;
+	// a pid file holding one of them (corrupt, or planted) must never be
+	// signalled. The negated pgid of the test itself is the case that is
+	// observable without root: kill(-pgid, 0) succeeds for our own group.
+	// Stop and Kill share pid(), but are not exercised with it here since a
+	// regression would interrupt the whole test run instead of failing it.
+	ownGroup := strconv.Itoa(-syscall.Getpgrp())
+	for _, content := range []string{"0", "1", "-1", ownGroup, "", "abc"} {
+		t.Run(content, func(t *testing.T) {
+			folder := t.TempDir()
+			require.NoError(t, os.MkdirAll(path.Join(folder, "test"), permission))
+			pidFile := path.Join(folder, "test", runPidFilename)
+			require.NoError(t, os.WriteFile(pidFile, []byte(content), permission))
+
+			r := NewDefaultRepository(WithConfigFolder(folder))
+			require.False(t, r.Running("test"))
+			require.NoFileExists(t, pidFile, "a stale pid file is cleaned up")
+		})
+	}
+}
+
+func TestIsRunFile(t *testing.T) {
+	for _, name := range []string{
+		runPidFilename, RunSockFilename, RunConfigFilename, RunLogFilename,
+		RunReportFilename, RunPcapFilename, RunStdErr, RunStdOut,
+	} {
+		require.True(t, IsRunFile(name), name)
+	}
+	// config.json and user files are legitimately replaced by uploads.
+	for _, name := range []string{ConfigFilename, "streams.json", "run.pid.bak"} {
+		require.False(t, IsRunFile(name), name)
+	}
+}
+
+func TestDefaultRepository_Instances(t *testing.T) {
+	folder := t.TempDir()
+	require.NoError(t, os.MkdirAll(path.Join(folder, "a"), permission))
+	require.NoError(t, os.MkdirAll(path.Join(folder, "b"), permission))
+	require.NoError(t, os.WriteFile(path.Join(folder, "not-an-instance"), nil, permission))
+
+	require.Equal(t, []string{"a", "b"}, NewDefaultRepository(WithConfigFolder(folder)).Instances())
+
+	missing := NewDefaultRepository(WithConfigFolder(path.Join(folder, "missing")))
+	require.Equal(t, []string{}, missing.Instances(), "a missing config folder is an empty list, not nil")
+}
+
+func TestDefaultRepository_Files(t *testing.T) {
+	folder := t.TempDir()
+	instance := path.Join(folder, "test")
+	require.NoError(t, os.MkdirAll(path.Join(instance, "subdir"), permission))
+	require.NoError(t, os.WriteFile(path.Join(instance, ConfigFilename), []byte("{}"), permission))
+	require.NoError(t, os.WriteFile(path.Join(instance, RunLogFilename), []byte("log"), permission))
+	require.NoError(t, os.WriteFile(path.Join(instance, runPidFilename), []byte("42"), permission))
+	require.NoError(t, os.WriteFile(path.Join(instance, RunSockFilename), nil, permission))
+
+	r := NewDefaultRepository(WithConfigFolder(folder))
+	files, err := r.Files("test")
+	require.NoError(t, err)
+	// The pid file and socket are internal and directories are skipped.
+	require.ElementsMatch(t, []InstanceFile{
+		{Name: ConfigFilename, Size: 2},
+		{Name: RunLogFilename, Size: 3},
+	}, files)
+
+	_, err = r.Files("missing")
+	require.ErrorIs(t, err, ErrBlasterNotExists)
 }

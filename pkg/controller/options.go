@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Copyright (C) 2020-2025, RtBrick, Inc.
+// Copyright (C) 2020-2026, RtBrick, Inc.
 package controller
 
 // DefaultRepositoryOption helps to configure the Repository with options.
@@ -19,7 +19,7 @@ func WithExecutable(executable string) DefaultRepositoryOption {
 	}
 }
 
-// WithUpload is the option to allow file upload.
+// WithUpload is the option to allow file upload. Disabled by default.
 func WithUpload(upload bool) DefaultRepositoryOption {
 	return func(r *DefaultRepository) {
 		r.allow_upload = upload
