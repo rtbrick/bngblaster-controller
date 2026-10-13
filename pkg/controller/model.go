@@ -252,25 +252,26 @@ type A10nspInterfacesResponse struct {
 
 // StreamSummaryStream describes a single stream as reported by the
 // stream-summary socket command.
+//
+// The stream rates (TxPPS/RxPPS) are reported with a resolution of 1/100 PPS
+// (e.g. 99.2) by BNG Blaster releases after 0.9.39; float64 also accepts the
+// integer values sent by older versions, while int would fail to decode the
+// whole response.
 type StreamSummaryStream struct {
-	FlowID         int    `json:"flow-id"`
-	Name           string `json:"name"`
-	Type           string `json:"type"`
-	SubType        string `json:"sub-type"`
-	Direction      string `json:"direction"`
-	Enabled        bool   `json:"enabled"`
-	Active         bool   `json:"active"`
-	Verified       bool   `json:"verified"`
-	Interface      string `json:"interface"`
-	TxPackets      int    `json:"tx-packets"`
-	TxBytes        int    `json:"tx-bytes"`
-	RxPackets      int    `json:"rx-packets"`
-	RxBytes        int    `json:"rx-bytes"`
-	RxLoss         int    `json:"rx-loss"`
-	// Stream rates are reported with a resolution of 1/100 PPS (e.g. 99.2)
-	// by BNG Blaster releases after 0.9.39; float64 also accepts the integer
-	// values sent by older versions, while int would fail to decode the
-	// whole response.
+	FlowID         int     `json:"flow-id"`
+	Name           string  `json:"name"`
+	Type           string  `json:"type"`
+	SubType        string  `json:"sub-type"`
+	Direction      string  `json:"direction"`
+	Enabled        bool    `json:"enabled"`
+	Active         bool    `json:"active"`
+	Verified       bool    `json:"verified"`
+	Interface      string  `json:"interface"`
+	TxPackets      int     `json:"tx-packets"`
+	TxBytes        int     `json:"tx-bytes"`
+	RxPackets      int     `json:"rx-packets"`
+	RxBytes        int     `json:"rx-bytes"`
+	RxLoss         int     `json:"rx-loss"`
 	TxPPS          float64 `json:"tx-pps"`
 	RxPPS          float64 `json:"rx-pps"`
 	SessionID      int     `json:"session-id"`
