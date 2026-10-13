@@ -949,9 +949,13 @@ components:
         rx-loss:
           type: integer
         tx-pps:
-          type: integer
+          description: moving average TX rate in packets per second (two decimals)
+          type: number
+          format: double
         rx-pps:
-          type: integer
+          description: moving average RX rate in packets per second (two decimals)
+          type: number
+          format: double
         session-id:
           type: integer
         session-traffic:
@@ -972,8 +976,8 @@ components:
           "rx-packets": 1000,
           "rx-bytes": 64000,
           "rx-loss": 0,
-          "tx-pps": 100,
-          "rx-pps": 100,
+          "tx-pps": 99.2,
+          "rx-pps": 99.2,
           "session-id": 1,
           "session-traffic": false
         }
@@ -1012,8 +1016,8 @@ components:
               "rx-packets": 1000,
               "rx-bytes": 64000,
               "rx-loss": 0,
-              "tx-pps": 100,
-              "rx-pps": 100,
+              "tx-pps": 99.2,
+              "rx-pps": 99.2,
               "session-id": 1,
               "session-traffic": false
             }

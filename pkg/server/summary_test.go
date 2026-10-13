@@ -392,3 +392,29 @@ func TestServer_instances_detailOnEmptyListIsAnArray(t *testing.T) {
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.Equal(t, "[]", strings.TrimSpace(recorder.Body.String()))
 }
+
+// BNG Blaster reports stream rates with two decimals (jansson writes whole
+// reals as e.g. 100.0), which must not break decoding of the stream table.
+func TestServer_streams_fractionalPPS(t *testing.T) {
+	repository := &controller.RepositoryMock{
+		ConfigFolderFunc: func() string { return configFolder },
+		ExistsFunc:       func(_ string) bool { return true },
+		CommandFunc: func(_ string, _ controller.SocketCommand) ([]byte, error) {
+			return []byte(`{"status":"ok","code":200,"stream-summary":[` +
+				`{"flow-id":1,"name":"s1","rx-pps":0.01,"tx-pps":99.2},` +
+				`{"flow-id":2,"name":"s2","rx-pps":100.0,"tx-pps":100}]}`), nil
+		},
+	}
+	handler := NewServer(repository)
+
+	recorder := doGet(t, handler, "/api/v1/instances/test/_streams")
+	require.Equal(t, http.StatusOK, recorder.Code)
+
+	var resp streamsResponse
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
+	require.Len(t, resp.Items, 2)
+	assert.InDelta(t, 0.01, resp.Items[0].RxPPS, 1e-9)
+	assert.InDelta(t, 99.2, resp.Items[0].TxPPS, 1e-9)
+	assert.InDelta(t, 100.0, resp.Items[1].RxPPS, 1e-9)
+	assert.InDelta(t, 100.0, resp.Items[1].TxPPS, 1e-9)
+}

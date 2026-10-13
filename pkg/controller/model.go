@@ -267,10 +267,14 @@ type StreamSummaryStream struct {
 	RxPackets      int    `json:"rx-packets"`
 	RxBytes        int    `json:"rx-bytes"`
 	RxLoss         int    `json:"rx-loss"`
-	TxPPS          int    `json:"tx-pps"`
-	RxPPS          int    `json:"rx-pps"`
-	SessionID      int    `json:"session-id"`
-	SessionTraffic bool   `json:"session-traffic"`
+	// Stream rates are reported with a resolution of 1/100 PPS (e.g. 99.2)
+	// by BNG Blaster releases after 0.9.39; float64 also accepts the integer
+	// values sent by older versions, while int would fail to decode the
+	// whole response.
+	TxPPS          float64 `json:"tx-pps"`
+	RxPPS          float64 `json:"rx-pps"`
+	SessionID      int     `json:"session-id"`
+	SessionTraffic bool    `json:"session-traffic"`
 }
 
 // StreamSummaryResponse response for stream-summary socket command.
