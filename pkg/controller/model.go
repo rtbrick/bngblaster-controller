@@ -187,8 +187,8 @@ type NetworkInterfacesResponse struct {
 		RxBytes                    int    `json:"rx-bytes"`
 		RxPPS                      int    `json:"rx-pps"`
 		RxKbps                     int    `json:"rx-kbps"`
-		TxPacketsMulticast         int    `json:"rx-packets-multicast"`
-		TxPPSMulticast             int    `json:"rx-pps-multicast"`
+		TxPacketsMulticast         int    `json:"tx-packets-multicast"`
+		TxPPSMulticast             int    `json:"tx-pps-multicast"`
 		TxPacketsSessionIPv4       int    `json:"tx-packets-session-ipv4"`
 		TxPPSSessionIPv4           int    `json:"tx-pps-session-ipv4"`
 		RxPacketsSessionIPv4       int    `json:"rx-packets-session-ipv4"`
