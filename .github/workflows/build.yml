@@ -47,6 +47,14 @@ jobs:
         if-no-files-found: error
 
   lint:
+    # only-new-issues diffs a push against its "before" commit, which is all
+    # zeros for a new ref (a release tag or a fresh branch), so the action's
+    # compare request 404s. Tags are linted on the branch they were cut from
+    # and new branches by their pull request.
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.ref_type == 'branch' &&
+       github.event.before != '0000000000000000000000000000000000000000')
     runs-on: ubuntu-latest
     permissions:
       contents: read
