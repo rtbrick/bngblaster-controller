@@ -14,6 +14,9 @@ as REST API and provides endpoints to download logs and reports.
 
 ## Installation
 
+This version of the BNG Blaster controller requires
+[BNG Blaster](https://github.com/rtbrick/bngblaster) 1.0.0 or newer.
+
 Pre-built debian packages, as well as plain `tar.gz` archives, are
 published on the [GitHub releases page](https://github.com/rtbrick/bngblaster-controller/releases).
 
