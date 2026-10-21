@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -33,15 +34,13 @@ const (
 	bufferLength               = 512
 	initialReceiveBufferLength = 20000
 
-	// startupPollInterval is how often Start polls for the control socket
+	// startupPollInterval is how often Start polls the control socket
 	// while waiting to see whether bngblaster came up successfully.
 	startupPollInterval = 100 * time.Millisecond
-	// startupMaxWait bounds how long Start waits for the control socket to
-	// appear before giving up on detecting failure and reporting success
-	// anyway. A very large configuration can legitimately take a few
-	// seconds to come up, so this needs real headroom above the common
-	// "bad config, fails in milliseconds" case.
-	startupMaxWait = 30 * time.Second
+
+	// exitStartupAborted is the exit status of bngblaster if its startup
+	// was aborted by a teardown request (test-stop or a signal).
+	exitStartupAborted = 3
 
 	// ConfigFilename configuration file of the blaster.
 	ConfigFilename = "config.json"
@@ -273,23 +272,32 @@ func (r *DefaultRepository) Start(ctx context.Context, name string, runningConfi
 }
 
 // waitForStartup waits for a freshly spawned bngblaster to either come up
-// or fail, returning its stderr output as the error in the latter case.
+// or fail, returning its stderr output as the error in the latter case and
+// ErrBlasterStartupAborted if the startup was aborted.
 //
-// bngblaster only creates its control socket once it has fully come up
-// (config parsed and validated, interfaces set up); a bad configuration
-// instead makes it print an error and exit - usually within
-// milliseconds, but a very large configuration can take a few seconds
-// to either come up or fail. So: wait for whichever happens first,
-// bounded by startupMaxWait so this can never hang the request forever,
-// and by ctx so a caller that has gone away (a disconnected HTTP client)
-// stops the wait immediately instead of pinning a goroutine for it.
+// A bad configuration makes bngblaster print an error and exit - usually
+// within milliseconds, but a large configuration can take a while to
+// either come up or fail, and an instance can wait for minutes for the
+// startup of other instances (the startup lock). So there is deliberately
+// no deadline: the wait ends when the instance is up, when it has exited,
+// or when ctx is done - a caller that has gone away (a disconnected HTTP
+// client) stops the wait immediately instead of pinning a goroutine for
+// it. A startup that takes too long is aborted by stopping or killing the
+// instance, which ends the wait through its exit.
+//
+// How "came up" is detected depends on the bngblaster version. Older
+// versions create the control socket only once fully up, so the socket
+// appearing is enough. Newer versions open it right after the log file,
+// before the configuration is even loaded, and instead report the startup
+// through the "status" field of test-info; for those the wait continues
+// until the status leaves "starting". A test-info without "status" marks
+// an older version.
 //
 // Note that returning early never stops the instance: it has been
 // spawned either way, and giving up on *observing* the outcome only
 // means the caller has to ask for the status separately.
 func waitForStartup(ctx context.Context, folder string, done <-chan error) error {
 	sockFile := path.Join(folder, RunSockFilename)
-	deadline := time.Now().Add(startupMaxWait)
 	ticker := time.NewTicker(startupPollInterval)
 	defer ticker.Stop()
 	for {
@@ -299,9 +307,12 @@ func waitForStartup(ctx context.Context, folder string, done <-chan error) error
 			return nil
 		case waitErr := <-done:
 			if waitErr == nil {
-				// Exited on its own without an error before creating a
-				// socket: not the failure case this is guarding against.
+				// Exited on its own without an error before coming up:
+				// not the failure case this is guarding against.
 				return nil
+			}
+			if startupAborted(waitErr) {
+				return ErrBlasterStartupAborted
 			}
 			stderrContent, _ := os.ReadFile(path.Join(folder, RunStdErr))
 			msg := strings.TrimSpace(string(stderrContent))
@@ -310,16 +321,53 @@ func waitForStartup(ctx context.Context, folder string, done <-chan error) error
 			}
 			return fmt.Errorf("%s", msg)
 		case <-ticker.C:
-			if _, statErr := os.Stat(sockFile); statErr == nil {
-				return nil
-			}
-			if time.Now().After(deadline) {
-				// Still running, just hasn't created its socket yet after a
-				// generous wait: report success rather than blocking (or
-				// misreporting failure) any longer.
+			if _, statErr := os.Stat(sockFile); statErr == nil && startupCompleted(sockFile) {
 				return nil
 			}
 		}
+	}
+}
+
+// startupAborted reports whether the exit error of an instance that has
+// not come up yet is the result of an abort rather than a failure: the
+// dedicated exit status of a teardown request during the startup, or a
+// signal (_kill, or _stop with versions that do not handle signals during
+// the startup).
+func startupAborted(waitErr error) bool {
+	var exitErr *exec.ExitError
+	if !errors.As(waitErr, &exitErr) {
+		return false
+	}
+	if exitErr.ExitCode() == exitStartupAborted {
+		return true
+	}
+	status, ok := exitErr.Sys().(syscall.WaitStatus)
+	return ok && status.Signaled()
+}
+
+// startupCompleted reports whether the instance behind the control socket
+// has finished its startup, see waitForStartup.
+//
+// A failed query is retried on the next poll: the socket file exists from
+// bind() on, slightly before bngblaster accepts connections. While the
+// status is "stopping" the startup has failed or was aborted, and the
+// process is about to exit, which waitForStartup then reports with its
+// stderr output.
+func startupCompleted(sockFile string) bool {
+	result, err := socketCommand(sockFile, SocketCommand{Command: "test-info"})
+	if err != nil {
+		return false
+	}
+	var info TestInfoResponse
+	if err := json.Unmarshal(result, &info); err != nil {
+		return false
+	}
+	switch info.TestInfo.Status {
+	case "starting", "stopping":
+		return false
+	default:
+		// "running", or a version reporting no status at all.
+		return true
 	}
 }
 
@@ -448,8 +496,13 @@ func (r *DefaultRepository) Command(name string, command SocketCommand) ([]byte,
 	if !r.Running(name) {
 		return nil, ErrBlasterNotRunning
 	}
-	folder := path.Join(r.configFolder, name)
-	file := path.Join(folder, RunSockFilename)
+	return socketCommand(path.Join(r.configFolder, name, RunSockFilename), command)
+}
+
+// socketCommand sends one command to the control socket at file and returns
+// the raw response. Unlike Command it does not check the pid file, so the
+// startup wait can use it while the instance is still coming up.
+func socketCommand(file string, command SocketCommand) ([]byte, error) {
 	// Open Socket
 	c, err := net.Dial("unix", file)
 	if err != nil {

@@ -246,6 +246,12 @@ func TestServer_start(t *testing.T) {
 			wantBody:    "instance is running",
 			want:        http.StatusPreconditionFailed,
 		}, {
+			name:        "aborted",
+			resultStart: controller.ErrBlasterStartupAborted,
+			body:        &controller.RunningConfig{},
+			wantBody:    "blaster instance startup aborted",
+			want:        http.StatusConflict,
+		}, {
 			name:        "error",
 			resultStart: fmt.Errorf("other error"),
 			body:        &controller.RunningConfig{},

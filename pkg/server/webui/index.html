@@ -402,10 +402,11 @@
 <dialog id="dialog-start-instance" aria-labelledby="dialog-start-instance-title">
   <div class="dialog-header">
     <h2 id="dialog-start-instance-title">Start Instance</h2>
-    <button type="button" class="btn btn-sm btn-icon" data-close-dialog="dialog-start-instance" aria-label="Close dialog">✕</button>
+    <button type="button" class="btn btn-sm btn-icon" id="btn-start-instance-close" data-close-dialog="dialog-start-instance" aria-label="Close dialog">✕</button>
   </div>
   <div class="dialog-body">
     <div id="start-instance-status" role="alert"></div>
+    <div id="start-instance-progress" class="form-status info" role="status" hidden></div>
     <fieldset>
       <legend>Reporting &amp; logging</legend>
       <div class="checkbox-field field">
@@ -446,7 +447,8 @@
     </fieldset>
   </div>
   <div class="dialog-footer">
-    <button type="button" class="btn" data-close-dialog="dialog-start-instance">Cancel</button>
+    <button type="button" class="btn" id="btn-start-instance-cancel" data-close-dialog="dialog-start-instance">Cancel</button>
+    <button type="button" class="btn btn-danger" id="btn-start-instance-abort" hidden>Abort</button>
     <button type="button" class="btn btn-primary" id="btn-start-instance-confirm">Start</button>
   </div>
 </dialog>

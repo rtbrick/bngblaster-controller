@@ -17,6 +17,9 @@ var (
 	ErrBlasterRunning = &BlasterControllerError{"blaster instance is running"}
 	// ErrBlasterNotRunning there is no BlasterInstance running.
 	ErrBlasterNotRunning = &BlasterControllerError{"blaster instance is not running"}
+	// ErrBlasterStartupAborted the instance was stopped or killed before
+	// its startup completed.
+	ErrBlasterStartupAborted = &BlasterControllerError{"blaster instance startup aborted"}
 	// ErrInvalidStreamConfig a relative stream configuration path escapes
 	// the instance folder.
 	ErrInvalidStreamConfig = &BlasterControllerError{"relative stream config must be a file inside the instance folder"}

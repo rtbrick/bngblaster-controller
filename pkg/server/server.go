@@ -489,6 +489,10 @@ func (s *Server) start() http.HandlerFunc {
 
 		status := http.StatusNoContent
 
+		// Start waits until the instance has come up or failed, which has
+		// no upper bound (e.g. while waiting for the startup of other
+		// instances); the instance is aborted via _stop or _kill instead.
+		disableWriteDeadline(w)
 		s.invalidateInstanceCaches(instance)
 		err = s.repository.Start(r.Context(), instance, runningConfig)
 		if err == controller.ErrBlasterNotExists {
@@ -497,6 +501,11 @@ func (s *Server) start() http.HandlerFunc {
 		}
 		if err == controller.ErrBlasterRunning {
 			JSONError(w, errInstanceIsRunning, http.StatusPreconditionFailed)
+			return
+		}
+		if err == controller.ErrBlasterStartupAborted {
+			auditLog(r, instance).Msg("instance start aborted")
+			JSONError(w, err.Error(), http.StatusConflict)
 			return
 		}
 		if err == controller.ErrInvalidStreamConfig {

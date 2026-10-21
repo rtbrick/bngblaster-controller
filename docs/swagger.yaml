@@ -308,6 +308,28 @@ paths:
                   test-info:
                     type: object
                     nullable: true
+                    description: >-
+                      status, task, pid and startup-lock-pid are reported by bngblaster
+                      versions that open the control socket at the beginning of the startup.
+                      While starting or stopping, all other commands of this response are null.
+                    properties:
+                      state:
+                        type: string
+                        example: active
+                      duration:
+                        type: integer
+                        description: seconds since the test has started, 0 while starting
+                      status:
+                        type: string
+                        enum: [starting, running, stopping]
+                      task:
+                        type: string
+                        example: wait-startup-lock
+                      pid:
+                        type: integer
+                      startup-lock-pid:
+                        type: integer
+                        description: PID of the instance holding the startup lock while waiting for it
         404:
           description: not found, instance does not exist
           content:
@@ -567,6 +589,14 @@ paths:
       summary: Start an instance
       description: >-
         The bngblaster instance will be started with the command line parameters provided in the body.
+
+        The request waits until the instance has come up, so that an instance failing
+        during its startup (e.g. due to an invalid configuration) is answered with 500 and
+        its error output. With bngblaster versions reporting the startup via test-info,
+        this is until the status is no longer "starting"; with older versions, until the
+        control socket exists. There is no time limit, since an instance may wait for the
+        startup of other instances. A startup can be aborted with the control socket command
+        test-stop, or with _stop or _kill; the pending request is then answered with 409.
       parameters:
         - name: instance_name
           description: instance name of the bngblaster
@@ -681,6 +711,12 @@ paths:
                 type: string
         412:
           description: precondition failed, if instance is running
+          content:
+            text/plain:
+              schema:
+                type: string
+        409:
+          description: conflict, the startup was aborted before the instance came up
           content:
             text/plain:
               schema:

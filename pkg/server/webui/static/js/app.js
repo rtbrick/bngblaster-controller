@@ -544,17 +544,100 @@
       metric_flags: collectCheckedFlags('start-metric-flags'),
     };
   }
-  $('#btn-start-instance-confirm').addEventListener('click', async () => {
-    const cfg = collectRunningConfig();
+  // _start answers only once the instance has come up or failed, which can
+  // take minutes (large configurations, or waiting for the startup of other
+  // instances). Meanwhile the dialog stays open, shows what the instance is
+  // doing (test-info status and task, reported by newer bngblaster versions)
+  // and offers to abort the startup.
+  const startProgress = { name: null, timer: null, aborted: false };
+
+  function setStartDialogBusy(busy) {
+    $('#btn-start-instance-confirm').disabled = busy;
+    $('#btn-start-instance-close').disabled = busy;
+    $('#btn-start-instance-cancel').hidden = busy;
+    $('#btn-start-instance-abort').hidden = !busy;
+    $('#btn-start-instance-abort').disabled = false;
+    $all('#dialog-start-instance .dialog-body input').forEach((input) => { input.disabled = busy; });
+    const progress = $('#start-instance-progress');
+    progress.hidden = !busy;
+    if (busy) progress.textContent = 'Starting…';
+  }
+
+  async function pollStartProgress() {
+    const name = startProgress.name;
+    let info = null;
     try {
-      await API.start(startDialogTarget, cfg);
-      announce('Started ' + startDialogTarget, 'success');
+      const resp = await API.command(name, 'test-info');
+      info = resp && resp['test-info'];
+    } catch (e) {
+      // No control socket yet (or an older bngblaster that opens it only
+      // once up): keep showing the generic text.
+    }
+    if (startProgress.name !== name || !info) return;
+    let text = info.status === 'stopping' ? 'Stopping' : 'Starting';
+    if (info.task) text += ' · ' + prettyLabel(info.task);
+    if (info['startup-lock-pid']) {
+      text += ' (waiting for the startup of another instance, PID ' + info['startup-lock-pid'] + ')';
+    }
+    const progress = $('#start-instance-progress');
+    // Only touch the live region when the text changes, so screen readers
+    // announce each task once rather than on every poll.
+    if (progress.textContent !== text + '…') progress.textContent = text + '…';
+  }
+
+  // Closing the dialog while starting would leave no way to abort.
+  $('#dialog-start-instance').addEventListener('cancel', (ev) => {
+    if (startProgress.name) ev.preventDefault();
+  });
+
+  $('#btn-start-instance-confirm').addEventListener('click', async () => {
+    const name = startDialogTarget;
+    const cfg = collectRunningConfig();
+    setStatusMessage($('#start-instance-status'), '');
+    startProgress.name = name;
+    startProgress.aborted = false;
+    setStartDialogBusy(true);
+    startProgress.timer = schedulePoll(pollStartProgress, 500);
+    try {
+      await API.start(name, cfg);
+      announce('Started ' + name, 'success');
       closeDialog('dialog-start-instance');
       if (startDialogThen) startDialogThen();
-      loadInstances();
-      if (state.currentInstance === startDialogTarget) refreshInstanceStatus();
     } catch (e) {
-      showDetailedError($('#start-instance-status'), 'Could not start instance', e.message);
+      if (startProgress.aborted || e.status === 409) {
+        announce('Start of ' + name + ' aborted', 'info');
+        closeDialog('dialog-start-instance');
+      } else {
+        showDetailedError($('#start-instance-status'), 'Could not start instance', e.message);
+      }
+    } finally {
+      startProgress.timer = cancelPoll(startProgress.timer);
+      startProgress.name = null;
+      setStartDialogBusy(false);
+      loadInstances();
+      if (state.currentInstance === name) refreshInstanceStatus();
+    }
+  });
+
+  // Abort asks the instance to tear down via test-stop, which restores the
+  // interface configuration. Without a working control socket (not open
+  // yet, or a bngblaster version without startup reporting) the instance
+  // is killed instead. Either way the pending _start request then returns.
+  $('#btn-start-instance-abort').addEventListener('click', async () => {
+    const name = startProgress.name;
+    if (!name) return;
+    startProgress.aborted = true;
+    $('#btn-start-instance-abort').disabled = true;
+    $('#start-instance-progress').textContent = 'Aborting…';
+    try {
+      await API.command(name, 'test-stop');
+    } catch (e) {
+      try {
+        await API.kill(name);
+      } catch (killErr) {
+        showDetailedError($('#start-instance-status'), 'Could not abort start', killErr.message);
+        $('#btn-start-instance-abort').disabled = false;
+      }
     }
   });
 
@@ -2003,6 +2086,12 @@
   // ...) and elapsed duration in seconds. Rendered from the shared overview
   // poll so the header badge stays current across every tab, not just while
   // the Overview tab is visible.
+  //
+  // Newer bngblaster versions open the control socket at the beginning of
+  // the startup and additionally report a status ("starting", "running",
+  // "stopping") and the current task. While starting or stopping, the task
+  // ("wait-startup-lock", "init-interfaces", "teardown", ...) says more than
+  // the state and the duration, which stays 0 until the test has started.
   function renderTestDuration(testInfo) {
     const pill = $('#instance-duration-pill');
     if (!testInfo || typeof testInfo.duration !== 'number') {
@@ -2011,6 +2100,18 @@
       return;
     }
     pill.hidden = false;
+    if (testInfo.status === 'starting' || testInfo.status === 'stopping') {
+      let text = prettyLabel(testInfo.status);
+      if (testInfo.task) text += ' · ' + prettyLabel(testInfo.task);
+      if (testInfo['startup-lock-pid']) text += ' (PID ' + testInfo['startup-lock-pid'] + ')';
+      if (testInfo.status === 'stopping' && testInfo.duration) text += ' · ' + formatDuration(testInfo.duration);
+      pill.textContent = text;
+      pill.title = testInfo['startup-lock-pid']
+        ? 'Waiting for the startup of another BNG Blaster instance (PID ' + testInfo['startup-lock-pid'] + ')'
+        : '';
+      return;
+    }
+    pill.title = '';
     pill.textContent = (testInfo.state ? prettyLabel(testInfo.state) + ' · ' : '') + formatDuration(testInfo.duration);
   }
 

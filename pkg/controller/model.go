@@ -88,6 +88,26 @@ type SocketCommand struct {
 	Arguments map[string]any `json:"arguments"`
 }
 
+// TestInfoResponse response for test-info socket command.
+//
+// Status, Task, PID and StartupLockPID are reported by bngblaster versions
+// that open the control socket at the beginning of the startup and are
+// empty for older ones. Status is "starting", "running" or "stopping", Task
+// names what the instance is currently doing (e.g. "wait-startup-lock",
+// "init-interfaces", "running", "teardown") and StartupLockPID is the pid of
+// the instance holding the startup lock while this one waits for it.
+type TestInfoResponse struct {
+	Code     int `json:"code"`
+	TestInfo struct {
+		State          string `json:"state"`
+		Duration       int    `json:"duration"`
+		Status         string `json:"status"`
+		Task           string `json:"task"`
+		PID            int    `json:"pid"`
+		StartupLockPID int    `json:"startup-lock-pid"`
+	} `json:"test-info"`
+}
+
 // SessionCountersResponse response for session-counters socket command.
 type SessionCountersResponse struct {
 	Code            int `json:"code"`

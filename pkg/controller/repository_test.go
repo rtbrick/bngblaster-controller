@@ -499,7 +499,7 @@ func waitSig(t *testing.T, c <-chan os.Signal, sig os.Signal) {
 
 func TestDefaultRepository_Start_returnsWhenTheCallerGivesUp(t *testing.T) {
 	// A process that stays alive without ever creating a control socket:
-	// exactly the case Start waits out, up to startupMaxWait.
+	// exactly the case Start waits out until the instance exits.
 	defaultExecCommand := ExecCommand
 	ExecCommand = func(_ string, _ ...string) *exec.Cmd {
 		return exec.CommandContext(t.Context(), "sleep", "10")

@@ -4,6 +4,7 @@ package controller
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
 	"path"
 	"strconv"
@@ -501,6 +502,14 @@ func (p *Prom) Describe(ch chan<- *prometheus.Desc) {
 	ch <- p.StreamRxLoss
 }
 
+// commandSucceeded reports whether a control socket response carries data.
+// While an instance starts or stops, bngblaster answers every command
+// except a few (test-info, ...) with 503 and no payload, which would
+// otherwise be exported as all metrics dropping to zero.
+func commandSucceeded(code int) bool {
+	return code == 0 || code == http.StatusOK
+}
+
 // Collect implements required collect function for all metrics collectors.
 func (p *Prom) Collect(ch chan<- prometheus.Metric) {
 	total := float64(0)
@@ -540,6 +549,9 @@ func (p *Prom) collectInstanceSessionCounters(instance string, ch chan<- prometh
 	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
 	if err != nil {
 		log.Warn().Msgf("failed to decode session-counters: %s", err.Error())
+		return
+	}
+	if !commandSucceeded(cr.Code) {
 		return
 	}
 	// Return Metrics.
@@ -584,6 +596,9 @@ func (p *Prom) collectInstanceInterfaces(instance string, ch chan<- prometheus.M
 		log.Warn().Msgf("failed to decode interfaces: %s", err.Error())
 		return
 	}
+	if !commandSucceeded(cr.Code) {
+		return
+	}
 	// Return Metrics.
 	for _, iface := range cr.Interfaces {
 		ch <- prometheus.MustNewConstMetric(p.IfTxPackets, prometheus.CounterValue, float64(iface.TxPackets), instance, iface.Name, iface.Type)
@@ -608,6 +623,9 @@ func (p *Prom) collectInstanceAccessInterfaces(instance string, ch chan<- promet
 	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
 	if err != nil {
 		log.Warn().Msgf("failed to decode access-interfaces: %s", err.Error())
+		return
+	}
+	if !commandSucceeded(cr.Code) {
 		return
 	}
 	// Return Metrics.
@@ -663,6 +681,9 @@ func (p *Prom) collectInstanceNetworkInterfaces(instance string, ch chan<- prome
 		log.Warn().Msgf("failed to decode network-interfaces: %s", err.Error())
 		return
 	}
+	if !commandSucceeded(cr.Code) {
+		return
+	}
 	// Return Metrics.
 	for _, iface := range cr.Interfaces {
 		ch <- prometheus.MustNewConstMetric(p.IfTxPackets, prometheus.CounterValue, float64(iface.TxPackets), instance, iface.Name, iface.Type)
@@ -715,6 +736,9 @@ func (p *Prom) collectInstanceA10nspInterfaces(instance string, ch chan<- promet
 		log.Warn().Msgf("failed to decode a10nsp-interfaces: %s", err.Error())
 		return
 	}
+	if !commandSucceeded(cr.Code) {
+		return
+	}
 	// Return Metrics.
 	for _, iface := range cr.Interfaces {
 		ch <- prometheus.MustNewConstMetric(p.IfTxPackets, prometheus.CounterValue, float64(iface.TxPackets), instance, iface.Name, iface.Type)
@@ -763,6 +787,9 @@ func (p *Prom) collectInstanceStreams(instance string, ch chan<- prometheus.Metr
 	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
 	if err != nil {
 		log.Warn().Msgf("failed to decode stream-summary: %s", err.Error())
+		return
+	}
+	if !commandSucceeded(cr.Code) {
 		return
 	}
 	// Return Metrics.
