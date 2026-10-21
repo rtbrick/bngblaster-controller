@@ -4,14 +4,15 @@ package server
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"html/template"
 	"io/fs"
 	"net/http"
 	"strings"
 	"sync"
-	"time"
 )
 
 // webUIAssets embeds the built-in single-page application that ships inside
@@ -22,11 +23,29 @@ import (
 //go:embed webui/index.html webui/static
 var webUIAssets embed.FS
 
-// processStartToken distinguishes one controller process from another when
-// no meaningful release version is available (a "dev" build). It gives the
-// asset version something that still changes across restarts, so a developer
-// rebuilding the UI is never served a stale asset from the browser cache.
-var processStartToken = fmt.Sprintf("dev-%d", time.Now().UnixNano())
+// webUIContentHash is a short hash over every embedded UI file. The
+// controller version alone does not identify the assets: every build between
+// two release tags carries the same version, so a browser that cached the
+// immutable assets of one such build would keep running them against the
+// next. The hash changes with any change of a file, and only then.
+var webUIContentHash = sync.OnceValue(func() string {
+	hash := sha256.New()
+	_ = fs.WalkDir(webUIAssets, "webui", func(name string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		content, err := webUIAssets.ReadFile(name)
+		if err != nil {
+			return err
+		}
+		// Name and length delimit the files, so moving content from
+		// one file to another changes the hash too.
+		_, _ = fmt.Fprintf(hash, "%s\x00%d\x00", name, len(content))
+		hash.Write(content)
+		return nil
+	})
+	return hex.EncodeToString(hash.Sum(nil))[:12]
+})
 
 // registerUIRoutes wires the embedded web UI into the router. It is only
 // called when the UI is enabled (see WithUI). Static assets are served from
@@ -45,17 +64,17 @@ func (s *Server) registerUIRoutes() {
 }
 
 // uiAssetVersion is the cache busting token appended to every asset URL the
-// application shell emits. It is derived from the controller version, which
-// is assigned after NewServer returns, so it is resolved lazily on first use
-// and then kept for the lifetime of the process.
+// application shell emits: the controller version, for readability, and the
+// hash of the embedded assets, which is what actually tells builds apart.
+// The version is assigned after NewServer returns, so this is resolved
+// lazily on first use and then kept for the lifetime of the process.
 func (s *Server) uiAssetVersion() string {
 	s.assetVersionOnce.Do(func() {
 		version := strings.TrimSpace(s.Version)
-		if version == "" || version == "dev" {
-			s.assetVersion = processStartToken
-			return
+		if version == "" {
+			version = "dev"
 		}
-		s.assetVersion = version
+		s.assetVersion = version + "-" + webUIContentHash()
 	})
 	return s.assetVersion
 }
@@ -113,8 +132,8 @@ func (s *Server) favicon() http.HandlerFunc {
 // signal has to come from the URL instead.
 //
 // A request carrying the current asset version is immutable by construction -
-// a new controller release produces a new version and therefore new URLs - so
-// it may be cached indefinitely. Anything else (a bookmarked or hand-typed
+// any change of the embedded assets produces a new version and therefore new
+// URLs - so it may be cached indefinitely. Anything else (a bookmarked or hand-typed
 // asset URL, or one left over from a previous release) must be revalidated,
 // otherwise a browser could keep running a stale app.js against a newer API.
 func (s *Server) cacheControl(next http.Handler) http.Handler {

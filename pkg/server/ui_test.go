@@ -33,29 +33,34 @@ func TestServer_index_versionsEveryAssetURL(t *testing.T) {
 
 	body := recorder.Body.String()
 	require.NotContains(t, body, "{{", "the template must be fully rendered")
-	require.Contains(t, body, "/static/js/app.js?v=1.2.3")
-	require.Contains(t, body, "/static/css/app.css?v=1.2.3")
+	require.Contains(t, body, "/static/js/app.js?v=1.2.3-"+webUIContentHash())
+	require.Contains(t, body, "/static/css/app.css?v=1.2.3-"+webUIContentHash())
 }
 
-func TestServer_index_devBuildsGetAPerProcessVersion(t *testing.T) {
-	// A "dev" build has no release version to key the cache off, so assets
-	// must still be re-fetched after a rebuild and restart.
+func TestServer_index_assetVersionFollowsTheContent(t *testing.T) {
+	// Every build between two release tags carries the same version, so
+	// the version alone would let a browser keep the cached assets of an
+	// older build: the content hash has to tell them apart.
+	hash := webUIContentHash()
+	require.Len(t, hash, 12)
+	require.Equal(t, hash, webUIContentHash(), "the hash must be stable")
 	body := doGet(t, uiServer("dev"), "/").Body.String()
-	require.Contains(t, body, "/static/js/app.js?v=dev-")
+	require.Contains(t, body, "/static/js/app.js?v=dev-"+hash)
 }
 
 func TestServer_staticAssets_cachePolicyFollowsTheVersion(t *testing.T) {
 	handler := uiServer("1.2.3")
 
 	// The versioned URL the shell emits is immutable by construction.
-	versioned := doGet(t, handler, "/static/js/app.js?v=1.2.3")
+	versioned := doGet(t, handler, "/static/js/app.js?v=1.2.3-"+webUIContentHash())
 	require.Equal(t, http.StatusOK, versioned.Code)
 	require.Equal(t, "public, max-age=31536000, immutable", versioned.Header().Get("Cache-Control"))
 	require.Equal(t, "nosniff", versioned.Header().Get("X-Content-Type-Options"))
 
 	// Anything else - a bookmark, or a URL left over from an older release -
 	// must be revalidated so a stale app.js never runs against a newer API.
-	for _, target := range []string{"/static/js/app.js", "/static/js/app.js?v=0.9.0"} {
+	// The same version with other assets is a different build.
+	for _, target := range []string{"/static/js/app.js", "/static/js/app.js?v=0.9.0", "/static/js/app.js?v=1.2.3"} {
 		stale := doGet(t, handler, target)
 		require.Equal(t, http.StatusOK, stale.Code)
 		require.Equal(t, "no-cache", stale.Header().Get("Cache-Control"), target)
