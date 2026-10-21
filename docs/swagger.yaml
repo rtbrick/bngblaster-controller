@@ -82,6 +82,82 @@ paths:
                     "mac": "aa:bb:cc:dd:ee:ff"
                   }
                 ]
+  /api/v1/host:
+    get:
+      summary: Host information.
+      description: >-
+        Get CPU, NUMA, memory and disk information of the host, the live CPU, memory and disk
+        usage, and the CPUs pinned by bngblaster instances (based on their CPU lock files
+        /run/lock/bngblaster_cpu<N>.<PID>.lock). Sizes are in bytes, usage in percent.
+
+        A pin reports the instance of this controller if the process was started by it, otherwise
+        only the PID.
+
+        Enabled by default; not available (404) if the controller is started with `-host-api=false`.
+      responses:
+        200:
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+              example: {
+                "hostname": "blaster",
+                "kernel": "6.8.0-138-generic",
+                "uptime": 3600.5,
+                "load_average": [1.5, 0.75, 0.25],
+                "cpu": {
+                  "model": "AMD EPYC 9754 128-Core Processor",
+                  "sockets": 2, "cores": 256, "threads": 512,
+                  "usage": 12.5, "isolated": 64, "pinned": 4
+                },
+                "memory": {
+                  "total": 1081627271168, "available": 1012345678848, "used": 69281592320,
+                  "swap_total": 0, "swap_free": 0,
+                  "hugepages_total": 0, "hugepages_free": 0, "hugepage_size": 2097152
+                },
+                "numa_nodes": [
+                  { "id": 0, "cpus": [0, 1, 2], "memory_total": 540813635584, "memory_free": 500000000000 }
+                ],
+                "cpus": [
+                  { "id": 2, "online": true, "node": 0, "socket": 0, "core": 2, "isolated": true,
+                    "usage": 100, "pins": [ { "pid": 1234, "instance": "sample" } ] }
+                ],
+                "disks": [
+                  { "mount": "/", "device": "/dev/nvme0n1p2", "fstype": "ext4",
+                    "total": 1967317549056, "used": 401234567168, "available": 1466000000000 }
+                ],
+                "topology": true
+              }
+  /api/v1/host/topology.png:
+    get:
+      summary: Hardware topology image.
+      description: >-
+        The hardware topology of the host (CPUs, caches, NUMA nodes, PCI devices) rendered by
+        `lstopo` from hwloc as PNG. Rendered on demand and cached for 10 minutes.
+
+        Not available (404) if lstopo is not installed or the controller is started with
+        `-host-api=false`.
+      responses:
+        200:
+          description: ok
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        404:
+          description: not found, lstopo is not installed
+          content:
+            application/json:
+              schema:
+                type: object
+        500:
+          description: internal server error, lstopo failed
+          content:
+            application/json:
+              schema:
+                type: object
   /api/v1/schema:
     get:
       summary: BNG Blaster configuration JSON schema.

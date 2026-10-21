@@ -29,6 +29,7 @@ func main() {
 	upload := flag.Bool("upload", true, "enable file upload (disable with -upload=false)")
 	ui := flag.Bool("ui", true, "enable the embedded web UI (experimental, disable with -ui=false)")
 	interfacesAPI := flag.Bool("interfaces-api", true, "enable the interfaces endpoint (disable with -interfaces-api=false)")
+	hostAPI := flag.Bool("host-api", true, "enable the host information endpoints (disable with -host-api=false)")
 	schema := flag.String("schema", server.DefaultSchemaPath, "path to the bngblaster configuration JSON schema served on /api/v1/schema")
 	allowedHosts := flag.String("allowed-hosts", "",
 		"comma-separated host names clients may use to reach the controller, against DNS rebinding "+
@@ -51,6 +52,7 @@ func main() {
 	srv := server.NewServer(repo,
 		server.WithUI(*ui),
 		server.WithInterfacesAPI(*interfacesAPI),
+		server.WithHostAPI(*hostAPI),
 		server.WithSchemaPath(*schema),
 		server.WithAllowedHosts(splitList(*allowedHosts)))
 	srv.Version = Version

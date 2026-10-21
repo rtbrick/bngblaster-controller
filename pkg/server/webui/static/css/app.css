@@ -130,18 +130,21 @@ summary:focus-visible {
   display: flex;
   gap: var(--space-2);
 }
+/* All entries look like buttons; the current one is marked by color only,
+   so switching views never changes their shape. */
 .app-nav button {
-  background: none;
-  border: 1px solid transparent;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   padding: 0.4rem 0.75rem;
   border-radius: var(--radius);
   color: var(--color-text-muted);
+  font: inherit;
   font-weight: 600;
   cursor: pointer;
 }
+.app-nav button:hover { background: var(--color-surface-alt); color: var(--color-text); }
 .app-nav button[aria-current="page"] {
   color: var(--color-primary);
-  border-color: var(--color-border);
   background: var(--color-surface-alt);
 }
 
@@ -782,6 +785,129 @@ dialog > form[method="dialog"] {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ---------- Host view ---------- */
+.host-name { color: var(--color-text-muted); font-weight: 400; }
+.host-subheading { font-size: 0.95rem; margin: var(--space-4) 0 var(--space-2); }
+.host-usage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-2) var(--space-6);
+}
+.host-usage-grid .host-subheading { margin-top: 0; }
+/* Usage bars reuse the session meters; the fill turns amber and red as a
+   resource runs out, since a full disk or memory breaks running tests. */
+.usage-meter.level-warn progress::-webkit-progress-value { background: var(--color-warning); }
+.usage-meter.level-warn progress::-moz-progress-bar { background: var(--color-warning); }
+.usage-meter.level-crit progress::-webkit-progress-value { background: var(--color-danger); }
+.usage-meter.level-crit progress::-moz-progress-bar { background: var(--color-danger); }
+.usage-meter .meter-label .detail { color: var(--color-text-muted); font-weight: 400; margin-left: 0.4rem; }
+.host-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-3) var(--space-5);
+  margin: var(--space-4) 0 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+.host-facts div { min-width: 0; }
+.host-facts dt { font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.host-facts dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.host-cpu-tiles { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+
+/* CPU map: one block per NUMA node, one cell per logical CPU. Cells have a
+   fixed size and wrap, so a node with 128 CPUs takes a few rows instead of
+   shrinking the cells; contiguous CPU ranges (e.g. the cores and their SMT
+   siblings) start on their own row. */
+.numa-node {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.numa-node-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-4);
+  margin-bottom: var(--space-2);
+}
+.numa-node-header h3 { font-size: 0.95rem; margin: 0; }
+.numa-node-header .numa-node-meta { color: var(--color-text-muted); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.cpu-range + .cpu-range { margin-top: var(--space-2); }
+.cpu-range-label { font-size: 0.75rem; color: var(--color-text-muted); margin-bottom: 0.15rem; }
+.cpu-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cpu-cell {
+  --pin-color: transparent;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.3rem;
+  height: 1.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  cursor: default;
+}
+.cpu-cell .cpu-id { position: relative; z-index: 1; }
+/* The load fills the cell from the bottom. */
+.cpu-cell .cpu-load {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  background: rgba(26, 32, 39, 0.22);
+  transition: height 0.4s ease;
+}
+.cpu-cell.is-pinned {
+  background: var(--pin-color);
+  border-color: var(--pin-color);
+  color: #fff;
+  font-weight: 700;
+}
+.cpu-cell.is-pinned .cpu-load { background: rgba(0, 0, 0, 0.3); }
+.cpu-cell.is-shared {
+  background: repeating-linear-gradient(135deg, var(--pin-color) 0 5px, var(--pin-color-2) 5px 10px);
+  border-color: var(--color-text);
+}
+.cpu-cell.is-isolated { border: 2px dashed var(--color-accent); }
+.cpu-cell.is-offline { opacity: 0.35; text-decoration: line-through; }
+.cpu-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+.cpu-legend li { display: inline-flex; align-items: center; gap: 0.4rem; }
+.cpu-legend-swatch { width: 1.6rem; height: 1.1rem; }
+.pin-chip {
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 3px;
+  margin-right: 0.4rem;
+  vertical-align: -0.1rem;
+  background: var(--pin-color);
+}
+.cpu-list { font-family: ui-monospace, Consolas, monospace; font-size: 0.85rem; overflow-wrap: anywhere; }
+
+.topology-body { display: flex; flex-direction: column; align-items: flex-start; }
+.topology-body img { display: block; }
+.topology-body.is-fit img { max-width: 100%; height: auto; }
 
 /* ---------- Log dock ---------- */
 .logdock {

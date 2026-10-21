@@ -89,6 +89,7 @@
       });
       return this.fetchJSON('/api/v1/instances/' + encodeURIComponent(name) + '/_sessions?' + params.toString());
     },
+    host() { return this.fetchJSON('/api/v1/host'); },
     // Aggregates session-counters, the three interface commands and
     // test-info into one cached response, instead of five separate
     // control-socket round-trips per poll per open browser tab.
@@ -367,7 +368,7 @@
 
   function formatFileSize(bytes) {
     if (!Number.isFinite(bytes)) return '';
-    const units = ['B', 'KB', 'MB', 'GB'];
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     let size = bytes;
     let unit = 0;
     while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit++; }
@@ -2009,18 +2010,346 @@
     $('#command-output-empty').textContent = DEFAULT_EMPTY_TEXT['#command-output-empty'];
   }
 
-  function showDashboard() {
+  // Marks the primary navigation entry of the visible view. The instance
+  // detail view belongs to the dashboard.
+  function setCurrentNav(view) {
+    ['dashboard', 'host'].forEach((name) => {
+      const button = $('#nav-' + name);
+      if (name === view) button.setAttribute('aria-current', 'page');
+      else button.removeAttribute('aria-current');
+    });
+  }
+
+  function leaveInstance() {
     state.currentInstance = null;
     stopInstancePolling();
     stopStreamPolling();
     stopSessionPolling();
     stopBgpPolling();
+  }
+
+  function showDashboard() {
+    leaveInstance();
+    stopHostPolling();
     $('#view-instance').hidden = true;
+    $('#view-host').hidden = true;
     $('#view-dashboard').hidden = false;
+    setCurrentNav('dashboard');
     loadInstances();
   }
   $('#btn-back-dashboard').addEventListener('click', showDashboard);
   $('#nav-dashboard').addEventListener('click', showDashboard);
+
+  //= ========================================================================
+  // Host view
+  //= ========================================================================
+  // Pinned CPUs are colored per instance. Colors are assigned in order of
+  // first appearance and kept for the session, so an instance keeps its
+  // color while others start and stop. White text stays readable on all.
+  const PIN_COLORS = ['#0b5fa5', '#8a1c1c', '#146c2e', '#7a3fa0', '#a35200',
+    '#00727a', '#55640a', '#a0306b', '#3d4f8f', '#6b4a2b'];
+  // A bngblaster not started by this controller has no instance name.
+  const FOREIGN_PIN_COLOR = '#4b5563';
+
+  const hostState = {
+    timer: null,
+    // CPU ids per NUMA node the rendered CPU map was built for.
+    layoutKey: null,
+    cells: new Map(),
+    nodeMeta: new Map(),
+    colors: new Map(),
+  };
+
+  function pinKey(pin) { return pin.instance || ('pid:' + pin.pid); }
+  function pinLabel(pin) { return pin.instance || ('PID ' + pin.pid); }
+  function pinColor(pin) {
+    if (!pin.instance) return FOREIGN_PIN_COLOR;
+    if (!hostState.colors.has(pin.instance)) {
+      hostState.colors.set(pin.instance, PIN_COLORS[hostState.colors.size % PIN_COLORS.length]);
+    }
+    return hostState.colors.get(pin.instance);
+  }
+
+  // [0,1,2,3,8,10,11] -> "0-3,8,10-11", the kernel's CPU list notation
+  // that is also used to pin CPUs in the bngblaster configuration.
+  function formatCpuList(ids) {
+    const runs = contiguousRuns(ids);
+    return runs.map((run) => (run.length > 1 ? run[0] + '-' + run[run.length - 1] : String(run[0]))).join(',');
+  }
+
+  function contiguousRuns(ids) {
+    const sorted = ids.slice().sort((a, b) => a - b);
+    const runs = [];
+    sorted.forEach((id) => {
+      const last = runs[runs.length - 1];
+      if (last && id === last[last.length - 1] + 1) last.push(id);
+      else runs.push([id]);
+    });
+    return runs;
+  }
+
+  function usageMeter(label, percent, count, detail) {
+    const pct = Math.max(0, Math.min(100, Number(percent) || 0));
+    let cls = 'session-meter usage-meter';
+    if (pct >= 90) cls += ' level-crit';
+    else if (pct >= 80) cls += ' level-warn';
+    const id = nextId('usage');
+    return el('div', { class: cls }, [
+      el('div', { class: 'meter-label' }, [
+        el('span', { id: id }, [
+          document.createTextNode(label),
+          detail ? el('span', { class: 'detail', text: detail }) : null,
+        ]),
+        el('span', { class: 'count', text: count }),
+      ]),
+      el('progress', { value: pct.toFixed(1), max: '100', 'aria-labelledby': id }),
+    ]);
+  }
+
+  function percentOf(part, whole) {
+    return whole > 0 ? (part * 100) / whole : 0;
+  }
+
+  function formatPercent(pct) {
+    return (Math.round(pct * 10) / 10).toFixed(1) + '%';
+  }
+
+  function showHost() {
+    leaveInstance();
+    $('#view-dashboard').hidden = true;
+    $('#view-instance').hidden = true;
+    $('#view-host').hidden = false;
+    setCurrentNav('host');
+    refreshHost();
+    hostState.timer = cancelPoll(hostState.timer);
+    hostState.timer = schedulePoll(refreshHost, 2000);
+  }
+  $('#nav-host').addEventListener('click', showHost);
+
+  function stopHostPolling() {
+    hostState.timer = cancelPoll(hostState.timer);
+  }
+
+  async function refreshHost() {
+    let info;
+    try {
+      info = await API.host();
+    } catch (e) {
+      showDetailedError($('#host-status'), 'Could not load host information', e.message);
+      return;
+    }
+    // The view may have been left while the request was in flight.
+    if ($('#view-host').hidden) return;
+    setStatusMessage($('#host-status'), '');
+    renderHost(info);
+  }
+
+  function renderHost(info) {
+    const cpus = info.cpus || [];
+    const memory = info.memory || {};
+    $('#host-name').textContent = info.hostname ? '— ' + info.hostname : '';
+    $('#btn-host-topology').hidden = !info.topology;
+
+    // Live usage
+    const load = (info.load_average || []).map((v) => v.toFixed(2)).join(' ');
+    $('#host-usage').replaceChildren(
+      usageMeter('CPU', info.cpu.usage, formatPercent(info.cpu.usage || 0),
+        info.cpu.threads + ' CPUs' + (load ? ' · load ' + load : '')),
+      usageMeter('Memory', percentOf(memory.used, memory.total),
+        formatFileSize(memory.used) + ' / ' + formatFileSize(memory.total) +
+        ' (' + formatPercent(percentOf(memory.used, memory.total)) + ')',
+        formatFileSize(memory.available) + ' available'),
+    );
+    if (memory.swap_total > 0) {
+      const swapUsed = memory.swap_total - memory.swap_free;
+      $('#host-usage').appendChild(usageMeter('Swap', percentOf(swapUsed, memory.swap_total),
+        formatFileSize(swapUsed) + ' / ' + formatFileSize(memory.swap_total) +
+        ' (' + formatPercent(percentOf(swapUsed, memory.swap_total)) + ')'));
+    }
+    const disks = info.disks || [];
+    // Percentages as df: relative to the space usable by non-root users.
+    $('#host-disks').replaceChildren(...disks.map((disk) => {
+      const usable = disk.used + disk.available;
+      return usageMeter(disk.mount, percentOf(disk.used, usable),
+        formatFileSize(disk.used) + ' / ' + formatFileSize(usable) +
+        ' (' + formatPercent(percentOf(disk.used, usable)) + ')',
+        disk.device + ' · ' + disk.fstype + ' · ' + formatFileSize(disk.available) + ' free');
+    }));
+    $('#host-disks-empty').hidden = disks.length > 0;
+
+    // Facts
+    const facts = [
+      ['CPU', info.cpu.model || 'unknown'],
+      ['Sockets / cores / threads', info.cpu.sockets + ' / ' + info.cpu.cores + ' / ' + info.cpu.threads],
+      ['NUMA nodes', String((info.numa_nodes || []).length)],
+      ['Memory', formatFileSize(memory.total)],
+      ['Huge pages', memory.hugepages_total > 0
+        ? memory.hugepages_free + ' free of ' + memory.hugepages_total + ' × ' + formatFileSize(memory.hugepage_size)
+        : 'none'],
+      ['Kernel', info.kernel || 'unknown'],
+      ['Uptime', formatDuration(Math.floor(info.uptime || 0))],
+    ];
+    $('#host-facts').replaceChildren(...facts.map(([term, value]) => el('div', {}, [
+      el('dt', { text: term }),
+      el('dd', { text: value }),
+    ])));
+
+    // CPU summary tiles
+    const online = cpus.filter((c) => c.online);
+    const free = online.filter((c) => !(c.pins && c.pins.length));
+    const freeIsolated = free.filter((c) => c.isolated);
+    $('#host-cpu-tiles').replaceChildren(
+      statTile('Online CPUs', online.length),
+      statTile('Pinned', info.cpu.pinned),
+      statTile('Free', free.length),
+      statTile('Isolated', info.cpu.isolated),
+      statTile('Free isolated', freeIsolated.length),
+    );
+
+    renderCpuMap(info);
+    renderPinTable(cpus);
+  }
+
+  function renderCpuMap(info) {
+    const nodes = info.numa_nodes || [];
+    const key = JSON.stringify(nodes.map((n) => [n.id, n.cpus]));
+    if (key !== hostState.layoutKey) buildCpuMap(nodes, key);
+
+    const byId = new Map((info.cpus || []).map((c) => [c.id, c]));
+    hostState.cells.forEach((refs, id) => {
+      const cpu = byId.get(id);
+      if (cpu) updateCpuCell(refs, cpu);
+    });
+    nodes.forEach((node) => {
+      const meta = hostState.nodeMeta.get(node.id);
+      if (!meta) return;
+      const nodeCpus = node.cpus.map((id) => byId.get(id)).filter(Boolean);
+      const pinned = nodeCpus.filter((c) => c.pins && c.pins.length).length;
+      const onlineCount = nodeCpus.filter((c) => c.online).length;
+      meta.textContent = nodeCpus.length + ' CPUs (' + formatCpuList(node.cpus) + ') · ' +
+        pinned + ' pinned · ' + (onlineCount - pinned) + ' free · memory ' +
+        formatFileSize(node.memory_free) + ' free of ' + formatFileSize(node.memory_total);
+    });
+  }
+
+  // (Re)builds the cells, only when the CPUs or NUMA nodes change: updating
+  // them in place keeps a tooltip open across refreshes.
+  function buildCpuMap(nodes, key) {
+    hostState.layoutKey = key;
+    hostState.cells.clear();
+    hostState.nodeMeta.clear();
+    const container = $('#host-numa');
+    container.replaceChildren(...nodes.map((node) => {
+      const meta = el('span', { class: 'numa-node-meta' });
+      hostState.nodeMeta.set(node.id, meta);
+      const runs = contiguousRuns(node.cpus);
+      return el('div', { class: 'numa-node' }, [
+        el('div', { class: 'numa-node-header' }, [
+          el('h3', { text: 'NUMA node ' + node.id }),
+          meta,
+        ]),
+        ...runs.map((run) => el('div', { class: 'cpu-range' }, [
+          runs.length > 1
+            ? el('div', { class: 'cpu-range-label', text: 'CPUs ' + run[0] + '–' + run[run.length - 1] })
+            : null,
+          el('ul', { class: 'cpu-grid', 'aria-label': 'CPUs ' + run[0] + ' to ' + run[run.length - 1] },
+            run.map((id) => {
+              const loadBar = el('span', { class: 'cpu-load', 'aria-hidden': 'true' });
+              const cell = el('li', { class: 'cpu-cell', role: 'img' }, [
+                loadBar,
+                el('span', { class: 'cpu-id', 'aria-hidden': 'true', text: String(id) }),
+              ]);
+              hostState.cells.set(id, { cell: cell, load: loadBar });
+              return cell;
+            })),
+        ])),
+      ]);
+    }));
+  }
+
+  function updateCpuCell(refs, cpu) {
+    const pins = cpu.pins || [];
+    const cell = refs.cell;
+    cell.classList.toggle('is-pinned', pins.length > 0);
+    cell.classList.toggle('is-shared', pins.length > 1);
+    cell.classList.toggle('is-isolated', cpu.isolated);
+    cell.classList.toggle('is-offline', !cpu.online);
+    if (pins.length) {
+      cell.style.setProperty('--pin-color', pinColor(pins[0]));
+      cell.style.setProperty('--pin-color-2', pinColor(pins[pins.length > 1 ? 1 : 0]));
+    } else {
+      cell.style.removeProperty('--pin-color');
+      cell.style.removeProperty('--pin-color-2');
+    }
+    const usage = cpu.online ? (cpu.usage || 0) : 0;
+    refs.load.style.height = usage.toFixed(0) + '%';
+
+    let text = 'CPU ' + cpu.id + ' · node ' + cpu.node + ' · socket ' + cpu.socket + ' · core ' + cpu.core;
+    text += cpu.online ? ' · load ' + formatPercent(usage) : ' · offline';
+    if (cpu.isolated) text += ' · isolated';
+    text += pins.length
+      ? ' · pinned by ' + pins.map((p) => pinLabel(p) + (p.instance ? ' (PID ' + p.pid + ')' : '')).join(', ')
+      : ' · free';
+    if (cell.title !== text) {
+      cell.title = text;
+      cell.setAttribute('aria-label', text);
+    }
+  }
+
+  function renderPinTable(cpus) {
+    const byPin = new Map();
+    cpus.forEach((cpu) => {
+      (cpu.pins || []).forEach((pin) => {
+        const k = pinKey(pin) + '/' + pin.pid;
+        if (!byPin.has(k)) byPin.set(k, { pin: pin, cpus: [], nodes: new Set() });
+        const entry = byPin.get(k);
+        entry.cpus.push(cpu.id);
+        entry.nodes.add(cpu.node);
+      });
+    });
+    const entries = Array.from(byPin.values()).sort((a, b) =>
+      pinLabel(a.pin).localeCompare(pinLabel(b.pin)) || a.pin.pid - b.pin.pid);
+    $('#host-pins-tbody').replaceChildren(...entries.map((entry) => {
+      const pin = entry.pin;
+      const chip = el('span', { class: 'pin-chip', 'aria-hidden': 'true' });
+      chip.style.setProperty('--pin-color', pinColor(pin));
+      const name = pin.instance
+        ? el('a', { href: '#', text: pin.instance, onclick: (ev) => { ev.preventDefault(); openInstance(pin.instance); } })
+        : el('span', { text: 'not started by this controller' });
+      return el('tr', {}, [
+        el('td', {}, [chip, name]),
+        el('td', { text: String(pin.pid) }),
+        el('td', { class: 'cpu-list', text: formatCpuList(entry.cpus) }),
+        el('td', { text: String(entry.cpus.length) }),
+        el('td', { text: Array.from(entry.nodes).sort((a, b) => a - b).join(', ') }),
+      ]);
+    }));
+    $('#host-pins-table').hidden = entries.length === 0;
+    $('#host-pins-empty').hidden = entries.length > 0;
+  }
+
+  // Topology image rendered by lstopo (hwloc), on demand: rendering takes a
+  // few seconds on large hosts, so it is not part of the polled data.
+  $('#btn-host-topology').addEventListener('click', () => {
+    const img = $('#topology-image');
+    img.hidden = true;
+    $('#topology-loading').hidden = false;
+    setStatusMessage($('#topology-status'), '');
+    img.onload = () => {
+      $('#topology-loading').hidden = true;
+      img.hidden = false;
+    };
+    img.onerror = () => {
+      $('#topology-loading').hidden = true;
+      setStatusMessage($('#topology-status'), 'Could not render the topology with lstopo.', 'error');
+    };
+    img.src = '/api/v1/host/topology.png?t=' + Date.now();
+    openDialog('dialog-topology');
+  });
+  $('#btn-topology-fit').addEventListener('click', (ev) => {
+    const fit = $('#topology-body').classList.toggle('is-fit');
+    ev.currentTarget.textContent = fit ? 'Actual size' : 'Fit to window';
+  });
 
   // The instance whose data is currently rendered in the detail view. Not
   // the same as state.currentInstance, which is cleared on the way back to
@@ -2035,8 +2364,11 @@
       renderedInstance = name;
     }
     state.currentInstance = name;
+    stopHostPolling();
     $('#view-dashboard').hidden = true;
+    $('#view-host').hidden = true;
     $('#view-instance').hidden = false;
+    setCurrentNav('dashboard');
     $('#instance-name').textContent = name;
     if (!state.log.manualSelect) {
       $('#logdock-instance-select').value = name;
@@ -3333,5 +3665,5 @@
   initJSONEditorDOM();
   refreshVersion();
   loadInstances();
-  schedulePoll(() => { if (!state.currentInstance) loadInstances(); }, 5000);
+  schedulePoll(() => { if (!$('#view-dashboard').hidden) loadInstances(); }, 5000);
 })();

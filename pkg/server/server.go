@@ -25,6 +25,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/rtbrick/bngblaster-controller/pkg/controller"
+	"github.com/rtbrick/bngblaster-controller/pkg/host"
 )
 
 const (
@@ -91,6 +92,12 @@ type Server struct {
 	enableUI bool
 	// enableInterfaces toggles the "/api/v1/interfaces" endpoint.
 	enableInterfaces bool
+	// enableHost toggles the "/api/v1/host" endpoints.
+	enableHost bool
+	// hostCollector gathers the host information and keeps the CPU
+	// usage sample between requests.
+	hostCollector *host.Collector
+	topology      topologyCache
 	// schemaPath is the file system location of the bngblaster config schema.
 	schemaPath string
 	// allowedHosts restricts the Host header of incoming requests (see
@@ -138,6 +145,8 @@ func NewServer(repository controller.Repository, opts ...Option) *Server {
 		repository:       repository,
 		enableUI:         false,
 		enableInterfaces: false,
+		enableHost:       false,
+		hostCollector:    host.NewCollector(),
 		schemaPath:       DefaultSchemaPath,
 		authMiddleware:   noopAuthMiddleware,
 		streamCache:      newSummaryCache[[]controller.StreamSummaryStream](),
@@ -190,6 +199,10 @@ func (s *Server) routes() {
 	s.registerAPIDocsRoutes()
 	if s.enableInterfaces {
 		s.router.Path("/api/v1/interfaces").Methods(http.MethodGet).Handler(s.interfaces())
+	}
+	if s.enableHost {
+		s.router.Path("/api/v1/host").Methods(http.MethodGet).Handler(s.hostInfo())
+		s.router.Path("/api/v1/host/topology.png").Methods(http.MethodGet).Handler(s.hostTopology())
 	}
 	s.router.Path("/api/v1/instances").Methods(http.MethodGet).Handler(s.instances())
 	s.router.Path(instanceURL + "/_overview").Methods(http.MethodGet).Handler(s.overview())

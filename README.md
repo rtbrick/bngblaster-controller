@@ -68,6 +68,8 @@ Usage of /usr/local/bin/bngblasterctrl:
     	turn on debug logging
   -e string
     	bngblaster executable (default "/usr/bin/bngblaster")
+  -host-api
+    	enable the host information endpoints (disable with -host-api=false) (default true)
   -interfaces-api
     	enable the interfaces endpoint (disable with -interfaces-api=false) (default true)
   -schema string
@@ -128,12 +130,16 @@ also stops every running test instance.
 
 The controller ships with an embedded, experimental web UI for creating and
 observing test instances without calling the REST API directly. It is
-**enabled by default**, along with the two additional endpoints it depends
+**enabled by default**, along with the additional endpoints it depends
 on:
 
 * `-ui` — serves the web UI on `/`
 * `-interfaces-api` — serves `/api/v1/interfaces`, used by the web UI to
   populate the host network interface dropdown when creating a new instance
+* `-host-api` — serves `/api/v1/host` and `/api/v1/host/topology.png`, used
+  by the web UI's host view (CPU, NUMA, memory and disk usage, and the CPUs
+  pinned by bngblaster instances); the topology image requires `lstopo`
+  from the `hwloc` package
 * `-upload` — enables the `/api/v1/instances/{instance_name}/_upload`
   endpoint, used by the web UI (and the REST API) to upload files into a
   test instance
@@ -142,16 +148,16 @@ Each of them can be disabled individually by setting the flag to `false`,
 e.g. to run a REST-only controller:
 
 ```
-$ /usr/local/bin/bngblasterctrl -ui=false -interfaces-api=false -upload=false
+$ /usr/local/bin/bngblasterctrl -ui=false -interfaces-api=false -host-api=false -upload=false
 ```
 
 or, for the systemd-installed service, in `/etc/default/rtbrick-bngblasterctrl`:
 
 ```
-BNGBLASTERCTRL_OPTS="-ui=false -interfaces-api=false -upload=false"
+BNGBLASTERCTRL_OPTS="-ui=false -interfaces-api=false -host-api=false -upload=false"
 ```
 
-Note that the web UI needs the interfaces and upload endpoints for some of
+Note that the web UI needs the interfaces, host and upload endpoints for some of
 its features, so disabling them while keeping `-ui` enabled leaves those
 parts of the UI non-functional.
 

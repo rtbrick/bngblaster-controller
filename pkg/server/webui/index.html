@@ -24,6 +24,7 @@
   </div>
   <nav class="app-nav" aria-label="Primary">
     <button type="button" id="nav-dashboard" aria-current="page">Dashboard</button>
+    <button type="button" id="nav-host">Host</button>
   </nav>
   <div class="spacer"></div>
   <a class="api-docs-link" href="https://rtbrick.github.io/bngblaster/index.html" target="_blank" rel="noopener">BNG Blaster Docs</a>
@@ -63,6 +64,61 @@
       </div>
     </div>
 
+  </section>
+
+  <!-- ===================== HOST VIEW ===================== -->
+  <section id="view-host" hidden aria-labelledby="host-heading">
+    <div class="card">
+      <div class="card-header">
+        <h2 id="host-heading">Host <span class="host-name" id="host-name"></span></h2>
+        <button type="button" class="btn" id="btn-host-topology" hidden>Show Topology</button>
+      </div>
+      <div id="host-status" role="alert"></div>
+      <p class="hint">Live usage, refreshed every 2 seconds while this view is open.</p>
+      <div class="host-usage-grid">
+        <div id="host-usage"></div>
+        <div>
+          <h3 class="host-subheading">Disks</h3>
+          <div id="host-disks"></div>
+          <p class="empty-state" id="host-disks-empty" hidden>No disks reported.</p>
+        </div>
+      </div>
+      <dl class="host-facts" id="host-facts"></dl>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2>CPUs</h2>
+      </div>
+      <div class="meter-grid host-cpu-tiles" id="host-cpu-tiles"></div>
+      <ul class="cpu-legend" aria-label="CPU map legend">
+        <li><span class="cpu-cell cpu-legend-swatch" aria-hidden="true"></span> Free</li>
+        <li><span class="cpu-cell cpu-legend-swatch is-pinned" style="--pin-color: var(--color-accent)" aria-hidden="true"></span> Pinned by an instance</li>
+        <li><span class="cpu-cell cpu-legend-swatch is-pinned is-shared" style="--pin-color: var(--color-accent); --pin-color-2: var(--color-warning)" aria-hidden="true"></span> Shared by several instances</li>
+        <li><span class="cpu-cell cpu-legend-swatch is-isolated" aria-hidden="true"></span> Isolated (isolcpus)</li>
+        <li><span class="cpu-cell cpu-legend-swatch is-offline" aria-hidden="true"></span> Offline</li>
+        <li><span class="cpu-cell cpu-legend-swatch" aria-hidden="true"><span class="cpu-load" style="height:60%"></span></span> Load</li>
+      </ul>
+      <div id="host-numa"></div>
+
+      <h3 class="host-subheading">Pinned CPUs</h3>
+      <div class="table-scroll">
+        <table id="host-pins-table">
+          <caption class="visually-hidden">CPUs pinned by bngblaster instances, based on their CPU lock files</caption>
+          <thead>
+            <tr>
+              <th scope="col">Instance</th>
+              <th scope="col">PID</th>
+              <th scope="col">CPUs</th>
+              <th scope="col">Count</th>
+              <th scope="col">NUMA nodes</th>
+            </tr>
+          </thead>
+          <tbody id="host-pins-tbody"></tbody>
+        </table>
+        <p class="empty-state" id="host-pins-empty" hidden>No CPUs pinned by running bngblaster instances.</p>
+      </div>
+    </div>
   </section>
 
   <!-- ===================== INSTANCE DETAIL VIEW ===================== -->
@@ -536,6 +592,24 @@
   </div>
   <div class="dialog-footer">
     <button type="button" class="btn" data-close-dialog="dialog-uploads">Close</button>
+  </div>
+</dialog>
+
+<!-- ===================== TOPOLOGY DIALOG ===================== -->
+<dialog id="dialog-topology" class="dialog-wide" aria-labelledby="dialog-topology-title">
+  <div class="dialog-header">
+    <h2 id="dialog-topology-title">Hardware Topology</h2>
+    <button type="button" class="btn btn-sm btn-icon" data-close-dialog="dialog-topology" aria-label="Close dialog">✕</button>
+  </div>
+  <div class="dialog-body topology-body is-fit" id="topology-body">
+    <p class="hint" id="topology-loading">Rendering topology with lstopo…</p>
+    <div id="topology-status" role="alert"></div>
+    <img id="topology-image" alt="Hardware topology of the host rendered by lstopo (hwloc)" hidden>
+  </div>
+  <div class="dialog-footer">
+    <button type="button" class="btn" id="btn-topology-fit">Actual size</button>
+    <a class="btn" id="topology-download" href="/api/v1/host/topology.png" download="topology.png">Download</a>
+    <button type="button" class="btn" data-close-dialog="dialog-topology">Close</button>
   </div>
 </dialog>
 

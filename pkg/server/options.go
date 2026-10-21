@@ -40,6 +40,16 @@ func WithInterfacesAPI(enabled bool) Option {
 	}
 }
 
+// WithHostAPI enables or disables the "/api/v1/host" endpoints, which
+// report CPU, NUMA, memory and disk information of the host, the CPUs
+// pinned by bngblaster instances and the hardware topology rendered by
+// lstopo. Disabled by default.
+func WithHostAPI(enabled bool) Option {
+	return func(s *Server) {
+		s.enableHost = enabled
+	}
+}
+
 // WithSchemaPath sets the file system location of the bngblaster
 // configuration JSON schema served via "/api/v1/schema". Defaults to
 // DefaultSchemaPath.
