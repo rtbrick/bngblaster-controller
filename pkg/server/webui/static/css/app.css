@@ -205,6 +205,38 @@ main {
 }
 .card-header h2 { margin: 0; font-size: 1.1rem; }
 
+/* ---------- Filter bar (instance list) ---------- */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.filter-search { flex: 1 1 16rem; max-width: 24rem; }
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.segmented button {
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.45rem 0.8rem;
+  border: none;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.segmented button:first-child { border-left: none; }
+.segmented button:hover { background: var(--color-surface-alt); color: var(--color-text); }
+.segmented button[aria-pressed="true"] { background: var(--color-surface-alt); color: var(--color-primary); }
+.segmented-count { font-weight: 400; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.filter-summary { color: var(--color-text-muted); font-size: 0.85rem; }
+
 /* ---------- Tables ---------- */
 table { width: 100%; border-collapse: collapse; }
 caption { text-align: left; font-weight: 600; margin-bottom: var(--space-2); }

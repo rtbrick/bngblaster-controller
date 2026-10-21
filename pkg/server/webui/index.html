@@ -47,6 +47,18 @@
           <span aria-hidden="true">+</span> New Instance
         </button>
       </div>
+      <div class="filter-bar">
+        <div class="filter-search">
+          <label for="instances-search" class="visually-hidden">Filter instances by name</label>
+          <input type="search" id="instances-search" placeholder="Filter by name…" autocomplete="off">
+        </div>
+        <div class="segmented" role="group" aria-label="Filter instances by status">
+          <button type="button" data-status-filter="all" aria-pressed="true">All <span class="segmented-count" id="instances-count-all"></span></button>
+          <button type="button" data-status-filter="running" aria-pressed="false">Running <span class="segmented-count" id="instances-count-running"></span></button>
+          <button type="button" data-status-filter="stopped" aria-pressed="false">Stopped <span class="segmented-count" id="instances-count-stopped"></span></button>
+        </div>
+        <span class="filter-summary" id="instances-filter-summary" role="status" aria-live="polite"></span>
+      </div>
       <div class="table-scroll">
         <table id="instances-table">
           <caption class="visually-hidden">List of bngblaster test instances and their current state</caption>
@@ -61,6 +73,8 @@
           </tbody>
         </table>
         <p class="empty-state" id="instances-empty" hidden>No test instances yet. Click “New Instance” to create one.</p>
+        <p class="empty-state" id="instances-no-match" hidden>No instances match the filter.
+          <button type="button" class="btn btn-sm" id="btn-instances-clear-filter">Clear filter</button></p>
       </div>
     </div>
 

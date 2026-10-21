@@ -338,11 +338,74 @@
     populateInstanceSelects();
   }
 
+  // Instance list filter: status (all/running/stopped) and a name search.
+  // Applied on every render, so it survives the periodic refresh, and kept
+  // per browser (best effort, the list works without it).
+  const INSTANCE_FILTER_KEY = 'bngblaster.instanceFilter';
+  const instanceFilter = { status: 'all', text: '' };
+  try {
+    const saved = JSON.parse(localStorage.getItem(INSTANCE_FILTER_KEY) || 'null');
+    if (saved && ['all', 'running', 'stopped'].includes(saved.status)) instanceFilter.status = saved.status;
+    if (saved && typeof saved.text === 'string') instanceFilter.text = saved.text;
+  } catch (e) { /* storage unavailable */ }
+
+  function saveInstanceFilter() {
+    try { localStorage.setItem(INSTANCE_FILTER_KEY, JSON.stringify(instanceFilter)); } catch (e) { /* ignore */ }
+  }
+
+  function syncInstanceFilterControls() {
+    $('#instances-search').value = instanceFilter.text;
+    $all('[data-status-filter]').forEach((button) => {
+      button.setAttribute('aria-pressed', String(button.dataset.statusFilter === instanceFilter.status));
+    });
+  }
+
+  function setInstanceFilter(changes) {
+    Object.assign(instanceFilter, changes);
+    saveInstanceFilter();
+    syncInstanceFilterControls();
+    renderInstancesTable();
+  }
+
+  $all('[data-status-filter]').forEach((button) => {
+    button.addEventListener('click', () => setInstanceFilter({ status: button.dataset.statusFilter }));
+  });
+  $('#instances-search').addEventListener('input', (ev) => {
+    instanceFilter.text = ev.target.value;
+    saveInstanceFilter();
+    renderInstancesTable();
+  });
+  $('#btn-instances-clear-filter').addEventListener('click', () => {
+    setInstanceFilter({ status: 'all', text: '' });
+    $('#instances-search').focus();
+  });
+  syncInstanceFilterControls();
+
+  // Case-insensitive; several words must all appear in the name.
+  function instanceMatchesFilter(inst) {
+    const running = inst.status === 'started';
+    if (instanceFilter.status === 'running' && !running) return false;
+    if (instanceFilter.status === 'stopped' && running) return false;
+    const name = inst.name.toLowerCase();
+    return instanceFilter.text.toLowerCase().split(/\s+/).filter(Boolean).every((word) => name.includes(word));
+  }
+
   function renderInstancesTable() {
     const tbody = $('#instances-tbody');
     tbody.innerHTML = '';
-    $('#instances-empty').hidden = state.instances.length > 0;
-    state.instances.forEach((inst) => {
+    const total = state.instances.length;
+    const runningCount = state.instances.filter((i) => i.status === 'started').length;
+    $('#instances-count-all').textContent = String(total);
+    $('#instances-count-running').textContent = String(runningCount);
+    $('#instances-count-stopped').textContent = String(total - runningCount);
+    const visible = state.instances.filter(instanceMatchesFilter);
+    const filtered = visible.length !== total;
+    $('#instances-empty').hidden = total > 0;
+    $('#instances-no-match').hidden = total === 0 || visible.length > 0;
+    $('#instances-table').hidden = visible.length === 0;
+    const summary = filtered ? 'Showing ' + visible.length + ' of ' + total : '';
+    if ($('#instances-filter-summary').textContent !== summary) $('#instances-filter-summary').textContent = summary;
+    visible.forEach((inst) => {
       const running = inst.status === 'started';
       const actions = el('td', { class: 'actions-cell' }, [
         el('button', {
