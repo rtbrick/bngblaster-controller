@@ -353,7 +353,9 @@
           : el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: 'Start', onclick: () => openStartDialog(inst.name) }),
         running ? el('button', { class: 'btn btn-sm btn-danger', type: 'button', text: 'Kill', onclick: () => doKill(inst.name) }) : null,
         !running ? el('button', { class: 'btn btn-sm', type: 'button', text: 'Edit', onclick: () => openInstanceDialog(inst.name) }) : null,
-        !running ? el('button', { class: 'btn btn-sm', type: 'button', text: 'Download', onclick: () => showDownloads(inst.name) }) : null,
+        // Also while running: a capture can be started and stopped during
+        // the test, and its pcap downloaded without stopping the instance.
+        el('button', { class: 'btn btn-sm', type: 'button', text: 'Download', onclick: () => showDownloads(inst.name, running) }),
         !running ? el('button', { class: 'btn btn-sm', type: 'button', text: 'Upload', onclick: () => showUploads(inst.name) }) : null,
         !running ? el('button', { class: 'btn btn-sm btn-danger', type: 'button', text: 'Delete', onclick: () => doDelete(inst.name) }) : null,
       ]);
@@ -418,9 +420,10 @@
     }
   }
 
-  function showDownloads(name) {
+  function showDownloads(name, running) {
     state.downloads.instance = name;
     $('#dialog-downloads-title').textContent = 'Downloads — ' + name;
+    $('#downloads-running').hidden = !running;
     openDialog('dialog-downloads');
     loadDownloads(true);
   }

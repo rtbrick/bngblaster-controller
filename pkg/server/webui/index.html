@@ -561,6 +561,8 @@
     <button type="button" class="btn btn-sm btn-icon" data-close-dialog="dialog-downloads" aria-label="Close dialog">✕</button>
   </div>
   <div class="dialog-body">
+    <p class="hint" id="downloads-running" hidden>The instance is running: files are downloaded as they are at this
+      moment and keep growing afterwards (e.g. <code>run.pcap</code> while a capture is active). Use Refresh for current sizes.</p>
     <p class="hint" id="downloads-empty" hidden>No files found for this instance.</p>
     <p class="form-error" id="downloads-error" hidden></p>
     <table id="downloads-table" hidden>
