@@ -789,6 +789,10 @@ dialog > form[method="dialog"] {
   z-index: 30;
 }
 .logdock-collapsed .logdock { height: 2.5rem; }
+/* Maximized covers the whole viewport (still below toasts and dialogs); the
+   page underneath is hidden anyway, so stop it from scrolling behind the dock. */
+.logdock-maximized { overflow: hidden; }
+.logdock-maximized .logdock { height: 100vh; height: 100dvh; border-top: 0; }
 .logdock-header {
   display: flex;
   align-items: center;

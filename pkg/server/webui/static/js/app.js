@@ -308,7 +308,7 @@
     bgp: { pollTimer: null, detailKey: null, detailTimer: null },
     // generations maps instance -> the identity of the run.log it last read,
     // so a restarted instance (which recreates the file) is detected.
-    log: { instance: null, offsets: {}, generations: {}, paused: false, manualSelect: false, timer: null },
+    log: { instance: null, offsets: {}, generations: {}, paused: false, mode: 'normal', manualSelect: false, timer: null },
     downloads: { instance: null },
     uploads: { instance: null },
   };
@@ -3096,10 +3096,37 @@
   });
   function clearLogDock() { $('#logdock-body').innerHTML = ''; }
   $('#btn-logdock-clear').addEventListener('click', clearLogDock);
-  $('#btn-logdock-toggle').addEventListener('click', (ev) => {
-    const collapsed = document.body.classList.toggle('logdock-collapsed');
-    ev.target.textContent = collapsed ? 'Expand' : 'Collapse';
-    ev.target.setAttribute('aria-expanded', String(!collapsed));
+  // The dock has three sizes: 'normal' (the default strip at the bottom),
+  // 'collapsed' (header only) and 'maximized' (full viewport). Both buttons
+  // go through here so the body classes and button labels never disagree.
+  function setLogDockMode(mode) {
+    const body = $('#logdock-body');
+    const wasAtBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+    document.body.classList.toggle('logdock-collapsed', mode === 'collapsed');
+    document.body.classList.toggle('logdock-maximized', mode === 'maximized');
+    state.log.mode = mode;
+    const toggle = $('#btn-logdock-toggle');
+    toggle.textContent = mode === 'collapsed' ? 'Expand' : 'Collapse';
+    toggle.setAttribute('aria-expanded', String(mode !== 'collapsed'));
+    const maximize = $('#btn-logdock-maximize');
+    maximize.textContent = mode === 'maximized' ? 'Restore' : 'Maximize';
+    maximize.setAttribute('aria-pressed', String(mode === 'maximized'));
+    // Resizing changes clientHeight, so a dock that was following the tail
+    // would otherwise stop short of the newest lines.
+    if (wasAtBottom) body.scrollTop = body.scrollHeight;
+  }
+  $('#btn-logdock-toggle').addEventListener('click', () => {
+    setLogDockMode(state.log.mode === 'collapsed' ? 'normal' : 'collapsed');
+  });
+  $('#btn-logdock-maximize').addEventListener('click', () => {
+    setLogDockMode(state.log.mode === 'maximized' ? 'normal' : 'maximized');
+  });
+  // Escape leaves full screen, but not while a dialog is open - there it
+  // belongs to the dialog.
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && state.log.mode === 'maximized' && !document.querySelector('dialog[open]')) {
+      setLogDockMode('normal');
+    }
   });
 
   function restartLogPolling() {
