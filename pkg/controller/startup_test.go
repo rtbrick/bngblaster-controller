@@ -22,7 +22,7 @@ import (
 // as bngblaster does: one response per connection, then close.
 func serveTestInfo(t *testing.T, folder string, info func(n int) map[string]any) {
 	t.Helper()
-	ln, err := net.Listen("unix", path.Join(folder, RunSockFilename))
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", path.Join(folder, RunSockFilename))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ln.Close() })
 	var requests atomic.Int32
@@ -97,8 +97,10 @@ func TestWaitForStartup(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Short folder: unix socket paths are limited to 108 bytes.
-			folder, err := os.MkdirTemp("", "bbl")
+			// Short folder: unix socket paths are limited to 108 bytes,
+			// which the path of t.TempDir() can exceed with a longer
+			// TMPDIR, as it contains the test name.
+			folder, err := os.MkdirTemp("", "bbl") //nolint:usetesting // see above
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = os.RemoveAll(folder) })
 			require.NoError(t, os.WriteFile(path.Join(folder, RunStdErr),
@@ -152,7 +154,7 @@ func TestWaitForStartup_aborted(t *testing.T) {
 			folder := t.TempDir()
 			require.NoError(t, os.WriteFile(path.Join(folder, RunStdErr),
 				[]byte("Error: invalid configuration\n"), 0o600))
-			cmd := exec.CommandContext(t.Context(), tt.command[0], tt.command[1:]...)
+			cmd := exec.CommandContext(t.Context(), tt.command[0], tt.command[1:]...) //nolint:gosec // fixed test commands
 			require.NoError(t, cmd.Start())
 			done := make(chan error, 1)
 			go func() { done <- cmd.Wait() }()

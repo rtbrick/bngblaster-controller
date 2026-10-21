@@ -49,10 +49,13 @@ linters:
       - legacy
       - std-error-handling
     rules:
+      # Tests repeat fixture values (interface names, file contents,
+      # JSON keys) on purpose; constants for them only obscure the cases.
       - linters:
           - bodyclose
           - dupl
           - funlen
+          - goconst
           - gocritic
           - lll
           - unparam

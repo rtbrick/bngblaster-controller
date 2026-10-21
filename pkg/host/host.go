@@ -28,6 +28,15 @@ import (
 // DefaultLockFolder is where bngblaster creates its lock files.
 const DefaultLockFolder = "/run/lock"
 
+const (
+	// kibibyte converts the kB values of /proc and /sys to bytes.
+	kibibyte = 1024
+	// percent scales a ratio to percent.
+	percent = 100
+	// loadAverages is the number of load averages in /proc/loadavg.
+	loadAverages = 3
+)
+
 // Info is the host information reported by Collector.Collect.
 type Info struct {
 	Hostname    string     `json:"hostname"`
@@ -142,6 +151,7 @@ func (c config) read(p string) string {
 // which the usage is derived, and is safe for concurrent use.
 type Collector struct {
 	config
+
 	statfs func(path string, buf *syscall.Statfs_t) error
 	now    func() time.Time
 	sleep  func(time.Duration)
@@ -189,8 +199,8 @@ func (c *Collector) Collect() Info {
 	if fields := strings.Fields(c.read("/proc/uptime")); len(fields) > 0 {
 		info.Uptime, _ = strconv.ParseFloat(fields[0], 64)
 	}
-	if fields := strings.Fields(c.read("/proc/loadavg")); len(fields) >= 3 {
-		for _, f := range fields[:3] {
+	if fields := strings.Fields(c.read("/proc/loadavg")); len(fields) >= loadAverages {
+		for _, f := range fields[:loadAverages] {
 			v, _ := strconv.ParseFloat(f, 64)
 			info.LoadAverage = append(info.LoadAverage, v)
 		}
@@ -300,29 +310,26 @@ func (c *Collector) numaNodes(cpus []CPU, memory Memory) []NUMANode {
 	}
 	nodes := make([]NUMANode, 0, len(ids))
 	for _, id := range ids {
-		node := NUMANode{ID: id, CPUs: ParseCPUList(c.read(nodeDir(id) + "cpulist"))}
-		// "Node 0 MemTotal:       24609312 kB"
-		for _, line := range strings.Split(c.read(nodeDir(id)+"meminfo"), "\n") {
-			fields := strings.Fields(line)
-			if len(fields) < 4 {
-				continue
-			}
-			value, _ := strconv.ParseUint(fields[3], 10, 64)
-			switch fields[2] {
-			case "MemTotal:":
-				node.MemoryTotal = value * 1024
-			case "MemFree:":
-				node.MemoryFree = value * 1024
-			}
-		}
-		nodes = append(nodes, node)
+		values := parseMeminfo(c.read(nodeDir(id) + "meminfo"))
+		nodes = append(nodes, NUMANode{
+			ID:          id,
+			CPUs:        ParseCPUList(c.read(nodeDir(id) + "cpulist")),
+			MemoryTotal: values["MemTotal"],
+			MemoryFree:  values["MemFree"],
+		})
 	}
 	return nodes
 }
 
-func (c *Collector) memory() Memory {
+// parseMeminfo parses the lines "MemTotal:       24609312 kB" of
+// /proc/meminfo, and those of the per node meminfo files, which start with
+// "Node <id> ", into bytes (counts like HugePages_Total stay as they are).
+func parseMeminfo(text string) map[string]uint64 {
 	values := map[string]uint64{}
-	for _, line := range strings.Split(c.read("/proc/meminfo"), "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
+		if rest, ok := strings.CutPrefix(line, "Node "); ok {
+			_, line, _ = strings.Cut(rest, " ")
+		}
 		key, rest, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
@@ -333,10 +340,15 @@ func (c *Collector) memory() Memory {
 		}
 		value, _ := strconv.ParseUint(fields[0], 10, 64)
 		if len(fields) > 1 && fields[1] == "kB" {
-			value *= 1024
+			value *= kibibyte
 		}
-		values[key] = value
+		values[strings.TrimSpace(key)] = value
 	}
+	return values
+}
+
+func (c *Collector) memory() Memory {
+	values := parseMeminfo(c.read("/proc/meminfo"))
 	m := Memory{
 		Total:          values["MemTotal"],
 		Available:      values["MemAvailable"],
@@ -361,14 +373,23 @@ type cpuTimes struct {
 	busy, total uint64
 }
 
-// totalCPU is the key of the aggregated "cpu" line of /proc/stat.
-const totalCPU = -1
+const (
+	// totalCPU is the key of the aggregated "cpu" line of /proc/stat.
+	totalCPU = -1
+	// statTimes are the times of a "cpu" line of /proc/stat summed up:
+	// user nice system idle iowait irq softirq steal. guest and
+	// guest_nice follow, but are already included in user and nice.
+	statTimes = 8
+	// statIdle and statIOWait are the indexes of the idle times.
+	statIdle   = 3
+	statIOWait = 4
+)
 
 func (c *Collector) readCPUTimes() map[int]cpuTimes {
 	times := map[int]cpuTimes{}
-	for _, line := range strings.Split(c.read("/proc/stat"), "\n") {
+	for line := range strings.SplitSeq(c.read("/proc/stat"), "\n") {
 		fields := strings.Fields(line)
-		if len(fields) < 5 || !strings.HasPrefix(fields[0], "cpu") {
+		if len(fields) <= statIOWait || !strings.HasPrefix(fields[0], "cpu") {
 			continue
 		}
 		id := totalCPU
@@ -380,12 +401,10 @@ func (c *Collector) readCPUTimes() map[int]cpuTimes {
 			id = n
 		}
 		var t cpuTimes
-		// user nice system idle iowait irq softirq steal; guest and
-		// guest_nice are already included in user and nice.
-		for i, f := range fields[1:min(len(fields), 9)] {
+		for i, f := range fields[1:min(len(fields), statTimes+1)] {
 			v, _ := strconv.ParseUint(f, 10, 64)
 			t.total += v
-			if i != 3 && i != 4 { // idle, iowait
+			if i != statIdle && i != statIOWait {
 				t.busy += v
 			}
 		}
@@ -428,8 +447,8 @@ func (c *Collector) cpuUsage() (map[int]float64, float64) {
 		if !ok || cur.total <= prev.total {
 			continue
 		}
-		busy := float64(cur.busy-prev.busy) / float64(cur.total-prev.total) * 100
-		usage[id] = min(100, max(0, busy))
+		busy := float64(cur.busy-prev.busy) / float64(cur.total-prev.total) * percent
+		usage[id] = min(percent, max(0, busy))
 	}
 	c.prev, c.prevAt = current, now
 	c.usage, c.total, c.usageSet = usage, usage[totalCPU], true
@@ -498,28 +517,33 @@ func configArgument(cmdline []byte) string {
 // pseudoDevices are file systems with a /dev device that are no disks.
 var pseudoDevices = []string{"/dev/loop", "/dev/ram", "/dev/zram"}
 
-// disks lists the file systems of block devices, one per device.
+// isDisk reports whether a mounted file system is on a disk.
 //
 // Only devices below /dev are reported: tmpfs, overlay and the like are
 // no disks, and statfs() on a network file system can block for a long
 // time when its server is unreachable. Loop devices are mostly read-only
 // squashfs images (snaps) that are always full.
+func isDisk(device, fstype string) bool {
+	if !strings.HasPrefix(device, "/dev/") || fstype == "squashfs" {
+		return false
+	}
+	return !slices.ContainsFunc(pseudoDevices, func(p string) bool { return strings.HasPrefix(device, p) })
+}
+
+// disks lists the file systems of disks, one per device.
 func (c *Collector) disks() []Disk {
 	data, err := os.ReadFile(c.path("/proc/mounts"))
 	if err != nil {
 		return nil
 	}
 	byDevice := map[string]Disk{}
-	for _, line := range strings.Split(string(data), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		device, mount, fstype := fields[0], unescapeMount(fields[1]), fields[2]
-		if !strings.HasPrefix(device, "/dev/") || fstype == "squashfs" {
-			continue
-		}
-		if slices.ContainsFunc(pseudoDevices, func(p string) bool { return strings.HasPrefix(device, p) }) {
+	for line := range strings.SplitSeq(string(data), "\n") {
+		// device mount-point fstype options dump pass
+		device, rest, _ := strings.Cut(line, " ")
+		mount, rest, _ := strings.Cut(rest, " ")
+		fstype, _, _ := strings.Cut(rest, " ")
+		mount = unescapeMount(mount)
+		if !isDisk(device, fstype) {
 			continue
 		}
 		// The same device mounted several times (bind mounts, btrfs
@@ -527,18 +551,8 @@ func (c *Collector) disks() []Disk {
 		if prev, ok := byDevice[device]; ok && len(prev.Mount) <= len(mount) {
 			continue
 		}
-		var st syscall.Statfs_t
-		if err := c.statfs(mount, &st); err != nil || st.Blocks == 0 {
-			continue
-		}
-		size := uint64(st.Bsize) //nolint:gosec // block size is positive
-		byDevice[device] = Disk{
-			Mount:     mount,
-			Device:    device,
-			FSType:    fstype,
-			Total:     st.Blocks * size,
-			Used:      (st.Blocks - st.Bfree) * size,
-			Available: st.Bavail * size,
+		if disk, ok := c.disk(device, mount, fstype); ok {
+			byDevice[device] = disk
 		}
 	}
 	disks := make([]Disk, 0, len(byDevice))
@@ -547,6 +561,23 @@ func (c *Collector) disks() []Disk {
 	}
 	sort.Slice(disks, func(i, j int) bool { return disks[i].Mount < disks[j].Mount })
 	return disks
+}
+
+// disk reads the size and usage of a mounted file system.
+func (c *Collector) disk(device, mount, fstype string) (Disk, bool) {
+	var st syscall.Statfs_t
+	if err := c.statfs(mount, &st); err != nil || st.Blocks == 0 {
+		return Disk{}, false
+	}
+	size := uint64(st.Bsize) //nolint:gosec // block size is positive
+	return Disk{
+		Mount:     mount,
+		Device:    device,
+		FSType:    fstype,
+		Total:     st.Blocks * size,
+		Used:      (st.Blocks - st.Bfree) * size,
+		Available: st.Bavail * size,
+	}, true
 }
 
 // unescapeMount decodes the octal escapes (e.g. "\040" for a space) of a

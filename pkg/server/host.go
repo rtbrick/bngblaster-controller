@@ -33,6 +33,7 @@ const (
 // hostInfo is the response of the host endpoint.
 type hostInfo struct {
 	host.Info
+
 	// Topology reports whether the topology image is available.
 	Topology bool `json:"topology"`
 }
@@ -124,8 +125,8 @@ func (s *Server) hostInterfaces() http.HandlerFunc {
 	}
 }
 
-// hostTopology serves the hardware topology rendered by lstopo as PNG:
-// GET /api/v1/host/topology.png
+// hostTopology serves the hardware topology rendered by lstopo as PNG,
+// GET /api/v1/host/topology.png.
 func (s *Server) hostTopology() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		executable, err := exec.LookPath(topologyCommand)

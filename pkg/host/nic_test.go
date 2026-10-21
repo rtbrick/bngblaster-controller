@@ -13,8 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func intPtr(v int) *int { return &v }
-
 func TestPCIeGeneration(t *testing.T) {
 	require.Equal(t, 1, PCIeGeneration("2.5 GT/s PCIe"))
 	require.Equal(t, 3, PCIeGeneration("8.0 GT/s PCIe"))
@@ -40,14 +38,14 @@ Combined:	8
 
 func TestParseChannels(t *testing.T) {
 	require.Equal(t, &Channels{
-		Max:     ChannelCounts{Other: intPtr(1), Combined: intPtr(63)},
-		Current: ChannelCounts{Other: intPtr(1), Combined: intPtr(8)},
+		Max:     ChannelCounts{Other: new(1), Combined: new(63)},
+		Current: ChannelCounts{Other: new(1), Combined: new(8)},
 	}, parseChannels([]byte(ethtoolChannels)))
 
 	// Separate RX and TX channels, as some drivers report them.
 	require.Equal(t, &Channels{
-		Max:     ChannelCounts{RX: intPtr(16), TX: intPtr(16)},
-		Current: ChannelCounts{RX: intPtr(4), TX: intPtr(2)},
+		Max:     ChannelCounts{RX: new(16), TX: new(16)},
+		Current: ChannelCounts{RX: new(4), TX: new(2)},
 	}, parseChannels([]byte("Pre-set maximums:\nRX: 16\nTX: 16\nCurrent hardware settings:\nRX: 4\nTX: 2\n")))
 
 	// Not supported, or output of another ethtool version.
@@ -74,13 +72,13 @@ TCP data split:	n/a
 
 func TestParseRings(t *testing.T) {
 	require.Equal(t, &Rings{
-		Max:     RingCounts{RX: intPtr(8160), TX: intPtr(8160)},
-		Current: RingCounts{RX: intPtr(4096), TX: intPtr(512)},
+		Max:     RingCounts{RX: new(8160), TX: new(8160)},
+		Current: RingCounts{RX: new(4096), TX: new(512)},
 	}, parseRings([]byte(ethtoolRings)))
 
 	require.Equal(t, &Rings{
-		Max:     RingCounts{RX: intPtr(4096), RXMini: intPtr(512), RXJumbo: intPtr(2048), TX: intPtr(4096)},
-		Current: RingCounts{RX: intPtr(1024), RXMini: intPtr(128), RXJumbo: intPtr(512), TX: intPtr(1024)},
+		Max:     RingCounts{RX: new(4096), RXMini: new(512), RXJumbo: new(2048), TX: new(4096)},
+		Current: RingCounts{RX: new(1024), RXMini: new(128), RXJumbo: new(512), TX: new(1024)},
 	}, parseRings([]byte("Pre-set maximums:\nRX: 4096\nRX Mini: 512\nRX Jumbo: 2048\nTX: 4096\n"+
 		"Current hardware settings:\nRX: 1024\nRX Mini: 128\nRX Jumbo: 512\nTX: 1024\n")))
 
@@ -246,7 +244,7 @@ func TestNICInventory(t *testing.T) {
 	}, eth0.NICDetails)
 	carrier := true
 	require.Equal(t, NICState{
-		MAC: "aa:bb:cc:00:00:01", MTU: 9000, OperState: "up", Carrier: &carrier, Speed: intPtr(100000),
+		MAC: "aa:bb:cc:00:00:01", MTU: 9000, OperState: "up", Carrier: &carrier, Speed: new(100000),
 		Duplex: "full", Port: "Direct Attach Copper", AutoNeg: "on", RXQueues: 2, TXQueues: 1,
 		Channels: parseChannels([]byte(ethtoolChannels)),
 		Rings:    parseRings([]byte(ethtoolRings)),
@@ -307,7 +305,7 @@ func TestNICInventory_withoutEthtool(t *testing.T) {
 	require.Equal(t, "mlx5_core", nics[0].Driver)
 	require.Empty(t, nics[0].Firmware)
 	require.Equal(t, 3, nics[0].PCI.LinkGen)
-	require.Equal(t, intPtr(100000), nics[0].Speed)
+	require.Equal(t, new(100000), nics[0].Speed)
 	require.Equal(t, 2, nics[0].RXQueues)
 	require.Nil(t, nics[0].Channels)
 	require.Nil(t, nics[0].Rings)

@@ -149,6 +149,7 @@ var pciIDsFiles = []string{"/usr/share/misc/pci.ids", "/usr/share/hwdata/pci.ids
 // details of every interface it has seen and is safe for concurrent use.
 type NICInventory struct {
 	config
+
 	ethtool func(ctx context.Context, args ...string) ([]byte, error)
 	pciIDs  []string
 
@@ -252,14 +253,19 @@ func (inv *NICInventory) Interfaces(ctx context.Context) []NIC {
 	inv.mu.Unlock()
 
 	// Physical NICs, then SR-IOV virtual functions, then virtual interfaces.
+	const (
+		groupPhysical = iota
+		groupVirtualFunction
+		groupVirtual
+	)
 	group := func(d NICDetails) int {
 		switch {
 		case d.VirtualFunction():
-			return 1
+			return groupVirtualFunction
 		case d.Physical:
-			return 0
+			return groupPhysical
 		}
-		return 2
+		return groupVirtual
 	}
 	slices.SortFunc(details, func(a, b NICDetails) int {
 		if ga, gb := group(a), group(b); ga != gb {
@@ -294,29 +300,8 @@ func parallel(n int, fn func(i int)) {
 var pciAddressPattern = regexp.MustCompile(`^[0-9a-f]{4,}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`)
 
 func (inv *NICInventory) discover(ctx context.Context, name string) NICDetails {
-	netDir := "/sys/class/net/" + name + "/"
-	d := NICDetails{Name: name, index: atoi(inv.read(netDir + "ifindex"))}
-
-	// A physical interface has a device. Its sysfs path ends with the PCI
-	// address, or with a device on top of it (e.g. "virtio2" below the
-	// PCI device of a virtio NIC).
-	if device, err := filepath.EvalSymlinks(inv.path(netDir + "device")); err == nil {
-		d.Physical = true
-		d.Kind = filepath.Base(readLink(filepath.Join(device, "subsystem")))
-		if driver := readLink(filepath.Join(device, "driver")); driver != "" {
-			d.Driver = filepath.Base(driver)
-		}
-		for dir := device; dir != "/" && dir != "." && dir != inv.root; dir = filepath.Dir(dir) {
-			if pciAddressPattern.MatchString(filepath.Base(dir)) {
-				d.Kind = "pci"
-				d.PCI = inv.pciInfo(filepath.Base(dir))
-				break
-			}
-		}
-		if d.Kind == "" {
-			d.Kind = "device"
-		}
-	}
+	d := NICDetails{Name: name, index: atoi(inv.read("/sys/class/net/" + name + "/ifindex"))}
+	inv.discoverDevice(&d)
 
 	// ethtool -i: "driver: i40e", "version: ...", "firmware-version: ...".
 	if out, err := inv.ethtool(ctx, "-i", name); err == nil {
@@ -327,17 +312,43 @@ func (inv *NICInventory) discover(ctx context.Context, name string) NICDetails {
 		d.DriverVersion = values["version"]
 		d.Firmware = values["firmware-version"]
 	}
-	if d.Physical {
-		if out, err := inv.ethtool(ctx, "-P", name); err == nil {
-			mac := parseKeyValues(out)["permanent address"]
-			if mac != "" && mac != "00:00:00:00:00:00" {
-				d.PermanentMAC = mac
-			}
-		}
-	} else {
+	if !d.Physical {
 		d.Kind = inv.virtualKind(name, d.Driver)
+		return d
+	}
+	if out, err := inv.ethtool(ctx, "-P", name); err == nil {
+		mac := parseKeyValues(out)["permanent address"]
+		if mac != "" && mac != "00:00:00:00:00:00" {
+			d.PermanentMAC = mac
+		}
 	}
 	return d
+}
+
+// discoverDevice reads the device of a physical interface from sysfs; an
+// interface without a device is virtual. The sysfs path of the device ends
+// with the PCI address, or with a device on top of it (e.g. "virtio2"
+// below the PCI device of a virtio NIC).
+func (inv *NICInventory) discoverDevice(d *NICDetails) {
+	device, err := filepath.EvalSymlinks(inv.path("/sys/class/net/" + d.Name + "/device"))
+	if err != nil {
+		return
+	}
+	d.Physical = true
+	d.Kind = "device"
+	if subsystem := readLink(filepath.Join(device, "subsystem")); subsystem != "" {
+		d.Kind = filepath.Base(subsystem)
+	}
+	if driver := readLink(filepath.Join(device, "driver")); driver != "" {
+		d.Driver = filepath.Base(driver)
+	}
+	for dir := device; dir != "/" && dir != "." && dir != inv.root; dir = filepath.Dir(dir) {
+		if pciAddressPattern.MatchString(filepath.Base(dir)) {
+			d.Kind = "pci"
+			d.PCI = inv.pciInfo(filepath.Base(dir))
+			return
+		}
+	}
 }
 
 // virtualKind names the type of a virtual interface: the device type the
@@ -466,33 +477,66 @@ func parsePCIIDs(f *os.File, wanted map[string]map[string]bool) (map[string]stri
 	vendor := ""
 	for scanner.Scan() {
 		line := scanner.Text()
-		if line == "" || line[0] == '#' || strings.HasPrefix(line, "\t\t") {
-			continue
-		}
-		if line[0] == '\t' {
+		switch {
+		case skipPCIIDsLine(line):
+		case line[0] == '\t':
 			id, name, ok := strings.Cut(strings.TrimPrefix(line, "\t"), "  ")
-			if ok && vendor != "" && wanted[vendor][id] {
+			if ok && wanted[vendor][id] {
 				devices[[2]string{vendor, id}] = strings.TrimSpace(name)
 			}
-			continue
-		}
-		// The device classes ("C 02  Network controller") follow
-		// all vendors.
-		if strings.HasPrefix(line, "C ") {
-			break
-		}
-		id, name, ok := strings.Cut(line, "  ")
-		vendor = ""
-		if ok && wanted[id] != nil {
+		case strings.HasPrefix(line, "C "):
+			// The device classes ("C 02  Network controller") follow
+			// all vendors.
+			return vendors, devices
+		default:
+			id, name, _ := strings.Cut(line, "  ")
 			vendor = id
-			vendors[id] = strings.TrimSpace(name)
+			if wanted[id] != nil {
+				vendors[id] = strings.TrimSpace(name)
+			}
 		}
 	}
 	return vendors, devices
 }
 
+// skipPCIIDsLine reports whether a line of pci.ids is neither a vendor nor
+// a device: empty lines, comments and subsystems.
+func skipPCIIDsLine(line string) bool {
+	return line == "" || line[0] == '#' || strings.HasPrefix(line, "\t\t")
+}
+
 // state reads the current state of an interface.
 func (inv *NICInventory) state(ctx context.Context, name string) NICState {
+	s := inv.sysfsState(name)
+	// ethtool <name>: port and auto-negotiation are not in sysfs.
+	if out, err := inv.ethtool(ctx, name); err == nil {
+		applyLinkSettings(&s, parseKeyValues(out))
+	}
+	if out, err := inv.ethtool(ctx, "-l", name); err == nil {
+		s.Channels = parseChannels(out)
+	}
+	if out, err := inv.ethtool(ctx, "-g", name); err == nil {
+		s.Rings = parseRings(out)
+	}
+	return s
+}
+
+// applyLinkSettings applies the output of "ethtool <name>". The speed is
+// only taken if sysfs did not report one.
+func applyLinkSettings(s *NICState, values map[string]string) {
+	if v := values["port"]; v != "" && v != "Other" {
+		s.Port = v
+	}
+	if v := values["auto-negotiation"]; v == "on" || v == "off" {
+		s.AutoNeg = v
+	}
+	if v, err := strconv.Atoi(strings.TrimSuffix(values["speed"], "Mb/s")); err == nil && v > 0 && s.Speed == nil {
+		s.Speed = &v
+	}
+}
+
+// sysfsState reads the state of an interface available in sysfs.
+func (inv *NICInventory) sysfsState(name string) NICState {
 	netDir := "/sys/class/net/" + name + "/"
 	s := NICState{
 		MAC:       inv.read(netDir + "address"),
@@ -508,40 +552,16 @@ func (inv *NICInventory) state(ctx context.Context, name string) NICState {
 	if v, err := strconv.Atoi(inv.read(netDir + "speed")); err == nil && v > 0 {
 		s.Speed = &v
 	}
-	if v := inv.read(netDir + "duplex"); v != "" && v != "unknown" {
+	if v := inv.read(netDir + "duplex"); v != "unknown" {
 		s.Duplex = v
 	}
-	if entries, err := os.ReadDir(inv.path(netDir + "queues")); err == nil {
-		for _, entry := range entries {
-			switch {
-			case strings.HasPrefix(entry.Name(), "rx-"):
-				s.RXQueues++
-			case strings.HasPrefix(entry.Name(), "tx-"):
-				s.TXQueues++
-			}
+	entries, _ := os.ReadDir(inv.path(netDir + "queues"))
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "rx-") {
+			s.RXQueues++
+		} else if strings.HasPrefix(entry.Name(), "tx-") {
+			s.TXQueues++
 		}
-	}
-
-	// ethtool <name>: port and auto-negotiation are not in sysfs.
-	if out, err := inv.ethtool(ctx, name); err == nil {
-		values := parseKeyValues(out)
-		if v := values["port"]; v != "" && v != "Other" {
-			s.Port = v
-		}
-		if v := values["auto-negotiation"]; v == "on" || v == "off" {
-			s.AutoNeg = v
-		}
-		if s.Speed == nil {
-			if v, err := strconv.Atoi(strings.TrimSuffix(values["speed"], "Mb/s")); err == nil && v > 0 {
-				s.Speed = &v
-			}
-		}
-	}
-	if out, err := inv.ethtool(ctx, "-l", name); err == nil {
-		s.Channels = parseChannels(out)
-	}
-	if out, err := inv.ethtool(ctx, "-g", name); err == nil {
-		s.Rings = parseRings(out)
 	}
 	return s
 }
@@ -568,9 +588,10 @@ func parseKeyValues(out []byte) map[string]string {
 // settings:", into one map per section with lower case keys. A count of
 // "n/a" is nil. Newer ethtool versions add settings that are no counts
 // (e.g. "TX push: off") after these, which are skipped.
-func parseMaxCurrent(out []byte) (maxCounts, current map[string]*int, ok bool) {
-	maxCounts, current = map[string]*int{}, map[string]*int{}
+func parseMaxCurrent(out []byte) (map[string]*int, map[string]*int, bool) {
+	maxCounts, current := map[string]*int{}, map[string]*int{}
 	var section map[string]*int
+	ok := false
 	for line := range strings.SplitSeq(string(out), "\n") {
 		trimmed := strings.TrimSpace(line)
 		switch {

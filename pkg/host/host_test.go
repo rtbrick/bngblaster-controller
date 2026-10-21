@@ -59,10 +59,10 @@ func writeFiles(t *testing.T, root string, files map[string]string) {
 //
 //	node 0: CPUs 0,1 (cores) and 4,5 (siblings)
 //	node 1: CPUs 2,3 (cores) and 6,7 (siblings), CPU 7 offline
-func fixtureHost(t *testing.T) (root, lockFolder string) {
+func fixtureHost(t *testing.T) (string, string) {
 	t.Helper()
-	root = t.TempDir()
-	lockFolder = t.TempDir()
+	root := t.TempDir()
+	lockFolder := t.TempDir()
 	files := map[string]string{
 		"/proc/sys/kernel/hostname":  "blaster\n",
 		"/proc/sys/kernel/osrelease": "6.8.0\n",
@@ -112,7 +112,7 @@ func fixtureHost(t *testing.T) (root, lockFolder string) {
 func TestCollector_Collect(t *testing.T) {
 	root, lockFolder := fixtureHost(t)
 	c := NewCollector(WithRoot(root), WithLockFolder(lockFolder))
-	c.statfs = func(path string, buf *syscall.Statfs_t) error {
+	c.statfs = func(_ string, buf *syscall.Statfs_t) error {
 		buf.Bsize = 4096
 		buf.Blocks = 1000
 		buf.Bfree = 400
