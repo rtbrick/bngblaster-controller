@@ -133,7 +133,9 @@ paths:
     get:
       summary: Host network interfaces.
       description: >-
-        Get the network interfaces of the host, physical interfaces first. The details (kind,
+        Get the network interfaces of the host: physical interfaces, then SR-IOV virtual
+        functions (with `pci.physical_function` and `pci.physical_function_interface` set to
+        their physical function), then virtual interfaces. The details (kind,
         driver, firmware, permanent MAC, PCI device with vendor and device names, NUMA node and
         PCIe link) are discovered once per interface, at startup or when an interface appears.
         The state (MAC, MTU, link, speed in Mb/s, port, auto-negotiation, queues in use and the

@@ -2543,8 +2543,12 @@
   function renderHostInterfaces() {
     if (!hostInterfaces) return;
     const nics = hostInterfaces.interfaces || [];
-    const physical = nics.filter((n) => n.physical);
-    const virtual = nics.filter((n) => !n.physical);
+    // SR-IOV virtual functions are PCI devices, but not NICs of their own:
+    // a host can have dozens of them, so they are listed with the virtual
+    // interfaces.
+    const isVF = (n) => Boolean(n.pci && n.pci.physical_function);
+    const physical = nics.filter((n) => n.physical && !isVF(n));
+    const virtual = nics.filter((n) => !n.physical || isVF(n));
     $('#nics-no-ethtool').hidden = hostInterfaces.ethtool;
     $('#nics-physical').replaceChildren(...physical.map(buildNicCard));
     $('#nics-physical-empty').hidden = physical.length > 0;
@@ -2553,7 +2557,12 @@
     $('#nics-virtual-group').hidden = !showVirtual || virtual.length === 0;
     $('#nics-virtual-tbody').replaceChildren(...virtual.map((nic) => el('tr', {}, [
       el('th', { scope: 'row', class: 'cpu-list', text: nic.name }),
-      el('td', { text: nic.kind }),
+      el('td', {
+        text: isVF(nic)
+          ? 'SR-IOV VF of ' + (nic.pci.physical_function_interface || nic.pci.physical_function)
+          : nic.kind,
+        title: isVF(nic) ? 'PCI ' + nic.pci.address : null,
+      }),
       el('td', { text: nic.driver || '' }),
       el('td', {}, [linkPill(nic)]),
       el('td', { text: formatLinkSpeed(nic.speed) }),

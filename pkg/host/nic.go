@@ -49,6 +49,12 @@ type NICDetails struct {
 	index int
 }
 
+// VirtualFunction reports whether the interface is an SR-IOV virtual
+// function, which is a PCI device but not a NIC of its own.
+func (d NICDetails) VirtualFunction() bool {
+	return d.PCI != nil && d.PCI.PhysicalFunction != ""
+}
+
 // PCIInfo describes the PCI device of a network interface.
 type PCIInfo struct {
 	Address string `json:"address"`
@@ -68,6 +74,11 @@ type PCIInfo struct {
 	MaxLinkGen   int    `json:"max_link_gen,omitempty"`
 	MaxLinkWidth int    `json:"max_link_width,omitempty"`
 	SRIOVTotal   int    `json:"sriov_total_vfs,omitempty"`
+	// PhysicalFunction is set for an SR-IOV virtual function: the PCI
+	// address of its physical function, and that function's interface
+	// name if it has one.
+	PhysicalFunction          string `json:"physical_function,omitempty"`
+	PhysicalFunctionInterface string `json:"physical_function_interface,omitempty"`
 }
 
 // NICState is the current state of a network interface.
@@ -240,12 +251,19 @@ func (inv *NICInventory) Interfaces(ctx context.Context) []NIC {
 	}
 	inv.mu.Unlock()
 
-	slices.SortFunc(details, func(a, b NICDetails) int {
-		if a.Physical != b.Physical {
-			if a.Physical {
-				return -1
-			}
+	// Physical NICs, then SR-IOV virtual functions, then virtual interfaces.
+	group := func(d NICDetails) int {
+		switch {
+		case d.VirtualFunction():
 			return 1
+		case d.Physical:
+			return 0
+		}
+		return 2
+	}
+	slices.SortFunc(details, func(a, b NICDetails) int {
+		if ga, gb := group(a), group(b); ga != gb {
+			return ga - gb
 		}
 		return strings.Compare(a.Name, b.Name)
 	})
@@ -367,6 +385,14 @@ func (inv *NICInventory) pciInfo(address string) *PCIInfo {
 	}
 	info.LinkGen = PCIeGeneration(info.LinkSpeed)
 	info.MaxLinkGen = PCIeGeneration(info.MaxLinkSpeed)
+	// The device of a virtual function links to its physical function,
+	// whatever the driver (iavf, mlx5_core, ixgbevf, ...).
+	if physfn := readLink(inv.path(dir + "physfn")); physfn != "" {
+		info.PhysicalFunction = filepath.Base(physfn)
+		if entries, err := os.ReadDir(inv.path(dir + "physfn/net")); err == nil && len(entries) > 0 {
+			info.PhysicalFunctionInterface = entries[0].Name()
+		}
+	}
 	return info
 }
 

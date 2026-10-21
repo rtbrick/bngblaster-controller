@@ -123,13 +123,15 @@ func TestParsePCIIDs(t *testing.T) {
 }
 
 // fixtureNICs builds a host with the PCI NIC eth0 (degraded PCIe link),
-// the virtio NIC eth1 and the virtual interface veth0.
+// the virtio NIC eth1, the SR-IOV virtual function eth2 of eth0 and the
+// virtual interface veth0.
 func fixtureNICs(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	pci := "/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0"
 	virtioPCI := "/sys/devices/pci0000:00/0000:00:02.0/0000:02:00.0"
 	virtio := virtioPCI + "/virtio1"
+	vfPCI := "/sys/devices/pci0000:00/0000:00:01.0/0000:01:02.5"
 	writeFiles(t, root, map[string]string{
 		"/sys/class/net/lo/ifindex": "1\n",
 
@@ -162,6 +164,13 @@ func fixtureNICs(t *testing.T) string {
 		virtioPCI + "/current_link_width": "0\n",
 		virtio + "/features":              "",
 
+		// eth2 is an SR-IOV virtual function of eth0.
+		"/sys/class/net/eth2/ifindex":   "5\n",
+		"/sys/class/net/eth2/operstate": "up\n",
+		vfPCI + "/vendor":               "0x8086\n",
+		vfPCI + "/device":               "0x154c\n",
+		pci + "/net/eth0/ifindex":       "2\n",
+
 		"/sys/class/net/veth0/ifindex":   "4\n",
 		"/sys/class/net/veth0/operstate": "up\n",
 		"/sys/class/net/veth0/carrier":   "1\n",
@@ -185,6 +194,10 @@ func fixtureNICs(t *testing.T) string {
 	link(virtio, "/sys/class/net/eth1/device")
 	link("/sys/bus/virtio", virtio+"/subsystem")
 	link(virtioPCI, "/sys/bus/pci/devices/0000:02:00.0")
+	link(vfPCI, "/sys/class/net/eth2/device")
+	link("/sys/bus/pci", vfPCI+"/subsystem")
+	link(pci, vfPCI+"/physfn")
+	link(vfPCI, "/sys/bus/pci/devices/0000:01:02.5")
 	return root
 }
 
@@ -217,7 +230,7 @@ func TestNICInventory(t *testing.T) {
 	inv.ethtool = fakeEthtool(&calls)
 
 	nics := inv.Interfaces(context.Background())
-	require.Len(t, nics, 3)
+	require.Len(t, nics, 4)
 
 	eth0 := nics[0]
 	require.Equal(t, NICDetails{
@@ -251,7 +264,16 @@ func TestNICInventory(t *testing.T) {
 	require.Nil(t, eth1.Channels)
 	require.Nil(t, eth1.Rings)
 
-	veth0 := nics[2]
+	// Virtual functions follow the physical NICs.
+	eth2 := nics[2]
+	require.Equal(t, "eth2", eth2.Name)
+	require.True(t, eth2.Physical)
+	require.True(t, eth2.VirtualFunction())
+	require.Equal(t, "0000:01:00.0", eth2.PCI.PhysicalFunction)
+	require.Equal(t, "eth0", eth2.PCI.PhysicalFunctionInterface)
+	require.False(t, eth0.VirtualFunction())
+
+	veth0 := nics[3]
 	require.Equal(t, "veth0", veth0.Name)
 	require.Equal(t, "veth", veth0.Kind)
 	require.False(t, veth0.Physical)
@@ -271,7 +293,7 @@ func TestNICInventory(t *testing.T) {
 	for _, nic := range inv.Interfaces(context.Background()) {
 		names = append(names, nic.Name)
 	}
-	require.Equal(t, []string{"eth0", "eth1", "veth1"}, names)
+	require.Equal(t, []string{"eth0", "eth1", "eth2", "veth1"}, names)
 }
 
 func TestNICInventory_withoutEthtool(t *testing.T) {
@@ -280,7 +302,7 @@ func TestNICInventory_withoutEthtool(t *testing.T) {
 	inv.ethtool = func(context.Context, ...string) ([]byte, error) { return nil, ErrNoEthtool }
 
 	nics := inv.Interfaces(context.Background())
-	require.Len(t, nics, 3)
+	require.Len(t, nics, 4)
 	// Driver from sysfs, PCI and state from sysfs, nothing from ethtool.
 	require.Equal(t, "mlx5_core", nics[0].Driver)
 	require.Empty(t, nics[0].Firmware)
@@ -290,5 +312,5 @@ func TestNICInventory_withoutEthtool(t *testing.T) {
 	require.Nil(t, nics[0].Channels)
 	require.Nil(t, nics[0].Rings)
 	require.Empty(t, nics[0].Port)
-	require.Equal(t, "virtual", nics[2].Kind)
+	require.Equal(t, "virtual", nics[3].Kind)
 }
