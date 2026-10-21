@@ -1005,6 +1005,8 @@ dialog > form[method="dialog"] {
 .logdock-header .spacer { flex: 1; }
 .logdock-header .btn { background: #1c2128; color: #d8dee6; border-color: #2a303a; }
 .logdock-header .btn:hover { background: #262c35; }
+/* Compact like the dock buttons, so the header fits the collapsed dock. */
+.logdock-header select { padding: 0.2rem 0.5rem; font-size: 0.85rem; }
 .logdock-body {
   flex: 1;
   overflow-y: auto;

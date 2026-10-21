@@ -310,7 +310,7 @@
     bgp: { pollTimer: null, detailKey: null, detailTimer: null },
     // generations maps instance -> the identity of the run.log it last read,
     // so a restarted instance (which recreates the file) is detected.
-    log: { instance: null, offsets: {}, generations: {}, paused: false, mode: 'normal', manualSelect: false, timer: null },
+    log: { instance: null, offsets: {}, generations: {}, paused: false, mode: 'collapsed', manualSelect: false, timer: null },
     downloads: { instance: null },
     uploads: { instance: null },
   };
@@ -3765,9 +3765,10 @@
   });
   function clearLogDock() { $('#logdock-body').innerHTML = ''; }
   $('#btn-logdock-clear').addEventListener('click', clearLogDock);
-  // The dock has three sizes: 'normal' (the default strip at the bottom),
-  // 'collapsed' (header only) and 'maximized' (full viewport). Both buttons
-  // go through here so the body classes and button labels never disagree.
+  // The dock has three sizes: 'normal' (a strip at the bottom), 'collapsed'
+  // (header only, the default, set in index.html to avoid a flash on load)
+  // and 'maximized' (full viewport). Both buttons go through here so the
+  // body classes and button labels never disagree.
   function setLogDockMode(mode) {
     const body = $('#logdock-body');
     const wasAtBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 40;

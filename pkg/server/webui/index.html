@@ -7,7 +7,7 @@
 <link rel="icon" type="image/png" href="/favicon.ico?v={{.AssetVersion}}">
 <link rel="stylesheet" href="/static/css/app.css?v={{.AssetVersion}}">
 </head>
-<body>
+<body class="logdock-collapsed">
 <a class="skip-link" href="#main-content">Skip to main content</a>
 
 <!-- Visible counterpart of the #global-status live region: every announce()
@@ -706,8 +706,8 @@
     <button type="button" class="btn btn-sm" id="btn-logdock-maximize" aria-pressed="false" aria-controls="logdock">
       Maximize
     </button>
-    <button type="button" class="btn btn-sm" id="btn-logdock-toggle" aria-expanded="true" aria-controls="logdock-body">
-      Collapse
+    <button type="button" class="btn btn-sm" id="btn-logdock-toggle" aria-expanded="false" aria-controls="logdock-body">
+      Expand
     </button>
   </div>
   <div class="logdock-body" id="logdock-body" role="log" aria-live="off" tabindex="0"></div>
