@@ -68,11 +68,18 @@
 
   <!-- ===================== HOST VIEW ===================== -->
   <section id="view-host" hidden aria-labelledby="host-heading">
+    <div class="card-header">
+      <h2 id="host-heading">Host <span class="host-name" id="host-name"></span></h2>
+      <button type="button" class="btn" id="btn-host-topology" hidden>Show Topology</button>
+    </div>
+
+    <div role="tablist" aria-label="Host views" id="host-tablist">
+      <button role="tab" id="hosttab-overview" aria-controls="hostpanel-overview" aria-selected="true">Overview</button>
+      <button role="tab" id="hosttab-interfaces" aria-controls="hostpanel-interfaces" aria-selected="false" tabindex="-1">Interfaces</button>
+    </div>
+
+    <div role="tabpanel" id="hostpanel-overview" aria-labelledby="hosttab-overview" tabindex="0">
     <div class="card">
-      <div class="card-header">
-        <h2 id="host-heading">Host <span class="host-name" id="host-name"></span></h2>
-        <button type="button" class="btn" id="btn-host-topology" hidden>Show Topology</button>
-      </div>
       <div id="host-status" role="alert"></div>
       <p class="hint">Live usage, refreshed every 2 seconds while this view is open.</p>
       <div class="host-usage-grid">
@@ -117,6 +124,49 @@
           <tbody id="host-pins-tbody"></tbody>
         </table>
         <p class="empty-state" id="host-pins-empty" hidden>No CPUs pinned by running bngblaster instances.</p>
+      </div>
+    </div>
+    </div>
+
+    <div role="tabpanel" id="hostpanel-interfaces" aria-labelledby="hosttab-interfaces" tabindex="0" hidden>
+      <div class="card">
+        <div class="card-header">
+          <p class="hint" id="nics-hint">Driver, firmware and PCI details are discovered once; link, speed and queues are read when the host view is opened.</p>
+          <div class="actions-cell">
+            <div class="checkbox-field">
+              <input type="checkbox" id="nics-show-virtual">
+              <label for="nics-show-virtual">Show virtual interfaces</label>
+            </div>
+            <button type="button" class="btn" id="btn-nics-refresh">Refresh</button>
+          </div>
+        </div>
+        <div id="nics-status" role="alert"></div>
+        <p class="form-status info" id="nics-no-ethtool" hidden>ethtool is not installed: firmware, port,
+          auto-negotiation, channel (queue) limits and ring sizes are not available. Install it with <code>apt install ethtool</code>.</p>
+        <p class="hint" id="nics-loading">Loading interfaces…</p>
+        <div class="nic-card-grid" id="nics-physical"></div>
+        <p class="empty-state" id="nics-physical-empty" hidden>No physical network interfaces found.</p>
+        <div id="nics-virtual-group" hidden>
+          <h3 class="host-subheading">Virtual interfaces</h3>
+          <div class="table-scroll">
+            <table id="nics-virtual-table">
+              <caption class="visually-hidden">Virtual network interfaces of the host</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Type</th>
+                  <th scope="col">Driver</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Speed</th>
+                  <th scope="col">MTU</th>
+                  <th scope="col">Queues RX / TX</th>
+                  <th scope="col">MAC</th>
+                </tr>
+              </thead>
+              <tbody id="nics-virtual-tbody"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
   </section>

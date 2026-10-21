@@ -905,6 +905,41 @@ dialog > form[method="dialog"] {
 }
 .cpu-list { font-family: ui-monospace, Consolas, monospace; font-size: 0.85rem; overflow-wrap: anywhere; }
 
+/* Host interfaces: one card per physical NIC. */
+.nic-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: var(--space-4);
+}
+.nic-card {
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  min-width: 0;
+}
+.nic-card-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.nic-card-header h3 { margin: 0; font-size: 1rem; font-family: ui-monospace, Consolas, monospace; }
+.nic-card-header .spacer { flex: 1; }
+.nic-speed { font-weight: 700; font-variant-numeric: tabular-nums; }
+.nic-model { color: var(--color-text-muted); font-size: 0.85rem; margin: 0.2rem 0 var(--space-2); }
+.nic-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.2rem var(--space-3);
+  margin: 0;
+  font-size: 0.85rem;
+}
+.nic-facts dt { color: var(--color-text-muted); }
+.nic-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.nic-warn { color: var(--color-danger); font-weight: 600; }
+.status-pill.link-down { background: #fbe7e8; color: var(--color-danger); border-color: #f0c1c4; }
+
 .topology-body { display: flex; flex-direction: column; align-items: flex-start; }
 .topology-body img { display: block; }
 .topology-body.is-fit img { max-width: 100%; height: auto; }

@@ -129,6 +129,59 @@ paths:
                 ],
                 "topology": true
               }
+  /api/v1/host/interfaces:
+    get:
+      summary: Host network interfaces.
+      description: >-
+        Get the network interfaces of the host, physical interfaces first. The details (kind,
+        driver, firmware, permanent MAC, PCI device with vendor and device names, NUMA node and
+        PCIe link) are discovered once per interface, at startup or when an interface appears.
+        The state (MAC, MTU, link, speed in Mb/s, port, auto-negotiation, queues in use and the
+        configured and maximum channels of `ethtool -l` and ring sizes of `ethtool -g`) is read
+        on every request.
+
+        ethtool is optional: without it, or if its output cannot be parsed, the values available
+        in sysfs are reported; firmware, port, autoneg, channels and rings are then empty or null.
+        Unknown values (e.g. speed while the link is down) are null.
+
+        Enabled by default; not available (404) if the controller is started with `-host-api=false`.
+      responses:
+        200:
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+              example: {
+                "ethtool": true,
+                "interfaces": [
+                  {
+                    "name": "enp1s0f0np0", "kind": "pci", "physical": true,
+                    "driver": "i40e", "driver_version": "6.8.0-138-generic",
+                    "firmware": "9.56 0x8001011c 0.0.0", "permanent_mac": "64:9d:99:b1:83:f0",
+                    "pci": {
+                      "address": "0000:01:00.0", "vendor": "8086", "device": "1572",
+                      "vendor_name": "Intel Corporation",
+                      "device_name": "Ethernet Controller X710 for 10GbE SFP+",
+                      "numa_node": 0,
+                      "link_speed": "8.0 GT/s PCIe", "link_gen": 3, "link_width": 8,
+                      "max_link_speed": "8.0 GT/s PCIe", "max_link_gen": 3, "max_link_width": 8
+                    },
+                    "mac": "64:9d:99:b1:83:f0", "mtu": 9000, "operstate": "up",
+                    "carrier": true, "speed": 10000, "duplex": "full",
+                    "port": "Direct Attach Copper", "autoneg": "off",
+                    "rx_queues": 4, "tx_queues": 4,
+                    "channels": {
+                      "max": { "rx": null, "tx": null, "other": 1, "combined": 8 },
+                      "current": { "rx": null, "tx": null, "other": 1, "combined": 4 }
+                    },
+                    "rings": {
+                      "max": { "rx": 8160, "rx_mini": null, "rx_jumbo": null, "tx": 8160 },
+                      "current": { "rx": 4096, "rx_mini": null, "rx_jumbo": null, "tx": 512 }
+                    }
+                  }
+                ]
+              }
   /api/v1/host/topology.png:
     get:
       summary: Hardware topology image.

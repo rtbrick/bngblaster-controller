@@ -136,10 +136,12 @@ on:
 * `-ui` — serves the web UI on `/`
 * `-interfaces-api` — serves `/api/v1/interfaces`, used by the web UI to
   populate the host network interface dropdown when creating a new instance
-* `-host-api` — serves `/api/v1/host` and `/api/v1/host/topology.png`, used
-  by the web UI's host view (CPU, NUMA, memory and disk usage, and the CPUs
-  pinned by bngblaster instances); the topology image requires `lstopo`
-  from the `hwloc` package
+* `-host-api` — serves `/api/v1/host`, `/api/v1/host/interfaces` and
+  `/api/v1/host/topology.png`, used by the web UI's host view (CPU, NUMA,
+  memory and disk usage, the CPUs pinned by bngblaster instances, and the
+  network interfaces with driver, PCIe link and queues); interface details
+  are more complete with `ethtool` installed, and the topology image
+  requires `lstopo` from the `hwloc` package
 * `-upload` — enables the `/api/v1/instances/{instance_name}/_upload`
   endpoint, used by the web UI (and the REST API) to upload files into a
   test instance

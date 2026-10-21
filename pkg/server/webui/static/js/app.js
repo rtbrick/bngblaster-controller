@@ -90,6 +90,7 @@
       return this.fetchJSON('/api/v1/instances/' + encodeURIComponent(name) + '/_sessions?' + params.toString());
     },
     host() { return this.fetchJSON('/api/v1/host'); },
+    hostInterfaces() { return this.fetchJSON('/api/v1/host/interfaces'); },
     // Aggregates session-counters, the three interface commands and
     // test-info into one cached response, instead of five separate
     // control-socket round-trips per poll per open browser tab.
@@ -1942,7 +1943,7 @@
     if (name === 'bgp') initBgpView(); else stopBgpPolling();
     if (name === 'commands') loadCommandBuilder();
   }
-  $all('[role="tab"]').forEach((tab, idx, all) => {
+  $all('#view-instance [role="tab"]').forEach((tab, idx, all) => {
     tab.addEventListener('click', () => activateTab(tab.id.replace('tab-', ''), true));
     tab.addEventListener('keydown', (ev) => {
       // Step over any hidden tab rather than stopping on it, in whichever
@@ -2123,6 +2124,9 @@
     $('#view-instance').hidden = true;
     $('#view-host').hidden = false;
     setCurrentNav('host');
+    // Link, speed and queues may have changed since the view was last
+    // open; they are read once per opening, not polled (ethtool per NIC).
+    loadHostInterfaces();
     refreshHost();
     hostState.timer = cancelPoll(hostState.timer);
     hostState.timer = schedulePoll(refreshHost, 2000);
@@ -2329,6 +2333,172 @@
     }));
     $('#host-pins-table').hidden = entries.length === 0;
     $('#host-pins-empty').hidden = entries.length > 0;
+  }
+
+  //= ------------------------------------------------------------------------
+  // Host tabs: Overview and Interfaces
+  //= ------------------------------------------------------------------------
+  const HOST_TABS = ['overview', 'interfaces'];
+  function activateHostTab(name, focus) {
+    HOST_TABS.forEach((t) => {
+      const tab = $('#hosttab-' + t);
+      const active = t === name;
+      tab.setAttribute('aria-selected', String(active));
+      tab.tabIndex = active ? 0 : -1;
+      $('#hostpanel-' + t).hidden = !active;
+    });
+    if (focus) $('#hosttab-' + name).focus();
+  }
+  HOST_TABS.forEach((name, idx) => {
+    const tab = $('#hosttab-' + name);
+    tab.addEventListener('click', () => activateHostTab(name));
+    tab.addEventListener('keydown', (ev) => {
+      let next = null;
+      if (ev.key === 'ArrowRight') next = HOST_TABS[(idx + 1) % HOST_TABS.length];
+      else if (ev.key === 'ArrowLeft') next = HOST_TABS[(idx - 1 + HOST_TABS.length) % HOST_TABS.length];
+      else if (ev.key === 'Home') next = HOST_TABS[0];
+      else if (ev.key === 'End') next = HOST_TABS[HOST_TABS.length - 1];
+      if (next) { ev.preventDefault(); activateHostTab(next, true); }
+    });
+  });
+
+  //= ------------------------------------------------------------------------
+  // Host interfaces
+  //= ------------------------------------------------------------------------
+  let hostInterfaces = null;
+
+  async function loadHostInterfaces() {
+    $('#nics-loading').hidden = hostInterfaces !== null;
+    $('#btn-nics-refresh').disabled = true;
+    try {
+      hostInterfaces = await API.hostInterfaces();
+      setStatusMessage($('#nics-status'), '');
+      renderHostInterfaces();
+    } catch (e) {
+      showDetailedError($('#nics-status'), 'Could not load interfaces', e.message);
+    } finally {
+      $('#nics-loading').hidden = true;
+      $('#btn-nics-refresh').disabled = false;
+    }
+  }
+  $('#btn-nics-refresh').addEventListener('click', loadHostInterfaces);
+  $('#nics-show-virtual').addEventListener('change', renderHostInterfaces);
+
+  // Mb/s as reported by the kernel; 2500 -> "2.5 Gb/s".
+  function formatLinkSpeed(mbps) {
+    if (typeof mbps !== 'number') return '';
+    return mbps >= 1000 ? (mbps / 1000) + ' Gb/s' : mbps + ' Mb/s';
+  }
+
+  // Link state pill: "up", "down" or "no carrier" (administratively up,
+  // but no link - e.g. a cable or peer problem).
+  function linkPill(nic) {
+    // Virtual interfaces without link detection report "unknown".
+    if (nic.operstate === 'up' || (nic.operstate === 'unknown' && nic.carrier)) {
+      return el('span', { class: 'status-pill started', text: 'up' });
+    }
+    if (nic.carrier === false) {
+      return el('span', { class: 'status-pill link-down', text: 'no carrier' });
+    }
+    return el('span', { class: 'status-pill stopped', text: nic.operstate || 'unknown' });
+  }
+
+  // "Gen3 x8" plus, if the link runs below what the device and slot
+  // support, the capability - a common cause of throughput limits.
+  function pcieLink(pci) {
+    if (!pci || !pci.link_gen) return null;
+    const current = 'Gen' + pci.link_gen + ' x' + pci.link_width;
+    const degraded = (pci.max_link_gen && pci.link_gen < pci.max_link_gen) ||
+      (pci.max_link_width && pci.link_width < pci.max_link_width);
+    if (!degraded) return el('span', { text: current });
+    return el('span', {}, [
+      el('span', { class: 'nic-warn', text: current }),
+      document.createTextNode(' (capable of Gen' + pci.max_link_gen + ' x' + pci.max_link_width + ')'),
+    ]);
+  }
+
+  // Configured and available channels from ethtool -l, e.g.
+  // "Combined 4 of 63 · Other 1 of 1", else the queues sysfs lists.
+  function nicQueues(nic) {
+    const ch = nic.channels;
+    if (ch) {
+      const parts = [['Combined', 'combined'], ['RX', 'rx'], ['TX', 'tx'], ['Other', 'other']]
+        .filter(([, key]) => typeof ch.max[key] === 'number' && ch.max[key] > 0)
+        .map(([label, key]) => label + ' ' + (ch.current[key] ?? 0) + ' of ' + ch.max[key]);
+      if (parts.length) return parts.join(' · ');
+    }
+    return 'RX ' + nic.rx_queues + ' · TX ' + nic.tx_queues;
+  }
+
+  // Configured and maximum ring sizes from ethtool -g, e.g.
+  // "RX 4096 of 8160 · TX 512 of 8160"; null if not available.
+  function nicRings(nic) {
+    const rings = nic.rings;
+    if (!rings) return null;
+    const parts = [['RX', 'rx'], ['RX mini', 'rx_mini'], ['RX jumbo', 'rx_jumbo'], ['TX', 'tx']]
+      .filter(([, key]) => typeof rings.max[key] === 'number' && rings.max[key] > 0)
+      .map(([label, key]) => label + ' ' + (rings.current[key] ?? 0) + ' of ' + rings.max[key]);
+    return parts.length ? parts.join(' · ') : null;
+  }
+
+  function buildNicCard(nic) {
+    const pci = nic.pci;
+    const facts = [];
+    const add = (term, value) => {
+      if (value === null || value === undefined || value === '') return;
+      facts.push(el('dt', { text: term }));
+      facts.push(typeof value === 'string' ? el('dd', { text: value }) : el('dd', {}, [value]));
+    };
+    add('Driver', [nic.driver, nic.driver_version].filter(Boolean).join(' · '));
+    add('Firmware', nic.firmware);
+    add('PCI', pci ? pci.address + ' (' + pci.vendor + ':' + pci.device + ')' : nic.kind);
+    add('PCIe link', pcieLink(pci));
+    if (pci) add('NUMA node', pci.numa_node >= 0 ? String(pci.numa_node) : 'not reported');
+    add('Queues', nicQueues(nic));
+    add('Rings', nicRings(nic));
+    add('MAC', nic.mac + (nic.permanent_mac && nic.permanent_mac !== nic.mac ? ' (permanent ' + nic.permanent_mac + ')' : ''));
+    add('MTU', nic.mtu ? String(nic.mtu) : '');
+    add('Port', [nic.port, nic.autoneg ? 'auto-negotiation ' + nic.autoneg : '', nic.duplex ? nic.duplex + ' duplex' : '']
+      .filter(Boolean).join(' · '));
+    if (pci && pci.sriov_total_vfs) add('SR-IOV', 'up to ' + pci.sriov_total_vfs + ' VFs');
+
+    const model = pci && (pci.device_name || pci.vendor_name)
+      ? [pci.vendor_name, pci.device_name].filter(Boolean).join(' · ')
+      : '';
+    return el('div', { class: 'nic-card' }, [
+      el('div', { class: 'nic-card-header' }, [
+        el('h3', { text: nic.name }),
+        linkPill(nic),
+        el('span', { class: 'spacer' }),
+        el('span', { class: 'nic-speed', text: formatLinkSpeed(nic.speed) }),
+      ]),
+      el('p', { class: 'nic-model', text: model || (nic.driver ? nic.driver + ' (' + nic.kind + ')' : nic.kind) }),
+      el('dl', { class: 'nic-facts' }, facts),
+    ]);
+  }
+
+  function renderHostInterfaces() {
+    if (!hostInterfaces) return;
+    const nics = hostInterfaces.interfaces || [];
+    const physical = nics.filter((n) => n.physical);
+    const virtual = nics.filter((n) => !n.physical);
+    $('#nics-no-ethtool').hidden = hostInterfaces.ethtool;
+    $('#nics-physical').replaceChildren(...physical.map(buildNicCard));
+    $('#nics-physical-empty').hidden = physical.length > 0;
+
+    const showVirtual = $('#nics-show-virtual').checked;
+    $('#nics-virtual-group').hidden = !showVirtual || virtual.length === 0;
+    $('#nics-virtual-tbody').replaceChildren(...virtual.map((nic) => el('tr', {}, [
+      el('th', { scope: 'row', class: 'cpu-list', text: nic.name }),
+      el('td', { text: nic.kind }),
+      el('td', { text: nic.driver || '' }),
+      el('td', {}, [linkPill(nic)]),
+      el('td', { text: formatLinkSpeed(nic.speed) }),
+      el('td', { text: nic.mtu ? String(nic.mtu) : '' }),
+      el('td', { text: nic.rx_queues + ' / ' + nic.tx_queues }),
+      el('td', { class: 'cpu-list', text: nic.mac || '' }),
+    ])));
+    $('label[for="nics-show-virtual"]').textContent = 'Show virtual interfaces (' + virtual.length + ')';
   }
 
   // Topology image rendered by lstopo (hwloc), on demand: rendering takes a

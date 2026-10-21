@@ -98,6 +98,32 @@ func (s *Server) resolvePinnedInstances(info *host.Info) {
 	}
 }
 
+// hostInterfaces lists the network interfaces of the host with their
+// details (driver, firmware, PCI device and link), discovered once per
+// interface, and their current state (link, speed, queues):
+// GET /api/v1/host/interfaces
+//
+// Unlike hostInfo, this runs ethtool for every interface, so the web UI
+// requests it when the host view is opened rather than polling it.
+func (s *Server) hostInterfaces() http.HandlerFunc {
+	type response struct {
+		// Ethtool reports whether ethtool is installed; without it,
+		// firmware, port and channels are not available.
+		Ethtool    bool       `json:"ethtool"`
+		Interfaces []host.NIC `json:"interfaces"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		resp := response{
+			Ethtool:    host.EthtoolAvailable(),
+			Interfaces: s.nics.Interfaces(r.Context()),
+		}
+		noCache(w)
+		w.Header().Set(contentType, applicationJSON)
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(resp)
+	}
+}
+
 // hostTopology serves the hardware topology rendered by lstopo as PNG:
 // GET /api/v1/host/topology.png
 func (s *Server) hostTopology() http.HandlerFunc {

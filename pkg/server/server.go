@@ -4,6 +4,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -97,7 +98,9 @@ type Server struct {
 	// hostCollector gathers the host information and keeps the CPU
 	// usage sample between requests.
 	hostCollector *host.Collector
-	topology      topologyCache
+	// nics keeps the network interface details, discovered at startup.
+	nics     *host.NICInventory
+	topology topologyCache
 	// schemaPath is the file system location of the bngblaster config schema.
 	schemaPath string
 	// allowedHosts restricts the Host header of incoming requests (see
@@ -147,6 +150,7 @@ func NewServer(repository controller.Repository, opts ...Option) *Server {
 		enableInterfaces: false,
 		enableHost:       false,
 		hostCollector:    host.NewCollector(),
+		nics:             host.NewNICInventory(),
 		schemaPath:       DefaultSchemaPath,
 		authMiddleware:   noopAuthMiddleware,
 		streamCache:      newSummaryCache[[]controller.StreamSummaryStream](),
@@ -157,6 +161,12 @@ func NewServer(repository controller.Repository, opts ...Option) *Server {
 		opt(r)
 	}
 	r.routes()
+	if r.enableHost {
+		// Discover the interface details in the background, so neither
+		// the startup nor the first request waits for them; a request
+		// arriving earlier waits for the discovery to finish.
+		go r.nics.Discover(context.Background())
+	}
 	return r
 }
 
@@ -203,6 +213,7 @@ func (s *Server) routes() {
 	if s.enableHost {
 		s.router.Path("/api/v1/host").Methods(http.MethodGet).Handler(s.hostInfo())
 		s.router.Path("/api/v1/host/topology.png").Methods(http.MethodGet).Handler(s.hostTopology())
+		s.router.Path("/api/v1/host/interfaces").Methods(http.MethodGet).Handler(s.hostInterfaces())
 	}
 	s.router.Path("/api/v1/instances").Methods(http.MethodGet).Handler(s.instances())
 	s.router.Path(instanceURL + "/_overview").Methods(http.MethodGet).Handler(s.overview())

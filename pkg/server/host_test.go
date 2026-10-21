@@ -25,6 +25,41 @@ func TestServer_hostDisabled(t *testing.T) {
 	e := httpexpect.New(t, server.URL)
 	e.GET("/api/v1/host").Expect().Status(http.StatusNotFound)
 	e.GET("/api/v1/host/topology.png").Expect().Status(http.StatusNotFound)
+	e.GET("/api/v1/host/interfaces").Expect().Status(http.StatusNotFound)
+}
+
+func TestServer_hostInterfaces(t *testing.T) {
+	// One virtual interface; ethtool, if installed, fails for it, which
+	// leaves the values read from sysfs.
+	root := t.TempDir()
+	for name, content := range map[string]string{
+		"sys/class/net/bbltest0/ifindex":   "7\n",
+		"sys/class/net/bbltest0/mtu":       "1500\n",
+		"sys/class/net/bbltest0/operstate": "up\n",
+	} {
+		require.NoError(t, os.MkdirAll(filepath.Join(root, filepath.Dir(name)), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(content), 0o600))
+	}
+	repository := &controller.RepositoryMock{
+		ConfigFolderFunc: func() string { return configFolder },
+	}
+	s := NewServer(repository, WithHostAPI(true))
+	s.nics = host.NewNICInventory(host.WithRoot(root))
+	server := httptest.NewServer(s)
+	defer server.Close()
+
+	e := httpexpect.New(t, server.URL)
+	body := e.GET("/api/v1/host/interfaces").Expect().Status(http.StatusOK).JSON().Object()
+	body.Value("ethtool").Boolean()
+	nics := body.Value("interfaces").Array()
+	nics.Length().Equal(1)
+	nic := nics.Element(0).Object()
+	nic.Value("name").Equal("bbltest0")
+	nic.Value("physical").Equal(false)
+	nic.Value("mtu").Equal(1500)
+	nic.Value("operstate").Equal("up")
+	nic.Value("channels").Null()
+	nic.Value("rings").Null()
 }
 
 func TestServer_hostInfo(t *testing.T) {

@@ -112,14 +112,39 @@ type Disk struct {
 	Available uint64 `json:"available"`
 }
 
+// config holds the settings shared by Collector and NICInventory.
+type config struct {
+	root       string
+	lockFolder string
+}
+
+func newConfig(opts []Option) config {
+	c := config{root: "/", lockFolder: DefaultLockFolder}
+	for _, opt := range opts {
+		opt(&c)
+	}
+	return c
+}
+
+func (c config) path(p string) string {
+	return filepath.Join(c.root, p)
+}
+
+func (c config) read(p string) string {
+	data, err := os.ReadFile(c.path(p))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 // Collector collects Info. It keeps the previous CPU time sample, from
 // which the usage is derived, and is safe for concurrent use.
 type Collector struct {
-	root       string
-	lockFolder string
-	statfs     func(path string, buf *syscall.Statfs_t) error
-	now        func() time.Time
-	sleep      func(time.Duration)
+	config
+	statfs func(path string, buf *syscall.Statfs_t) error
+	now    func() time.Time
+	sleep  func(time.Duration)
 
 	mu       sync.Mutex
 	prev     map[int]cpuTimes
@@ -129,45 +154,28 @@ type Collector struct {
 	usageSet bool
 }
 
-// Option configures a Collector.
-type Option func(*Collector)
+// Option configures a Collector or NICInventory.
+type Option func(*config)
 
 // WithRoot reads /proc and /sys below root instead of "/".
 func WithRoot(root string) Option {
-	return func(c *Collector) { c.root = root }
+	return func(c *config) { c.root = root }
 }
 
 // WithLockFolder sets the folder of the bngblaster lock files,
 // DefaultLockFolder by default.
 func WithLockFolder(folder string) Option {
-	return func(c *Collector) { c.lockFolder = folder }
+	return func(c *config) { c.lockFolder = folder }
 }
 
 // NewCollector creates a Collector.
 func NewCollector(opts ...Option) *Collector {
-	c := &Collector{
-		root:       "/",
-		lockFolder: DefaultLockFolder,
-		statfs:     syscall.Statfs,
-		now:        time.Now,
-		sleep:      time.Sleep,
+	return &Collector{
+		config: newConfig(opts),
+		statfs: syscall.Statfs,
+		now:    time.Now,
+		sleep:  time.Sleep,
 	}
-	for _, opt := range opts {
-		opt(c)
-	}
-	return c
-}
-
-func (c *Collector) path(p string) string {
-	return filepath.Join(c.root, p)
-}
-
-func (c *Collector) read(p string) string {
-	data, err := os.ReadFile(c.path(p))
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
 }
 
 // Collect gathers the current host information.
