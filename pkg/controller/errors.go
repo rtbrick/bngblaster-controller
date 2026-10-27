@@ -23,4 +23,7 @@ var (
 	// ErrInvalidStreamConfig a relative stream configuration path escapes
 	// the instance folder.
 	ErrInvalidStreamConfig = &BlasterControllerError{"relative stream config must be a file inside the instance folder"}
+	// ErrGeneratorBusy a generator is already running in the instance
+	// folder.
+	ErrGeneratorBusy = &BlasterControllerError{"a generator is running for this instance"}
 )

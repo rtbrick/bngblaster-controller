@@ -58,6 +58,8 @@ Usage of /usr/local/bin/bngblasterctrl:
     	HTTP network address (default ":8001")
   -allowed-hosts string
     	comma-separated host names clients may use to reach the controller, against DNS rebinding (IP addresses and localhost are always allowed; empty allows any host)
+  -bgpupdate string
+    	bgpupdate executable (default "/usr/bin/bgpupdate")
   -color
     	turn on color of color output
   -console
@@ -68,10 +70,16 @@ Usage of /usr/local/bin/bngblasterctrl:
     	turn on debug logging
   -e string
     	bngblaster executable (default "/usr/bin/bngblaster")
+  -generators
+    	enable the lspgen, bgpupdate and ldpupdate generator endpoints (disable with -generators=false) (default true)
   -host-api
     	enable the host information endpoints (disable with -host-api=false) (default true)
   -interfaces-api
     	enable the interfaces endpoint (disable with -interfaces-api=false) (default true)
+  -ldpupdate string
+    	ldpupdate executable (default "/usr/bin/ldpupdate")
+  -lspgen string
+    	lspgen executable (default "/usr/bin/lspgen")
   -schema string
     	path to the bngblaster configuration JSON schema served on /api/v1/schema (default "/usr/share/bngblaster/bngblaster-config.json")
   -ui
@@ -145,19 +153,48 @@ on:
 * `-upload` — enables the `/api/v1/instances/{instance_name}/_upload`
   endpoint, used by the web UI (and the REST API) to upload files into a
   test instance
+* `-generators` — serves `/api/v1/generators` and
+  `/api/v1/instances/{instance_name}/_generate/{tool}`, used by the web UI's
+  Generate tab to run the BNG Blaster file generators `lspgen`, `bgpupdate`
+  and `ldpupdate` in an instance folder (see below); the executables are set
+  with `-lspgen`, `-bgpupdate` and `-ldpupdate`
 
 Each of them can be disabled individually by setting the flag to `false`,
 e.g. to run a REST-only controller:
 
 ```
-$ /usr/local/bin/bngblasterctrl -ui=false -interfaces-api=false -host-api=false -upload=false
+$ /usr/local/bin/bngblasterctrl -ui=false -interfaces-api=false -host-api=false -upload=false -generators=false
 ```
 
 or, for the systemd-installed service, in `/etc/default/rtbrick-bngblasterctrl`:
 
 ```
-BNGBLASTERCTRL_OPTS="-ui=false -interfaces-api=false -host-api=false -upload=false"
+BNGBLASTERCTRL_OPTS="-ui=false -interfaces-api=false -host-api=false -upload=false -generators=false"
 ```
+
+## File Generators
+
+The BNG Blaster ships generators for the files its routing protocols load:
+`lspgen` (ISIS/OSPF topologies as MRT, PCAP, stream and graphviz files),
+`bgpupdate` and `ldpupdate` (BGP and LDP RAW update files). The controller
+runs them in the instance folder, so the generated files can be referenced
+by the instance configuration (e.g. an `external` `mrt-file` or a
+`raw-update-file`) or, while the instance is running, loaded via `_command`
+(`bgp-raw-update`, `ldp-raw-update`, `isis-load-mrt`, `ospf-load-mrt`):
+
+```
+$ curl -X POST http://localhost:8001/api/v1/instances/test/_generate/bgpupdate \
+    -d '{"next-hop-base": "10.0.0.1", "prefix-base": "11.0.0.0/24", "prefix-num": 1000, "file": "start.bgp"}'
+```
+
+The request takes the tool's long option names; `GET /api/v1/generators`
+lists them per tool and whether the tool is installed (`bgpupdate` and
+`ldpupdate` also need Python 3 with scapy). Files are written under a
+temporary name and only moved into place once the tool succeeded, so a failed
+run leaves nothing behind. While an instance is running, existing files are
+never replaced: bngblaster loads a RAW update file once per file name, so
+each further update needs a new name. lspgen's control socket mode is not
+supported.
 
 Note that the web UI needs the interfaces, host and upload endpoints for some of
 its features, so disabling them while keeping `-ui` enabled leaves those

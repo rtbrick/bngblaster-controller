@@ -2,7 +2,11 @@
 // Copyright (C) 2020-2026, RtBrick, Inc.
 package controller
 
-import "context"
+import (
+	"context"
+
+	"github.com/rtbrick/bngblaster-controller/pkg/generator"
+)
 
 //go:generate moq -out repositorymock.go . Repository
 // moq cannot emit a license header, so prepend the one every Go file carries.
@@ -41,8 +45,15 @@ type Repository interface {
 	Command(name string, command SocketCommand) ([]byte, error)
 	// Files lists the files present in an instance's config folder, for use
 	// by the web UI's downloads view. Internal run-control artifacts (the
-	// pid file and control socket) are excluded.
+	// pid file and control socket) and the temporary files of a running
+	// generator are excluded.
 	Files(name string) ([]InstanceFile, error)
+	// Generate runs a generator tool (lspgen, bgpupdate, ldpupdate) from
+	// executable in the instance folder, see generator.Run. It works for a
+	// stopped and a running instance alike; while the instance is running,
+	// existing files are never replaced, since bngblaster may have loaded
+	// them already. ctx bounds the run.
+	Generate(ctx context.Context, name string, executable string, job generator.Job) (generator.Result, error)
 }
 
 // InstanceFile describes one downloadable file inside an instance's config

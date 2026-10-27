@@ -15,8 +15,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
+
+	"github.com/rtbrick/bngblaster-controller/pkg/generator"
 )
 
 const (
@@ -139,8 +142,70 @@ func (r *DefaultRepository) Delete(name string) error {
 		return ErrBlasterRunning
 	}
 	folder := path.Join(r.configFolder, name)
+	// Removing the folder under a running generator would make it fail
+	// in confusing ways (or recreate files in a deleted folder).
+	if !generating.tryLock(folder) {
+		return ErrGeneratorBusy
+	}
+	defer generating.unlock(folder)
 	_ = os.RemoveAll(folder)
 	return nil
+}
+
+// generating holds the instance folders a generator currently runs in.
+// It is keyed by folder rather than kept per repository since the folder
+// is the shared resource, whichever repository value refers to it.
+var generating = folderLocks{busy: map[string]struct{}{}}
+
+// folderLocks is a set of non-blocking per-folder locks: a second request
+// for a busy folder is rejected instead of queued, since a generator can
+// run for minutes.
+type folderLocks struct {
+	mu   sync.Mutex
+	busy map[string]struct{}
+}
+
+// tryLock locks folder unless it is locked already.
+func (l *folderLocks) tryLock(folder string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if _, ok := l.busy[folder]; ok {
+		return false
+	}
+	l.busy[folder] = struct{}{}
+	return true
+}
+
+// unlock releases a lock taken by tryLock.
+func (l *folderLocks) unlock(folder string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.busy, folder)
+}
+
+// Generate implements Repository.
+func (r *DefaultRepository) Generate(ctx context.Context, name string, executable string, job generator.Job) (generator.Result, error) {
+	folder := path.Join(r.configFolder, name)
+	if !generating.tryLock(folder) {
+		return generator.Result{}, ErrGeneratorBusy
+	}
+	defer generating.unlock(folder)
+	// Checked under the lock, which Delete takes as well, so the folder
+	// cannot disappear between the check and the run.
+	if !r.Exists(name) {
+		return generator.Result{}, ErrBlasterNotExists
+	}
+	return generator.Run(ctx, folder, executable, job, func() bool { return !r.Running(name) })
+}
+
+// RemoveGeneratorTempFiles removes the temporary files a generator run
+// left behind in any instance folder, e.g. because the controller was
+// restarted while a tool was running. It is meant to be called once at
+// startup, before any request is served.
+func (r *DefaultRepository) RemoveGeneratorTempFiles() {
+	for _, name := range r.Instances() {
+		generator.RemoveTempFiles(path.Join(r.configFolder, name))
+	}
 }
 
 func (r *DefaultRepository) cleanupRunFiles(name string) error {
@@ -476,7 +541,8 @@ func (r *DefaultRepository) Files(name string) ([]InstanceFile, error) {
 	}
 	files := make([]InstanceFile, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() || entry.Name() == runPidFilename || entry.Name() == RunSockFilename {
+		if entry.IsDir() || entry.Name() == runPidFilename || entry.Name() == RunSockFilename ||
+			generator.IsTempName(entry.Name()) {
 			continue
 		}
 		info, err := entry.Info()

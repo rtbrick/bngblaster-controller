@@ -380,6 +380,8 @@ paths:
       responses:
         204:
           description: no content, the instance was deleted
+        409:
+          description: conflict, a generator is running in the instance folder
         412:
           description: precondition failed, if instance is running
           content:
@@ -1056,7 +1058,9 @@ paths:
         with a limit of 4GB per file.
 
         The files the controller itself manages for a run (`run.pid`, `run.sock`, `run.json`,
-        `run.log`, `run_report.json`, `run.pcap`, `run.stdout`, `run.stderr`) cannot be uploaded.
+        `run.log`, `run_report.json`, `run.pcap`, `run.stdout`, `run.stderr`) cannot be uploaded,
+        nor can names starting with `.gen`, which are reserved for the temporary files of the
+        generators.
 
         **Example:**
         `curl --location --request POST 'http://<host>:<port>/api/v1/instances/<instance_name>/_upload' --form 'file=@<local-filename>'`
@@ -1081,6 +1085,153 @@ paths:
           description: internal server error
         507:
           description: insufficient storage, the file does not fit on the controller's disk
+
+  /api/v1/generators:
+    get:
+      summary: List the file generators.
+      description: >-
+        Lists the BNG Blaster file generators enabled on this controller (`lspgen`, `bgpupdate`,
+        `ldpupdate`), whether each one is usable and the options it accepts. A tool is available
+        if a cheap invocation succeeds (`lspgen --version`, `bgpupdate --help`), which also detects
+        a missing Python or scapy installation. The result is cached for one minute.
+
+        Only present if the controller runs with `-generators` (default).
+      responses:
+        200:
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/generatorInfo'
+        404:
+          description: not found, generators disabled (`-generators=false`)
+  /api/v1/instances/{instance_name}/_generate/{tool}:
+    post:
+      summary: Run a file generator in the instance folder.
+      description: >-
+        Runs `lspgen`, `bgpupdate` or `ldpupdate` with the instance folder as working directory,
+        so the files it writes can be referenced by the instance configuration (e.g. the
+        `mrt-file` of an ISIS/OSPF `external` section or a BGP/LDP `raw-update-file`) or, while
+        the instance is running, loaded via the `_command` endpoint (`bgp-raw-update`,
+        `ldp-raw-update`, `isis-load-mrt`, `ospf-load-mrt`).
+
+        The request body is a JSON object keyed by the tool's long option names (see
+        `GET /api/v1/generators` for the options of each tool). Flags take `true`, repeatable
+        options a list. Unknown options are rejected, and file names must be plain names inside
+        the instance folder; the controller's own files cannot be written. lspgen's control socket
+        mode is not supported.
+
+        Every file is written under a temporary name and moved into place only once the tool
+        succeeded, so a failed run leaves nothing behind and the instance never reads a half-written
+        file. A failed lspgen run also restores its sequence cache.
+
+        While the instance is running, existing files are never replaced (`409`), since bngblaster
+        loads RAW update files once per file name: use a new name for each further update.
+        Only one generator runs per instance at a time. A run is aborted after 10 minutes.
+
+        **Example:**
+        `curl -X POST 'http://<host>:<port>/api/v1/instances/<instance_name>/_generate/bgpupdate'
+        -d '{"next-hop-base": "10.0.0.1", "prefix-base": "11.0.0.0/24", "prefix-num": 1000, "file": "start.bgp"}'`
+      parameters:
+        - name: instance_name
+          description: instance name of the bngblaster
+          in: path
+          required: true
+          example: sample
+          schema:
+            type: string
+        - name: tool
+          description: generator tool
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - lspgen
+              - bgpupdate
+              - ldpupdate
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties:
+                oneOf:
+                  - type: string
+                  - type: integer
+                  - type: number
+                  - type: boolean
+                  - type: array
+                    items:
+                      oneOf:
+                        - type: string
+                        - type: integer
+            examples:
+              lspgen:
+                value:
+                  connector: ["1921.6800.1001"]
+                  node-count: 100
+                  mrt-file: isis.mrt
+                  stream-file: isis-streams.json
+              bgpupdate:
+                value:
+                  next-hop-base: 10.0.0.1
+                  prefix-base: 11.0.0.0/24
+                  prefix-num: 1000
+                  file: update-001.bgp
+              ldpupdate:
+                value:
+                  lsr-id: 10.0.0.1
+                  prefix-base: 11.0.0.0/24
+                  prefix-num: 10
+                  file: start.ldp
+      responses:
+        200:
+          description: ok, the files were written
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/generateResponse'
+        400:
+          description: >-
+            bad request, invalid option or value (only `message` is set), or an input file does not
+            exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/generateResponse'
+        404:
+          description: not found, instance does not exist, tool unknown or not enabled
+        409:
+          description: >-
+            conflict, another generator is running for this instance, or an output file exists
+            while the instance is running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/generateResponse'
+        413:
+          description: request too large
+        422:
+          description: the tool failed, see `stdout` and `stderr`; no file was written
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/generateResponse'
+        503:
+          description: the tool is not installed or cannot be executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/generateResponse'
+        504:
+          description: the tool was aborted after 10 minutes; no file was written
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/generateResponse'
 
 components:
   schemas:
@@ -1359,4 +1510,101 @@ components:
             "ipv6-delegated-prefix": "fc66:2000::",
             "ipv6-delegated-prefix-len": 56
           }
+        }
+    generatorOption:
+      type: object
+      properties:
+        name:
+          type: string
+          description: long option name, also the key in a request
+        type:
+          type: string
+          enum: [bool, int, number, string, enum, output, input]
+          description: >-
+            `output` is a file the tool writes, `input` an existing file of the instance it reads
+        help:
+          type: string
+        group:
+          type: string
+        repeat:
+          type: boolean
+          description: takes a list, passed as one option per value
+        join:
+          type: boolean
+          description: takes a list, passed comma-separated
+        required:
+          type: boolean
+        enum:
+          type: array
+          items:
+            type: string
+        minimum:
+          type: integer
+        maximum:
+          type: integer
+        default:
+          description: the tool's default
+        appends:
+          type: string
+          description: the output option this flag makes the tool append to
+        conflicts:
+          type: string
+          description: an option that cannot be given together with this one
+        suffixes:
+          type: array
+          items:
+            type: string
+          description: the value is a base name the tool appends these suffixes to
+    generatorInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        executable:
+          type: string
+        available:
+          type: boolean
+        version:
+          type: string
+        error:
+          type: string
+          description: why the tool is not available
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/generatorOption'
+    generateResponse:
+      type: object
+      properties:
+        files:
+          type: array
+          items:
+            type: string
+          description: the files written, by their final names
+        command:
+          type: string
+          description: the command line that was run
+        exit-code:
+          type: integer
+        stdout:
+          type: string
+          description: the last 256 KiB of the tool's standard output
+        stderr:
+          type: string
+          description: the last 256 KiB of the tool's standard error
+        duration-ms:
+          type: integer
+        message:
+          type: string
+          description: set if the run did not succeed
+      example:
+        {
+          "files": ["start.bgp"],
+          "command": "bgpupdate --next-hop-base=10.0.0.1 --prefix-base=11.0.0.0/24 --prefix-num=1000 --file=start.bgp",
+          "exit-code": 0,
+          "stdout": "[INFO   ] init 1000 IPv4 prefixes\n[INFO   ] finished\n",
+          "stderr": "",
+          "duration-ms": 398
         }

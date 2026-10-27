@@ -50,6 +50,16 @@ func WithHostAPI(enabled bool) Option {
 	}
 }
 
+// WithGenerators enables the "/api/v1/generators" endpoints, which run the
+// BNG Blaster file generators (lspgen, bgpupdate, ldpupdate) in instance
+// folders. executables maps each tool to enable to its executable; tools
+// left out are not offered. Disabled by default.
+func WithGenerators(executables map[string]string) Option {
+	return func(s *Server) {
+		s.generators = executables
+	}
+}
+
 // WithSchemaPath sets the file system location of the bngblaster
 // configuration JSON schema served via "/api/v1/schema". Defaults to
 // DefaultSchemaPath.

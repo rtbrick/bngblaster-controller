@@ -26,6 +26,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/rtbrick/bngblaster-controller/pkg/controller"
+	"github.com/rtbrick/bngblaster-controller/pkg/generator"
 	"github.com/rtbrick/bngblaster-controller/pkg/host"
 )
 
@@ -101,6 +102,10 @@ type Server struct {
 	// nics keeps the network interface details, discovered at startup.
 	nics     *host.NICInventory
 	topology topologyCache
+	// generators maps each enabled generator tool to its executable; empty
+	// disables the generator endpoints.
+	generators     map[string]string
+	generatorProbe generatorInfoCache
 	// schemaPath is the file system location of the bngblaster config schema.
 	schemaPath string
 	// allowedHosts restricts the Host header of incoming requests (see
@@ -214,6 +219,10 @@ func (s *Server) routes() {
 		s.router.Path("/api/v1/host").Methods(http.MethodGet).Handler(s.hostInfo())
 		s.router.Path("/api/v1/host/topology.png").Methods(http.MethodGet).Handler(s.hostTopology())
 		s.router.Path("/api/v1/host/interfaces").Methods(http.MethodGet).Handler(s.hostInterfaces())
+	}
+	if len(s.generators) > 0 {
+		s.router.Path("/api/v1/generators").Methods(http.MethodGet).Handler(s.generatorList())
+		s.router.Path(instanceURL + "/_generate/{tool}").Methods(http.MethodPost).Handler(s.generate())
 	}
 	s.router.Path("/api/v1/instances").Methods(http.MethodGet).Handler(s.instances())
 	s.router.Path(instanceURL + "/_overview").Methods(http.MethodGet).Handler(s.overview())
@@ -487,6 +496,10 @@ func (s *Server) delete() http.HandlerFunc {
 			JSONError(w, errInstanceIsRunning, http.StatusPreconditionFailed)
 			return
 		}
+		if err == controller.ErrGeneratorBusy {
+			JSONError(w, err.Error(), http.StatusConflict)
+			return
+		}
 		if err != nil {
 			JSONError(w, "not able to delete instance", http.StatusInternalServerError)
 			return
@@ -682,7 +695,7 @@ func (s *Server) uploadFile() http.HandlerFunc {
 			http.Error(w, "invalid filename", http.StatusBadRequest)
 			return
 		}
-		if controller.IsRunFile(name) {
+		if isReservedUpload(name) {
 			log.Warn().Str("remote_addr", remoteAddr).Str("instance", instance).Str("file", name).
 				Msg("upload rejected: reserved run file")
 			http.Error(w, "reserved filename", http.StatusBadRequest)
@@ -708,6 +721,13 @@ func (s *Server) uploadFile() http.HandlerFunc {
 
 		w.WriteHeader(http.StatusOK)
 	}
+}
+
+// isReservedUpload reports whether an upload must not use name: the
+// controller's own run files, and the temporary names of a generator run,
+// which the next run would remove or move into place.
+func isReservedUpload(name string) bool {
+	return controller.IsRunFile(name) || generator.IsTempName(name)
 }
 
 // uploadFilePart returns the multipart part carrying the uploaded file (the

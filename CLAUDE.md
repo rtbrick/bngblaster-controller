@@ -40,6 +40,10 @@ Run locally without root by pointing at a writable folder:
   `hardening.go` holds the auth-independent protections (cross-origin check for
   state-changing requests, `-allowed-hosts`, security headers/CSP, body size limits); bound every
   new request body with `http.MaxBytesReader` and log lifecycle changes via `auditLog`.
+- `pkg/generator/` – runs `lspgen`/`bgpupdate`/`ldpupdate` in an instance folder (`_generate`). Requests are
+  validated against per-tool option whitelists (`tools.go`, also served to the UI), never passed as argv;
+  outputs are written under `.gen-*` temp names and moved into place only on success (no replace while
+  running). lspgen socket mode is deliberately out of scope.
 - `pkg/server/webui/` – experimental embedded SPA. Vanilla HTML/CSS/JS, **no build step,
   no framework, no npm** – files are `go:embed`ed and served as-is. `index.html` is a Go
   template (`{{.AssetVersion}}` cache-busting).
@@ -54,8 +58,9 @@ Run locally without root by pointing at a writable folder:
   // Copyright (C) 2020-2026, RtBrick, Inc.
   ```
 - Constructors use functional options (`NewServer(repo, WithUI(...))`, `NewDefaultRepository(WithConfigFolder(...))`).
-  Optional surface sits behind a flag + option. `-ui`, `-upload` and `-interfaces-api` default to on in the
-  binary (disable with `-flag=false`); the server/repository options themselves still default to off.
+  Optional surface sits behind a flag + option. `-ui`, `-upload`, `-interfaces-api`, `-host-api` and
+  `-generators` default to on in the binary (disable with `-flag=false`); the server/repository options
+  themselves still default to off.
 - Handlers are methods returning `http.HandlerFunc`. Always sanitize the instance path variable with
   `cleanPathVariable`, and file names with `filepath.Base` + `isUnsafeFileName`. There is no auth yet
   (`authMiddleware` is a no-op hook), so path-traversal safety matters.

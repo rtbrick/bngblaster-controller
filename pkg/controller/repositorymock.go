@@ -7,6 +7,7 @@ package controller
 
 import (
 	"context"
+	"github.com/rtbrick/bngblaster-controller/pkg/generator"
 	"sync"
 )
 
@@ -43,6 +44,9 @@ var _ Repository = &RepositoryMock{}
 //			},
 //			FilesFunc: func(name string) ([]InstanceFile, error) {
 //				panic("mock out the Files method")
+//			},
+//			GenerateFunc: func(ctx context.Context, name string, executable string, job generator.Job) (generator.Result, error) {
+//				panic("mock out the Generate method")
 //			},
 //			InstancesFunc: func() []string {
 //				panic("mock out the Instances method")
@@ -89,6 +93,9 @@ type RepositoryMock struct {
 
 	// FilesFunc mocks the Files method.
 	FilesFunc func(name string) ([]InstanceFile, error)
+
+	// GenerateFunc mocks the Generate method.
+	GenerateFunc func(ctx context.Context, name string, executable string, job generator.Job) (generator.Result, error)
 
 	// InstancesFunc mocks the Instances method.
 	InstancesFunc func() []string
@@ -145,6 +152,17 @@ type RepositoryMock struct {
 			// Name is the name argument value.
 			Name string
 		}
+		// Generate holds details about calls to the Generate method.
+		Generate []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Name is the name argument value.
+			Name string
+			// Executable is the executable argument value.
+			Executable string
+			// Job is the job argument value.
+			Job generator.Job
+		}
 		// Instances holds details about calls to the Instances method.
 		Instances []struct {
 		}
@@ -181,6 +199,7 @@ type RepositoryMock struct {
 	lockExecutable   sync.RWMutex
 	lockExists       sync.RWMutex
 	lockFiles        sync.RWMutex
+	lockGenerate     sync.RWMutex
 	lockInstances    sync.RWMutex
 	lockKill         sync.RWMutex
 	lockRunning      sync.RWMutex
@@ -434,6 +453,50 @@ func (mock *RepositoryMock) FilesCalls() []struct {
 	mock.lockFiles.RLock()
 	calls = mock.calls.Files
 	mock.lockFiles.RUnlock()
+	return calls
+}
+
+// Generate calls GenerateFunc.
+func (mock *RepositoryMock) Generate(ctx context.Context, name string, executable string, job generator.Job) (generator.Result, error) {
+	if mock.GenerateFunc == nil {
+		panic("RepositoryMock.GenerateFunc: method is nil but Repository.Generate was just called")
+	}
+	callInfo := struct {
+		Ctx        context.Context
+		Name       string
+		Executable string
+		Job        generator.Job
+	}{
+		Ctx:        ctx,
+		Name:       name,
+		Executable: executable,
+		Job:        job,
+	}
+	mock.lockGenerate.Lock()
+	mock.calls.Generate = append(mock.calls.Generate, callInfo)
+	mock.lockGenerate.Unlock()
+	return mock.GenerateFunc(ctx, name, executable, job)
+}
+
+// GenerateCalls gets all the calls that were made to Generate.
+// Check the length with:
+//
+//	len(mockedRepository.GenerateCalls())
+func (mock *RepositoryMock) GenerateCalls() []struct {
+	Ctx        context.Context
+	Name       string
+	Executable string
+	Job        generator.Job
+} {
+	var calls []struct {
+		Ctx        context.Context
+		Name       string
+		Executable string
+		Job        generator.Job
+	}
+	mock.lockGenerate.RLock()
+	calls = mock.calls.Generate
+	mock.lockGenerate.RUnlock()
 	return calls
 }
 

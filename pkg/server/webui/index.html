@@ -212,6 +212,7 @@
       <button role="tab" id="tab-bgp" aria-controls="panel-bgp" aria-selected="false" tabindex="-1" hidden>BGP</button>
       <button role="tab" id="tab-lag" aria-controls="panel-lag" aria-selected="false" tabindex="-1" hidden>LAG</button>
       <button role="tab" id="tab-commands" aria-controls="panel-commands" aria-selected="false" tabindex="-1">Commands</button>
+      <button role="tab" id="tab-generate" aria-controls="panel-generate" aria-selected="false" tabindex="-1" hidden>Generate</button>
     </div>
 
     <!-- ---- Session overview ---- -->
@@ -477,6 +478,30 @@
       <div id="command-output-meta" class="command-output-meta" hidden></div>
       <p class="hint" id="command-output-empty">No command executed yet.</p>
       <dl id="command-output" class="detail-grid" role="status" aria-live="polite" hidden></dl>
+    </div>
+
+    <!-- ---- Generate ---- -->
+    <div role="tabpanel" id="panel-generate" aria-labelledby="tab-generate" tabindex="0" hidden>
+      <p class="hint" id="generate-hint"></p>
+      <div class="form-grid">
+        <div class="field">
+          <label for="generate-tool-select">Generator</label>
+          <select id="generate-tool-select"></select>
+          <span class="hint" id="generate-tool-description"></span>
+        </div>
+      </div>
+      <form id="generate-form">
+        <div id="generate-fields"></div>
+        <button type="submit" class="btn btn-primary" id="btn-generate">Generate</button>
+        <button type="button" class="btn" id="btn-generate-reset">Reset</button>
+      </form>
+      <h3>Result</h3>
+      <p class="hint" id="generate-result-empty">Nothing generated yet.</p>
+      <div id="generate-result" role="status" aria-live="polite" hidden></div>
+      <div id="generate-history-wrap" hidden>
+        <h3>History</h3>
+        <ul id="generate-history" class="generate-history"></ul>
+      </div>
     </div>
   </section>
 </main>

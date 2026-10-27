@@ -11,6 +11,8 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
+
+	"github.com/rtbrick/bngblaster-controller/pkg/generator"
 )
 
 // disableWriteDeadline lifts the server-wide WriteTimeout for the current
@@ -73,6 +75,12 @@ func (s *Server) fileDownload() http.HandlerFunc {
 		file := filepath.Base(mux.Vars(r)["file_name"])
 		if isUnsafeFileName(file) {
 			http.Error(w, "invalid filename", http.StatusBadRequest)
+			return
+		}
+		// A generator's temporary file is incomplete by definition and is
+		// not listed by files() either.
+		if generator.IsTempName(file) {
+			JSONNotFound(w, r)
 			return
 		}
 		log.Info().Str("remote_addr", remoteAddr).Str("instance", instance).Str("file", file).Msg("file downloaded")

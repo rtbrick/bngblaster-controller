@@ -1110,3 +1110,9 @@ dialog > form[method="dialog"] {
 @media (prefers-reduced-motion: reduce) {
   .toast { animation: none; }
 }
+
+/* Generate tab: one line per generator run or file load. */
+.generate-history { list-style: none; padding: 0; margin: 0; }
+.generate-history li { padding: 0.2rem 0; border-bottom: 1px solid var(--color-border); }
+#generate-fields > details { margin-bottom: var(--space-3); }
+#generate-form { margin-bottom: var(--space-4); }

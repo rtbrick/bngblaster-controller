@@ -17,6 +17,7 @@ import (
 
 	"github.com/rtbrick/bngblaster-controller/pkg/controller"
 	"github.com/rtbrick/bngblaster-controller/pkg/daemonize"
+	"github.com/rtbrick/bngblaster-controller/pkg/generator"
 	"github.com/rtbrick/bngblaster-controller/pkg/server"
 )
 
@@ -30,6 +31,10 @@ func main() {
 	ui := flag.Bool("ui", true, "enable the embedded web UI (experimental, disable with -ui=false)")
 	interfacesAPI := flag.Bool("interfaces-api", true, "enable the interfaces endpoint (disable with -interfaces-api=false)")
 	hostAPI := flag.Bool("host-api", true, "enable the host information endpoints (disable with -host-api=false)")
+	generators := flag.Bool("generators", true, "enable the lspgen, bgpupdate and ldpupdate generator endpoints (disable with -generators=false)")
+	lspgen := flag.String("lspgen", defaultGeneratorExecutable(generator.LSPGen), "lspgen executable")
+	bgpupdate := flag.String("bgpupdate", defaultGeneratorExecutable(generator.BGPUpdate), "bgpupdate executable")
+	ldpupdate := flag.String("ldpupdate", defaultGeneratorExecutable(generator.LDPUpdate), "ldpupdate executable")
 	schema := flag.String("schema", server.DefaultSchemaPath, "path to the bngblaster configuration JSON schema served on /api/v1/schema")
 	allowedHosts := flag.String("allowed-hosts", "",
 		"comma-separated host names clients may use to reach the controller, against DNS rebinding "+
@@ -49,7 +54,17 @@ func main() {
 		controller.WithConfigFolder(*directory),
 		controller.WithExecutable(*executable),
 		controller.WithUpload(*upload))
+	var generatorExecutables map[string]string
+	if *generators {
+		generatorExecutables = map[string]string{
+			generator.LSPGen:    *lspgen,
+			generator.BGPUpdate: *bgpupdate,
+			generator.LDPUpdate: *ldpupdate,
+		}
+		repo.RemoveGeneratorTempFiles()
+	}
 	srv := server.NewServer(repo,
+		server.WithGenerators(generatorExecutables),
 		server.WithUI(*ui),
 		server.WithInterfacesAPI(*interfacesAPI),
 		server.WithHostAPI(*hostAPI),
@@ -57,6 +72,12 @@ func main() {
 		server.WithAllowedHosts(splitList(*allowedHosts)))
 	srv.Version = Version
 	serve(*addr, srv)
+}
+
+// defaultGeneratorExecutable returns the default executable of a generator tool.
+func defaultGeneratorExecutable(name string) string {
+	tool, _ := generator.Lookup(name)
+	return tool.DefaultExecutable
 }
 
 // splitList splits a comma-separated flag value, dropping empty entries.

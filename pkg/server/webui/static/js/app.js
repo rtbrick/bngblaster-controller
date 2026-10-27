@@ -106,6 +106,14 @@
     fileDownloadURL(name, file) {
       return '/api/v1/instances/' + encodeURIComponent(name) + '/_files/' + encodeURIComponent(file);
     },
+    generators() { return this.fetchJSON('/api/v1/generators'); },
+    generate(name, tool, request) {
+      return this.fetchJSON('/api/v1/instances/' + encodeURIComponent(name) + '/_generate/' + encodeURIComponent(tool), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+    },
     upload(name, file) {
       const fd = new FormData();
       fd.append('file', file);
@@ -311,6 +319,12 @@
     // pending holds the member interfaces with an enable/disable request in
     // flight, so their button stays disabled across poll re-renders.
     lag: { pollTimer: null, pending: new Set() },
+    // Generate tab: the form and the history belong to one instance (its
+    // config prefills the form) and are reset for the next one.
+    generate: {
+      instance: null, tools: null, tool: null, fields: [], files: [], config: null,
+      running: false, busy: false, history: [],
+    },
     // generations maps instance -> the identity of the run.log it last read,
     // so a restarted instance (which recreates the file) is detected.
     log: { instance: null, offsets: {}, generations: {}, paused: false, mode: 'collapsed', manualSelect: false, timer: null },
@@ -1944,7 +1958,7 @@
   //= ========================================================================
   // Instance detail view: tabs
   //= ========================================================================
-  const TABS = ['overview', 'sessions', 'streams', 'bgp', 'lag', 'commands'];
+  const TABS = ['overview', 'sessions', 'streams', 'bgp', 'lag', 'commands', 'generate'];
   function isTabActive(name) {
     const tab = $('#tab-' + name);
     return !!tab && tab.getAttribute('aria-selected') === 'true';
@@ -2009,6 +2023,7 @@
     if (name === 'bgp') initBgpView(); else stopBgpPolling();
     if (name === 'lag') initLagView(); else stopLagPolling();
     if (name === 'commands') loadCommandBuilder();
+    if (name === 'generate') initGenerateView();
   }
   $all('#view-instance [role="tab"]').forEach((tab, idx, all) => {
     tab.addEventListener('click', () => activateTab(tab.id.replace('tab-', ''), true));
@@ -2077,6 +2092,17 @@
     $('#lag-content').hidden = true;
     $('#lag-empty').hidden = false;
     $('#lag-empty').textContent = DEFAULT_EMPTY_TEXT['#lag-empty'];
+
+    // Generate tab: prefilled from the instance's config, so rebuilt for
+    // the next instance; whether it is shown at all does not depend on
+    // the instance.
+    Object.assign(state.generate, { instance: null, tool: null, fields: [], files: [], config: null, running: false, history: [] });
+    $('#generate-fields').innerHTML = '';
+    $('#generate-result').innerHTML = '';
+    $('#generate-result').hidden = true;
+    $('#generate-result-empty').hidden = false;
+    $('#generate-history').innerHTML = '';
+    $('#generate-history-wrap').hidden = true;
 
     // Commands tab: the command list is per instance (it is discovered from
     // the instance itself), as is any response already shown.
@@ -2633,6 +2659,7 @@
       onLogInstanceChange();
     }
     await refreshInstanceStatus();
+    updateGenerateTabAvailability(name);
     activateTab('overview');
     loadCommandBuilder(true /* silent preload for stream controls */);
     startInstancePolling();
@@ -2654,6 +2681,8 @@
       announce('Failed to refresh status for ' + name, 'error');
     }
     updateConfigTabAvailability(name);
+    // A start or stop changes what the Generate tab may write.
+    if (isTabActive('generate')) initGenerateView();
   }
   $('#btn-instance-refresh').addEventListener('click', refreshInstanceStatus);
 
@@ -2937,8 +2966,10 @@
         clearSessionCounters();
         renderInterfaceStats(null);
       }
+      syncGenerateRunning(false);
       return null;
     }
+    syncGenerateRunning(true);
     renderTestDuration(overview['test-info']);
     const counters = overview['session-counters'];
     if (counters) {
@@ -3726,6 +3757,463 @@
   }
 
   $('#btn-lag-refresh').addEventListener('click', loadLagInfo);
+
+  //= ========================================================================
+  // 3b5. Generate (lspgen, bgpupdate, ldpupdate)
+  //= ========================================================================
+  // The generators and their options come from /api/v1/generators, so the
+  // forms below follow whatever the controller supports. The endpoint only
+  // exists with -generators; without it (or without any usable tool) the
+  // tab stays hidden. Probing the tools starts Python, so the list is
+  // fetched once per page load.
+  let generatorsPromise = null;
+  function loadGenerators() {
+    if (!generatorsPromise) {
+      generatorsPromise = API.generators()
+        .then((list) => (Array.isArray(list) ? list : []))
+        .catch(() => []);
+    }
+    return generatorsPromise;
+  }
+
+  async function updateGenerateTabAvailability(name) {
+    const list = await loadGenerators();
+    if (state.currentInstance === name) setTabAvailable('generate', list.some((tool) => tool.available));
+  }
+
+  // The kind of file a tool's output option writes. Keyed by tool and
+  // output option rather than by file extension, so any file name works.
+  const GENERATED_FILE_KINDS = {
+    'bgpupdate:file': 'bgp',
+    'ldpupdate:file': 'ldp',
+    'lspgen:mrt-file': 'mrt',
+  };
+
+  // Per kind: the runtime command that loads such a file into a running
+  // instance, and where the configuration of a stopped one references it.
+  const GENERATED_FILE_USES = {
+    bgp: {
+      command: (file) => ({ command: 'bgp-raw-update', args: { file } }),
+      snippet: (file) => 'bgp: "raw-update-file": "' + file + '" (or "bgp-raw-update-files": ["' + file + '"])',
+    },
+    ldp: {
+      command: (file) => ({ command: 'ldp-raw-update', args: { file } }),
+      snippet: (file) => 'ldp: "raw-update-file": "' + file + '" (or "ldp-raw-update-files": ["' + file + '"])',
+    },
+    mrt: {
+      // isis-load-mrt and ospf-load-mrt need the instance the topology is
+      // attached to: the first one of the protocol in the config.
+      command: (file, request, config) => {
+        const ospf = String(request.protocol || 'isis').startsWith('ospf');
+        const list = ospf ? config.ospf : config.isis;
+        const first = Array.isArray(list) ? list[0] : list;
+        const instance = (first && first['instance-id']) || 1;
+        return { command: ospf ? 'ospf-load-mrt' : 'isis-load-mrt', args: { file, instance } };
+      },
+      snippet: (file) => 'isis/ospf: "external": { "mrt-file": "' + file + '" }',
+    },
+  };
+
+  // Splits "update-007.bgp" into its stem, sequence number and extension,
+  // so that the next free name continues the sequence ("update-008.bgp").
+  // taken(name) reports whether a name is in use; for an output with
+  // suffixes (lspgen's graphviz base name) that is any of its files.
+  function nextFreeFileName(name, taken) {
+    if (!taken(name)) return name;
+    const m = /^(.*?)(?:-(\d+))?(\.[^.]*)?$/.exec(name);
+    const stem = m[1] || name;
+    const ext = m[3] || '';
+    let n = m[2] ? Number(m[2]) + 1 : 1;
+    let candidate;
+    do {
+      candidate = stem + '-' + String(n).padStart(3, '0') + ext;
+      n++;
+    } while (taken(candidate));
+    return candidate;
+  }
+
+  // Values taken from the instance configuration for an empty form, so the
+  // generated files fit the instance: the ISIS system-id is the lspgen
+  // connector, the BGP local address the next hop, the LDP LSR-ID the LSR-ID.
+  function generatorPrefill(tool, config) {
+    const first = (v) => (Array.isArray(v) ? v[0] : v) || null;
+    const values = {};
+    if (!config) return values;
+    if (tool === 'lspgen') {
+      const isis = first(config.isis);
+      const ospf = first(config.ospf);
+      if (isis) {
+        if (isis['system-id']) values.connector = [isis['system-id']];
+        if (Array.isArray(isis.area) && isis.area.length) values.area = isis.area;
+        if (isis['level1-auth-key']) {
+          values['authentication-key'] = isis['level1-auth-key'];
+          if (isis['level1-auth-type']) values['authentication-type'] = isis['level1-auth-type'];
+        }
+        values['mrt-file'] = 'isis.mrt';
+      } else if (ospf) {
+        values.protocol = ospf.version === 3 ? 'ospf3' : 'ospf2';
+        values['mrt-file'] = 'ospf.mrt';
+      }
+    } else if (tool === 'bgpupdate') {
+      const bgp = first(config.bgp);
+      if (bgp) {
+        if (bgp['local-address']) values['next-hop-base'] = bgp['local-address'];
+        if (bgp['local-as'] !== undefined) values.asn = [bgp['local-as']];
+      }
+    } else if (tool === 'ldpupdate') {
+      const ldp = first(config.ldp);
+      if (ldp && ldp['lsr-id']) values['lsr-id'] = ldp['lsr-id'];
+    }
+    return values;
+  }
+
+  // Builds one form field for a generator option (see the generatorOption
+  // schema in swagger.yaml). getValue() returns undefined for an option the
+  // user left empty, so the tool's own default applies.
+  function buildGeneratorField(option) {
+    const id = nextId('generate-opt');
+    const hasDefault = option.default !== undefined && option.default !== null;
+    const isList = option.repeat || option.join;
+    const hint = [option.help, isList && option.type !== 'enum' ? 'comma-separated' : ''].filter(Boolean).join('; ');
+
+    if (option.type === 'bool') {
+      const input = el('input', { type: 'checkbox', id: id });
+      const wrap = el('div', { class: 'field checkbox-field' }, [input, el('label', { for: id, text: option.name })]);
+      if (hint) wrap.appendChild(el('span', { class: 'hint', text: hint }));
+      return {
+        option, el: wrap,
+        getValue: () => (input.checked ? true : undefined),
+        setValue: (v) => { input.checked = !!v; },
+      };
+    }
+
+    if (option.type === 'enum' && isList) {
+      const boxes = option.enum.map((value) => {
+        const boxId = nextId('generate-opt');
+        const input = el('input', { type: 'checkbox', id: boxId, value: value });
+        return { input, el: el('div', { class: 'field checkbox-field' }, [input, el('label', { for: boxId, text: value })]) };
+      });
+      const wrap = el('fieldset', {}, [el('legend', { text: option.name })]);
+      wrap.appendChild(el('div', { class: 'flags-grid' }, boxes.map((b) => b.el)));
+      if (hint) wrap.appendChild(el('span', { class: 'hint', text: hint }));
+      return {
+        option, el: wrap,
+        getValue: () => {
+          const values = boxes.filter((b) => b.input.checked).map((b) => b.input.value);
+          return values.length ? values : undefined;
+        },
+        setValue: (v) => { boxes.forEach((b) => { b.input.checked = Array.isArray(v) && v.includes(b.input.value); }); },
+      };
+    }
+
+    if (option.type === 'enum') {
+      const select = el('select', { id: id }, [
+        el('option', { value: '', text: hasDefault ? 'default (' + option.default + ')' : '—' }),
+        ...option.enum.map((value) => el('option', { value: value, text: value })),
+      ]);
+      return {
+        option, el: fieldWrap(id, option.name, option.required, hint, select),
+        getValue: () => (select.value === '' ? undefined : select.value),
+        setValue: (v) => { select.value = (v === undefined || v === null) ? '' : v; },
+      };
+    }
+
+    const numeric = option.type === 'int' || option.type === 'number';
+    const input = el('input', { type: numeric && !isList ? 'number' : 'text', id: id, required: option.required ? '' : null });
+    if (numeric && !isList) {
+      if (option.minimum !== undefined) input.setAttribute('min', option.minimum);
+      if (option.maximum !== undefined) input.setAttribute('max', option.maximum);
+      input.setAttribute('step', option.type === 'int' ? '1' : 'any');
+    }
+    if (hasDefault) input.setAttribute('placeholder', String(option.default));
+    if (option.type === 'input') input.setAttribute('list', 'generate-files-list');
+    const parse = (text) => (numeric ? Number(text) : text);
+    return {
+      option, el: fieldWrap(id, option.name, option.required, hint, input),
+      input,
+      getValue: () => {
+        const text = input.value.trim();
+        if (text === '') return undefined;
+        if (!isList) return parse(text);
+        return text.split(',').map((s) => s.trim()).filter(Boolean).map(parse);
+      },
+      setValue: (v) => {
+        if (v === undefined || v === null) input.value = '';
+        else input.value = Array.isArray(v) ? v.join(', ') : String(v);
+      },
+    };
+  }
+
+  // Groups the options as the controller does (topology, output, ...); the
+  // first group, the output files and any group with a required option are
+  // open, everything else collapsed.
+  function renderGeneratorForm(tool) {
+    const container = $('#generate-fields');
+    container.innerHTML = '';
+    state.generate.fields = [];
+    const groups = new Map();
+    tool.options.forEach((option) => {
+      const group = option.group || 'options';
+      if (!groups.has(group)) groups.set(group, []);
+      groups.get(group).push(option);
+    });
+    let firstGroup = true;
+    groups.forEach((options, group) => {
+      const body = el('div', { class: 'form-grid' });
+      options.forEach((option) => {
+        const field = buildGeneratorField(option);
+        state.generate.fields.push(field);
+        body.appendChild(field.el);
+      });
+      const open = firstGroup || group === 'output' || options.some((o) => o.required);
+      container.appendChild(el('details', { open: open ? '' : null }, [el('summary', { text: prettyLabel(group) }), body]));
+      firstGroup = false;
+    });
+    // File suggestions for input options (lspgen --read-config-file).
+    container.appendChild(el('datalist', { id: 'generate-files-list' },
+      state.generate.files.map((f) => el('option', { value: f }))));
+  }
+
+  function generatorField(name) {
+    return state.generate.fields.find((f) => f.option.name === name);
+  }
+
+  // While the instance is running, bngblaster has loaded the existing files
+  // already (RAW update files once per name), and the controller refuses to
+  // replace them: move every output name on to the next free one.
+  function suggestFreeOutputNames() {
+    if (!state.generate.running) return;
+    const existing = new Set(state.generate.files);
+    state.generate.fields.forEach((field) => {
+      if (field.option.type !== 'output' || !field.input) return;
+      const suffixes = field.option.suffixes || [''];
+      const taken = (name) => suffixes.some((suffix) => existing.has(name + suffix));
+      const current = field.input.value.trim() || (field.option.default || '');
+      if (current && taken(current)) field.setValue(nextFreeFileName(current, taken));
+    });
+  }
+
+  function selectGenerator(name) {
+    const tool = (state.generate.tools || []).find((t) => t.name === name);
+    state.generate.tool = tool || null;
+    $('#generate-tool-description').textContent = tool ? tool.description : '';
+    $('#btn-generate').disabled = !tool || !tool.available;
+    if (!tool) { $('#generate-fields').innerHTML = ''; return; }
+    if (!tool.available) {
+      $('#generate-fields').innerHTML = '';
+      $('#generate-fields').appendChild(el('p', { class: 'hint', text: 'Not available on this controller: ' + (tool.error || 'unknown error') }));
+      return;
+    }
+    renderGeneratorForm(tool);
+    Object.entries(generatorPrefill(tool.name, state.generate.config)).forEach(([key, value]) => {
+      const field = generatorField(key);
+      if (field) field.setValue(value);
+    });
+    suggestFreeOutputNames();
+  }
+
+  function collectGeneratorRequest() {
+    const request = {};
+    state.generate.fields.forEach((field) => {
+      const v = field.getValue();
+      if (v !== undefined) request[field.option.name] = v;
+    });
+    return request;
+  }
+
+  function renderGenerateHint() {
+    $('#generate-hint').textContent = state.generate.running
+      ? 'The instance is running: generated files can be loaded right away, but existing files are never ' +
+        'replaced, so every further update needs a new file name.'
+      : 'Files are written into the instance folder, where the configuration can reference them ' +
+        '(e.g. an ISIS/OSPF external mrt-file or a BGP/LDP raw-update-file).';
+  }
+
+  // Refreshes what the form depends on: whether the instance is running,
+  // its files (for free output names) and its configuration (for prefill).
+  async function refreshGenerateContext(name) {
+    const [status, files, config] = await Promise.all([
+      API.status(name).catch(() => null),
+      API.files(name).catch(() => []),
+      state.generate.config ? Promise.resolve(state.generate.config) : API.getConfig(name).catch(() => null),
+    ]);
+    if (state.currentInstance !== name) return false;
+    state.generate.running = !!status && status.status === 'started';
+    state.generate.files = (files || []).map((f) => f.name);
+    state.generate.config = config;
+    renderGenerateHint();
+    return true;
+  }
+
+  // Called by the overview poll: a test that ends (or starts) on its own
+  // changes what the Generate tab offers, without anyone touching the tab.
+  // The poll's own answer is taken as is rather than asking for the status
+  // again: while an instance starts up its status is already "started" but
+  // the overview still fails, and refetching on every poll would not settle.
+  function syncGenerateRunning(running) {
+    if (!isTabActive('generate') || state.generate.instance !== state.currentInstance) return;
+    if (running === state.generate.running) return;
+    state.generate.running = running;
+    renderGenerateHint();
+    suggestFreeOutputNames();
+  }
+
+  async function initGenerateView() {
+    const name = state.currentInstance;
+    if (!name) return;
+    const tools = await loadGenerators();
+    if (!(await refreshGenerateContext(name))) return;
+    if (state.generate.instance === name) {
+      // Same instance as before: keep what the user has entered, only the
+      // running state (and so the free output names) may have changed.
+      suggestFreeOutputNames();
+      return;
+    }
+    state.generate.instance = name;
+    state.generate.tools = tools;
+    const select = $('#generate-tool-select');
+    select.innerHTML = '';
+    tools.forEach((tool) => {
+      select.appendChild(el('option', {
+        value: tool.name,
+        text: tool.name + (tool.available ? (tool.version ? ' ' + tool.version : '') : ' (not available)'),
+      }));
+    });
+    const firstAvailable = tools.find((t) => t.available) || tools[0];
+    if (firstAvailable) select.value = firstAvailable.name;
+    selectGenerator(select.value);
+  }
+
+  function addGenerateHistory(text, ok) {
+    const history = state.generate.history;
+    history.unshift({ time: new Date(), text, ok });
+    history.length = Math.min(history.length, 20);
+    const list = $('#generate-history');
+    list.innerHTML = '';
+    history.forEach((entry) => {
+      list.appendChild(el('li', {}, [
+        el('span', { class: 'badge ' + (entry.ok ? 'status-ok' : 'status-error'), text: entry.ok ? 'ok' : 'failed' }),
+        el('span', { class: 'hint', text: ' ' + entry.time.toLocaleTimeString() + ' ' }),
+        el('span', { text: entry.text }),
+      ]));
+    });
+    $('#generate-history-wrap').hidden = false;
+  }
+
+  async function applyGeneratedFile(cmd, button) {
+    const name = state.currentInstance;
+    if (!name) return;
+    button.disabled = true;
+    try {
+      await API.command(name, cmd.command, cmd.args);
+      announce('Loaded ' + cmd.args.file + ' (' + cmd.command + ')', 'success');
+      addGenerateHistory(cmd.command + ' ' + cmd.args.file, true);
+    } catch (e) {
+      announce(cmd.command + ' failed: ' + e.message, 'error');
+      addGenerateHistory(cmd.command + ' ' + cmd.args.file + ': ' + e.message, false);
+      button.disabled = false;
+    }
+  }
+
+  function formatMillis(ms) {
+    return ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(1) + ' s';
+  }
+
+  function renderGenerateResult(tool, request, result, error) {
+    const box = $('#generate-result');
+    box.innerHTML = '';
+    $('#generate-result-empty').hidden = true;
+    box.hidden = false;
+    const ok = !error;
+    box.appendChild(el('p', {}, [
+      el('span', { class: 'badge ' + (ok ? 'status-ok' : 'status-error'), text: ok ? 'ok' : 'failed' }),
+      el('span', { text: ' ' + (ok ? 'Generated in ' + formatMillis(result['duration-ms'] || 0) : error) }),
+    ]));
+    if (result && result.command) box.appendChild(el('pre', { class: 'json-view' }, [el('code', { text: result.command })]));
+
+    // An output left empty is written under its default name (out.bgp).
+    const outputKinds = {};
+    Object.entries(GENERATED_FILE_KINDS).forEach(([key, kind]) => {
+      const [toolName, optionName] = key.split(':');
+      if (toolName !== tool.name) return;
+      const option = tool.options.find((o) => o.name === optionName);
+      const file = request[optionName] || (option && option.default);
+      if (typeof file === 'string') outputKinds[file] = kind;
+    });
+    const files = (result && result.files) || [];
+    if (files.length) {
+      const rows = files.map((file) => {
+        const kind = outputKinds[file];
+        const use = kind && GENERATED_FILE_USES[kind];
+        const cmd = use && state.generate.running ? use.command(file, request, state.generate.config || {}) : null;
+        const actions = [el('a', { class: 'btn btn-sm', href: API.fileDownloadURL(state.currentInstance, file), download: file, text: 'Download' })];
+        if (cmd) {
+          const button = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: 'Load now', title: cmd.command });
+          button.addEventListener('click', () => applyGeneratedFile(cmd, button));
+          actions.push(button);
+        }
+        const usage = use && !state.generate.running ? use.snippet(file) : (cmd ? cmd.command : '');
+        return el('tr', {}, [
+          el('td', { text: file }),
+          el('td', {}, [el('code', { text: usage })]),
+          el('td', {}, [el('div', { class: 'row-actions-cell' }, actions)]),
+        ]);
+      });
+      box.appendChild(el('div', { class: 'table-scroll' }, [
+        el('table', {}, [
+          el('caption', { class: 'visually-hidden', text: 'Generated files' }),
+          el('thead', {}, [el('tr', {}, ['File', 'Use', 'Actions'].map((h) => el('th', { scope: 'col', text: h })))]),
+          el('tbody', {}, rows),
+        ]),
+      ]));
+    }
+    [['Tool output', result && result.stdout], ['Tool errors', result && result.stderr]].forEach(([label, text]) => {
+      if (!text) return;
+      box.appendChild(el('details', { open: !ok ? '' : null }, [
+        el('summary', { text: label }),
+        el('pre', { class: 'json-view' }, [el('code', { text: text })]),
+      ]));
+    });
+  }
+
+  async function submitGenerate(ev) {
+    ev.preventDefault();
+    const name = state.currentInstance;
+    const tool = state.generate.tool;
+    if (!name || !tool || state.generate.busy) return;
+    const request = collectGeneratorRequest();
+    const button = $('#btn-generate');
+    state.generate.busy = true;
+    button.disabled = true;
+    button.textContent = 'Generating…';
+    let result = null;
+    let error = null;
+    try {
+      result = await API.generate(name, tool.name, request);
+    } catch (e) {
+      // A failed run still reports the tool's output.
+      result = (e.body && typeof e.body === 'object') ? e.body : null;
+      error = e.message;
+    } finally {
+      state.generate.busy = false;
+      button.disabled = false;
+      button.textContent = 'Generate';
+    }
+    if (state.currentInstance !== name) return;
+    const files = (result && result.files) || [];
+    addGenerateHistory(tool.name + (files.length ? ': ' + files.join(', ') : '') + (error ? ': ' + error : ''), !error);
+    if (error) announce(tool.name + ' failed: ' + error, 'error');
+    else announce(tool.name + ' wrote ' + (files.join(', ') || 'no files'), 'success');
+    await refreshGenerateContext(name);
+    renderGenerateResult(tool, request, result || {}, error);
+    // Ready for the next update of a running instance - also after a 409
+    // for a name that exists already, which only needs the next free one.
+    suggestFreeOutputNames();
+  }
+
+  $('#generate-tool-select').addEventListener('change', (ev) => selectGenerator(ev.target.value));
+  $('#generate-form').addEventListener('submit', submitGenerate);
+  $('#btn-generate-reset').addEventListener('click', () => selectGenerator($('#generate-tool-select').value));
 
   //= ========================================================================
   // 3c. Dynamic command builder

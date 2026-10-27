@@ -182,7 +182,9 @@ func TestServer_uploadFile_rejectsRunFiles(t *testing.T) {
 	handler := NewServer(repository)
 
 	// A planted run.pid would make _kill signal an arbitrary process as root.
-	for _, filename := range []string{"run.pid", "run.sock", "run.json"} {
+	// A generator's temporary name would be moved into place or removed by
+	// the next run.
+	for _, filename := range []string{"run.pid", "run.sock", "run.json", ".gen-isis.mrt"} {
 		t.Run(filename, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			handler.ServeHTTP(recorder, uploadRequest(t, "test", filename, "1"))
