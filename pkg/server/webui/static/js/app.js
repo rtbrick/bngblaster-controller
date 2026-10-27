@@ -319,6 +319,12 @@
     // pending holds the member interfaces with an enable/disable request in
     // flight, so their button stays disabled across poll re-renders.
     lag: { pollTimer: null, pending: new Set() },
+    // ISIS and OSPF tabs: the instance the selects were filled for, and the
+    // last database read, kept for re-filtering without a new request.
+    isis: { pollTimer: null, dbTimer: null, instance: null, config: null, database: [], dbOffset: 0 },
+    ospf: { pollTimer: null, dbTimer: null, instance: null, config: null, database: [], dbOffset: 0 },
+    // The entry shown in the ISIS/OSPF detail dialog, see showRoutingDetail.
+    routingDetail: null,
     // Generate tab: the form and the history belong to one instance (its
     // config prefills the form) and are reset for the next one.
     generate: {
@@ -1958,7 +1964,7 @@
   //= ========================================================================
   // Instance detail view: tabs
   //= ========================================================================
-  const TABS = ['overview', 'sessions', 'streams', 'bgp', 'lag', 'commands', 'generate'];
+  const TABS = ['overview', 'sessions', 'streams', 'bgp', 'isis', 'ospf', 'lag', 'commands', 'generate'];
   function isTabActive(name) {
     const tab = $('#tab-' + name);
     return !!tab && tab.getAttribute('aria-selected') === 'true';
@@ -2021,6 +2027,8 @@
     if (name === 'sessions') initSessionView(); else stopSessionPolling();
     if (name === 'streams') initStreamView(); else stopStreamPolling();
     if (name === 'bgp') initBgpView(); else stopBgpPolling();
+    if (name === 'isis') initIsisView(); else stopIsisPolling();
+    if (name === 'ospf') initOspfView(); else stopOspfPolling();
     if (name === 'lag') initLagView(); else stopLagPolling();
     if (name === 'commands') loadCommandBuilder();
     if (name === 'generate') initGenerateView();
@@ -2084,6 +2092,32 @@
     $('#bgp-empty').hidden = false;
     $('#bgp-empty').textContent = DEFAULT_EMPTY_TEXT['#bgp-empty'];
     $('#bgp-count-hint').textContent = '';
+
+    // ISIS and OSPF tabs: same as BGP; the selects are refilled from the
+    // new instance's config when the tab is opened, and the database starts
+    // collapsed again.
+    ['isis', 'ospf'].forEach((proto) => {
+      setTabAvailable(proto, false);
+      state[proto].instance = null;
+      state[proto].database = [];
+      state[proto].dbOffset = 0;
+      $('#' + proto + '-db-details').open = false;
+      $('#' + proto + '-db-prev').hidden = true;
+      $('#' + proto + '-db-next').hidden = true;
+      $('#' + proto + '-content').hidden = true;
+      $('#' + proto + '-empty').hidden = false;
+      $('#' + proto + '-empty').textContent = DEFAULT_EMPTY_TEXT['#' + proto + '-empty'];
+      $('#' + proto + '-db-tbody').innerHTML = '';
+      $('#' + proto + '-db-hint').textContent = '';
+      $('#' + proto + '-db-filter').value = '';
+    });
+    $('#isis-adjacency-tbody').innerHTML = '';
+    $('#ospf-interface-tbody').innerHTML = '';
+    $('#ospf-neighbor-tbody').innerHTML = '';
+    // Emptied rather than kept: an instance or level picked for the
+    // previous instance would otherwise stay selected if the next one has
+    // it too, e.g. showing its L2 database instead of starting with L1.
+    ['#isis-instance', '#isis-db-level', '#ospf-instance'].forEach((sel) => { $(sel).innerHTML = ''; });
 
     // LAG tab: same as BGP, driven by the new instance's config.
     setTabAvailable('lag', false);
@@ -3511,25 +3545,23 @@
   // trip per tick for the (common) runs without BGP. The instance config
   // already answers the question - BGP sessions exist only if it has a
   // non-empty "bgp" section - and is a plain file read that also works while
-  // the instance is stopped. The same read also decides the LAG tab, which
-  // has nothing to show unless the config defines LAG interfaces.
+  // the instance is stopped. The same read also decides the ISIS, OSPF and
+  // LAG tabs, which have nothing to show unless the config defines ISIS or
+  // OSPF instances or LAG interfaces.
   async function updateConfigTabAvailability(name) {
-    let hasBgp = false;
-    let hasLag = false;
+    const present = (v) => (Array.isArray(v) ? v.length > 0 : (!!v && typeof v === 'object'));
+    let config = null;
     try {
-      const config = await API.getConfig(name);
-      const bgp = config && config.bgp;
-      hasBgp = Array.isArray(bgp) ? bgp.length > 0 : (!!bgp && typeof bgp === 'object');
-      const lag = config && config.interfaces && config.interfaces.lag;
-      hasLag = Array.isArray(lag) ? lag.length > 0 : (!!lag && typeof lag === 'object');
+      config = await API.getConfig(name);
     } catch (e) {
-      hasBgp = false;
-      hasLag = false;
+      config = null;
     }
     // The user may have moved on to another instance meanwhile.
     if (state.currentInstance === name) {
-      setTabAvailable('bgp', hasBgp);
-      setTabAvailable('lag', hasLag);
+      setTabAvailable('bgp', present(config && config.bgp));
+      setTabAvailable('isis', present(config && config.isis));
+      setTabAvailable('ospf', present(config && config.ospf));
+      setTabAvailable('lag', present(config && config.interfaces && config.interfaces.lag));
     }
   }
 
@@ -3638,6 +3670,420 @@
   $('#dialog-bgp-detail').addEventListener('close', stopBgpDetailPolling);
   $('#btn-bgp-detail-refresh').addEventListener('click', () => loadBgpDetail(true));
   $('#btn-bgp-refresh').addEventListener('click', loadBgpSessions);
+
+  //= ========================================================================
+  // 3b3a. ISIS and OSPF
+  //= ========================================================================
+  // Both tabs follow the BGP tab: shown if the config has the protocol,
+  // adjacencies/neighbors fetched and rendered as a whole every 2 seconds.
+  // Both show one protocol instance at a time, picked at the top of the tab
+  // (OSPF commands take the instance; isis-adjacencies returns all of them
+  // and is filtered here).
+  //
+  // The link state database is different: with an lspgen topology it holds
+  // thousands of entries. It is collapsed by default, fetched and polled
+  // (less often) only while open, and rendered a page of ROUTING_DB_PAGE
+  // entries at a time.
+  const ROUTING_DB_POLL_MS = 10000;
+  const ROUTING_DB_PAGE = 500;
+
+  // The instances of a protocol section of the config ("isis" or "ospf"),
+  // which may be one object or a list of them.
+  function configInstances(section) {
+    if (!section) return [];
+    return (Array.isArray(section) ? section : [section]).filter((i) => i && typeof i === 'object');
+  }
+
+  function fillInstanceSelect(select, instances) {
+    const previous = select.value;
+    select.innerHTML = '';
+    instances.forEach((inst) => {
+      const id = inst['instance-id'] ?? 1;
+      select.appendChild(el('option', { value: String(id), text: String(id) + (inst.hostname ? ' (' + inst.hostname + ')' : '') }));
+    });
+    if ([...select.options].some((o) => o.value === previous)) select.value = previous;
+  }
+
+  // The selected protocol instance of a tab, or null before the select is
+  // filled. instance-id 0 is valid, hence no plain truthiness check.
+  function selectedInstance(proto) {
+    const value = $('#' + proto + '-instance').value;
+    return value === '' ? null : Number(value);
+  }
+
+  // Up/Full are the healthy end states; Down is a failure, anything else a
+  // state on the way up.
+  function routingStateBadge(s) {
+    const cls = (s === 'Up' || s === 'Full') ? 'status-ok' : (s === 'Down' ? 'status-error' : 'status-code');
+    return el('span', { class: 'badge ' + cls, text: s || 'unknown' });
+  }
+
+  // Shows "not running" (412) or the error in a tab's empty state.
+  function showRoutingError(proto, what, e) {
+    $('#' + proto + '-empty').hidden = false;
+    $('#' + proto + '-empty').textContent = e.status === 412 ? 'Instance is not running.' : 'Could not load ' + what + ': ' + e.message;
+    $('#' + proto + '-content').hidden = true;
+  }
+
+  // Renders the current page of the database entries matching the filter
+  // (case-insensitive, any of fields). The page offset is kept per tab and
+  // pulled back if the database shrank or the filter matches fewer entries.
+  function renderRoutingDatabase(proto, fields, row, noun) {
+    const st = state[proto];
+    const needle = $('#' + proto + '-db-filter').value.trim().toLowerCase();
+    const entries = st.database;
+    const matching = needle
+      ? entries.filter((e) => fields.some((f) => String(e[f] ?? '').toLowerCase().includes(needle)))
+      : entries;
+    if (st.dbOffset >= matching.length) st.dbOffset = Math.max(0, Math.floor((matching.length - 1) / ROUTING_DB_PAGE) * ROUTING_DB_PAGE);
+    const page = matching.slice(st.dbOffset, st.dbOffset + ROUTING_DB_PAGE);
+    const tbody = $('#' + proto + '-db-tbody');
+    tbody.innerHTML = '';
+    page.forEach((e) => tbody.appendChild(row(e)));
+
+    const plural = (n) => n + ' ' + noun + (n === 1 ? '' : 's');
+    let hint = needle ? matching.length + ' matching (' + plural(entries.length) + ')' : plural(entries.length);
+    if (matching.length > ROUTING_DB_PAGE) {
+      hint = 'Showing ' + (st.dbOffset + 1) + '–' + (st.dbOffset + page.length) + ' of ' + hint;
+    }
+    $('#' + proto + '-db-hint').textContent = hint + '.';
+    const paged = matching.length > ROUTING_DB_PAGE;
+    $('#' + proto + '-db-prev').hidden = !paged;
+    $('#' + proto + '-db-next').hidden = !paged;
+    $('#' + proto + '-db-prev').disabled = st.dbOffset === 0;
+    $('#' + proto + '-db-next').disabled = st.dbOffset + ROUTING_DB_PAGE >= matching.length;
+  }
+
+  // Wires the collapsed database section of a tab: fetched and polled only
+  // while open, paged with the Previous/Next buttons, and back to the first
+  // page whenever the filter changes.
+  function bindRoutingDatabase(proto, load, render) {
+    const st = state[proto];
+    $('#' + proto + '-db-details').addEventListener('toggle', () => {
+      st.dbTimer = cancelPoll(st.dbTimer);
+      if (!$('#' + proto + '-db-details').open || !isTabActive(proto)) return;
+      load();
+      st.dbTimer = schedulePoll(load, ROUTING_DB_POLL_MS);
+    });
+    $('#' + proto + '-db-prev').addEventListener('click', () => { st.dbOffset = Math.max(0, st.dbOffset - ROUTING_DB_PAGE); render(); });
+    $('#' + proto + '-db-next').addEventListener('click', () => { st.dbOffset += ROUTING_DB_PAGE; render(); });
+    $('#' + proto + '-db-filter').addEventListener('input', debounce(() => { st.dbOffset = 0; render(); }, 150));
+  }
+
+  // Starts the polls of a tab; the database only if its section is open.
+  function startRoutingPolling(proto, load, loadDatabase) {
+    const st = state[proto];
+    load();
+    st.pollTimer = cancelPoll(st.pollTimer);
+    st.pollTimer = schedulePoll(load, 2000);
+    st.dbTimer = cancelPoll(st.dbTimer);
+    if ($('#' + proto + '-db-details').open) {
+      loadDatabase();
+      st.dbTimer = schedulePoll(loadDatabase, ROUTING_DB_POLL_MS);
+    }
+  }
+
+  function stopRoutingPolling(proto) {
+    state[proto].pollTimer = cancelPoll(state[proto].pollTimer);
+    state[proto].dbTimer = cancelPoll(state[proto].dbTimer);
+  }
+
+  // Selects the instance's protocol instances from its config, once per
+  // instance (the selects are emptied by resetInstanceViews).
+  async function prepareRoutingTab(proto) {
+    const name = state.currentInstance;
+    if (state[proto].instance === name) return true;
+    let section = null;
+    try {
+      const config = await API.getConfig(name);
+      section = config && config[proto];
+    } catch (e) {
+      section = null;
+    }
+    if (state.currentInstance !== name) return false;
+    state[proto].instance = name;
+    state[proto].config = section;
+    state[proto].database = [];
+    state[proto].dbOffset = 0;
+    fillInstanceSelect($('#' + proto + '-instance'), configInstances(section));
+    return true;
+  }
+
+  // The detail dialog of an ISIS adjacency or OSPF interface. Neither has a
+  // per-entry info command, so the dialog shows the entry from the latest
+  // poll of its tab, found again by key on every tick.
+  function showRoutingDetail(title, kind, key, item) {
+    state.routingDetail = { kind, key, item };
+    $('#dialog-routing-detail-title').textContent = title;
+    renderResultFields('#routing-detail-list', item);
+    openDialog('dialog-routing-detail');
+  }
+
+  function refreshRoutingDetail(kind, items, keyOf) {
+    const detail = state.routingDetail;
+    if (!detail || detail.kind !== kind || !$('#dialog-routing-detail').open) return;
+    const item = items.find((i) => keyOf(i) === detail.key);
+    if (item) renderResultFields('#routing-detail-list', item);
+    else renderDetailFields('#routing-detail-list', { Error: 'No longer reported by this instance.' });
+  }
+
+  $('#dialog-routing-detail').addEventListener('close', () => { state.routingDetail = null; });
+  $('#btn-routing-detail-refresh').addEventListener('click', () => {
+    const detail = state.routingDetail;
+    if (detail && detail.kind === 'isis') loadIsisAdjacencies();
+    if (detail && detail.kind === 'ospf') loadOspf();
+  });
+
+  // ---- ISIS ----
+
+  function isisAdjacencyKey(item) {
+    return [item.interface, item.level, item['instance-id']].join('|');
+  }
+
+  // A P2P adjacency has one peer, a broadcast one a list of them.
+  function isisAdjacencyPeers(item) {
+    if (item.peer) return item.peer['system-id'] || '';
+    return (item.peers || []).map((p) => p['system-id'] + (p.state ? ' (' + p.state + ')' : '')).join(', ');
+  }
+
+  async function loadIsisAdjacencies() {
+    const name = state.currentInstance;
+    const instance = selectedInstance('isis');
+    if (!name) return;
+    let items;
+    try {
+      const result = splitCommandResponse(await API.command(name, 'isis-adjacencies')).result;
+      items = Array.isArray(result) ? result : [];
+    } catch (e) {
+      if (state.currentInstance === name) showRoutingError('isis', 'ISIS adjacencies', e);
+      return;
+    }
+    if (state.currentInstance !== name) return;
+    if (instance !== null) items = items.filter((i) => i['instance-id'] === instance);
+    $('#isis-empty').hidden = true;
+    $('#isis-content').hidden = false;
+    const tbody = $('#isis-adjacency-tbody');
+    tbody.innerHTML = '';
+    items.forEach((item) => {
+      tbody.appendChild(el('tr', {}, [
+        el('td', { text: item.interface || '' }),
+        el('td', { text: item.type || '' }),
+        el('td', { text: item.level || '' }),
+        el('td', { text: isisAdjacencyPeers(item) }),
+        el('td', {}, [routingStateBadge(item['adjacency-state'])]),
+        el('td', {}, [
+          el('div', { class: 'row-actions-cell' }, [
+            el('button', {
+              class: 'btn btn-sm', type: 'button', text: 'Detail',
+              onclick: () => showRoutingDetail('ISIS Adjacency — ' + item.interface + ' ' + item.level, 'isis', isisAdjacencyKey(item), item),
+            }),
+          ]),
+        ]),
+      ]));
+    });
+    const up = items.filter((i) => i['adjacency-state'] === 'Up').length;
+    $('#isis-adjacency-hint').textContent = items.length
+      ? items.length + ' adjacenc' + (items.length === 1 ? 'y' : 'ies') + ', ' + up + ' up.'
+      : 'No ISIS adjacencies reported for this instance.';
+    refreshRoutingDetail('isis', items, isisAdjacencyKey);
+  }
+
+  async function loadIsisDatabase() {
+    const name = state.currentInstance;
+    const instance = selectedInstance('isis');
+    if (!name || instance === null || $('#isis-db-level').value === '') return;
+    const level = Number($('#isis-db-level').value);
+    let entries;
+    try {
+      const result = splitCommandResponse(await API.command(name, 'isis-database', { instance, level })).result;
+      entries = Array.isArray(result) ? result : [];
+    } catch (e) {
+      if (state.currentInstance !== name) return;
+      // 404: no database for this level (the instance does not run it).
+      state.isis.database = [];
+      $('#isis-db-tbody').innerHTML = '';
+      $('#isis-db-prev').hidden = true;
+      $('#isis-db-next').hidden = true;
+      $('#isis-db-hint').textContent = e.status === 404 ? 'No database for this level.' : 'Could not load the database: ' + e.message;
+      return;
+    }
+    if (state.currentInstance !== name) return;
+    state.isis.database = entries;
+    renderIsisDatabase();
+  }
+
+  function renderIsisDatabase() {
+    renderRoutingDatabase('isis', ['id', 'source-type', 'source-system-id'], (e) => el('tr', {}, [
+      el('td', { text: e.id || '' }),
+      el('td', { text: String(e.seq ?? '') }),
+      el('td', { text: String(e.lifetime ?? '') }),
+      el('td', { text: String(e['lifetime-remaining'] ?? '') }),
+      el('td', { text: e['source-type'] || '' }),
+      el('td', { text: e['source-system-id'] || '' }),
+    ]), 'LSP');
+  }
+
+  // The levels the selected instance runs: "level" is 1, 2 or 3 (both,
+  // the default).
+  function fillIsisLevelSelect() {
+    const id = $('#isis-instance').value;
+    const instance = configInstances(state.isis.config).find((i) => String(i['instance-id'] ?? 1) === id);
+    const level = (instance && instance.level) || 3;
+    const select = $('#isis-db-level');
+    const previous = select.value;
+    select.innerHTML = '';
+    [1, 2].filter((l) => level === 3 || level === l).forEach((l) => {
+      select.appendChild(el('option', { value: String(l), text: 'L' + l }));
+    });
+    if ([...select.options].some((o) => o.value === previous)) select.value = previous;
+  }
+
+  async function initIsisView() {
+    const name = state.currentInstance;
+    if (!(await prepareRoutingTab('isis'))) return;
+    if (!$('#isis-db-level').options.length) fillIsisLevelSelect();
+    if (state.currentInstance === name && isTabActive('isis')) startRoutingPolling('isis', loadIsisAdjacencies, loadIsisDatabase);
+  }
+  function stopIsisPolling() {
+    stopRoutingPolling('isis');
+  }
+
+  bindRoutingDatabase('isis', loadIsisDatabase, renderIsisDatabase);
+  $('#btn-isis-refresh').addEventListener('click', () => {
+    loadIsisAdjacencies();
+    if ($('#isis-db-details').open) loadIsisDatabase();
+  });
+  $('#isis-instance').addEventListener('change', () => {
+    fillIsisLevelSelect();
+    state.isis.dbOffset = 0;
+    loadIsisAdjacencies();
+    if ($('#isis-db-details').open) loadIsisDatabase();
+  });
+  $('#isis-db-level').addEventListener('change', () => { state.isis.dbOffset = 0; loadIsisDatabase(); });
+
+  // ---- OSPF ----
+
+  function ospfInterfaceKey(item) {
+    return item.name || '';
+  }
+
+  // Interfaces and neighbors are small and polled together.
+  async function loadOspf() {
+    const name = state.currentInstance;
+    const instance = selectedInstance('ospf');
+    if (!name || instance === null) return;
+    let interfaces;
+    let neighbors;
+    try {
+      const [ifResp, nbResp] = await Promise.all([
+        API.command(name, 'ospf-interfaces', { instance }),
+        API.command(name, 'ospf-neighbors', { instance }),
+      ]);
+      interfaces = splitCommandResponse(ifResp).result;
+      neighbors = splitCommandResponse(nbResp).result;
+    } catch (e) {
+      if (state.currentInstance === name) showRoutingError('ospf', 'OSPF data', e);
+      return;
+    }
+    if (state.currentInstance !== name) return;
+    interfaces = Array.isArray(interfaces) ? interfaces : [];
+    neighbors = Array.isArray(neighbors) ? neighbors : [];
+    $('#ospf-empty').hidden = true;
+    $('#ospf-content').hidden = false;
+
+    const ifBody = $('#ospf-interface-tbody');
+    ifBody.innerHTML = '';
+    interfaces.forEach((item) => {
+      ifBody.appendChild(el('tr', {}, [
+        el('td', { text: item.name || '' }),
+        el('td', { text: item.type || '' }),
+        el('td', { text: item.state || '' }),
+        el('td', { text: item.dr || '' }),
+        el('td', { text: item.bdr || '' }),
+        el('td', { text: (item['neighbors-full'] ?? 0) + ' of ' + (item.neighbors ?? 0) + ' full' }),
+        el('td', {}, [
+          el('div', { class: 'row-actions-cell' }, [
+            el('button', {
+              class: 'btn btn-sm', type: 'button', text: 'Detail',
+              onclick: () => showRoutingDetail('OSPF Interface — ' + item.name, 'ospf', ospfInterfaceKey(item), item),
+            }),
+          ]),
+        ]),
+      ]));
+    });
+
+    const nbBody = $('#ospf-neighbor-tbody');
+    nbBody.innerHTML = '';
+    neighbors.forEach((item) => {
+      nbBody.appendChild(el('tr', {}, [
+        el('td', { text: item.interface || '' }),
+        el('td', { text: item['router-id'] || '' }),
+        el('td', {}, [routingStateBadge(item.state)]),
+        el('td', { text: String(item['retry-tree-entries'] ?? '') }),
+        el('td', { text: String(item['request-tree-entries'] ?? '') }),
+      ]));
+    });
+    const full = neighbors.filter((n) => n.state === 'Full').length;
+    $('#ospf-neighbor-hint').textContent = neighbors.length
+      ? neighbors.length + ' neighbor' + (neighbors.length === 1 ? '' : 's') + ', ' + full + ' full.'
+      : 'No OSPF neighbors reported for this instance.';
+    refreshRoutingDetail('ospf', interfaces, ospfInterfaceKey);
+  }
+
+  async function loadOspfDatabase() {
+    const name = state.currentInstance;
+    const instance = selectedInstance('ospf');
+    if (!name || instance === null) return;
+    let entries;
+    try {
+      const result = splitCommandResponse(await API.command(name, 'ospf-database', { instance })).result;
+      entries = Array.isArray(result) ? result : [];
+    } catch (e) {
+      if (state.currentInstance !== name) return;
+      state.ospf.database = [];
+      $('#ospf-db-tbody').innerHTML = '';
+      $('#ospf-db-prev').hidden = true;
+      $('#ospf-db-next').hidden = true;
+      $('#ospf-db-hint').textContent = e.status === 412 ? '' : 'Could not load the database: ' + e.message;
+      return;
+    }
+    if (state.currentInstance !== name) return;
+    state.ospf.database = entries;
+    renderOspfDatabase();
+  }
+
+  function renderOspfDatabase() {
+    renderRoutingDatabase('ospf', ['id', 'router', 'source-type', 'source-router-id'], (e) => el('tr', {}, [
+      el('td', { text: String(e.type ?? '') }),
+      el('td', { text: e.id || '' }),
+      el('td', { text: e.router || '' }),
+      el('td', { text: e.seq || '' }),
+      el('td', { text: e.checksum || '' }),
+      el('td', { text: String(e.age ?? '') }),
+      el('td', { text: e['source-type'] || '' }),
+      el('td', { text: e['source-router-id'] || '' }),
+    ]), 'LSA');
+  }
+
+  async function initOspfView() {
+    const name = state.currentInstance;
+    if (!(await prepareRoutingTab('ospf'))) return;
+    if (state.currentInstance === name && isTabActive('ospf')) startRoutingPolling('ospf', loadOspf, loadOspfDatabase);
+  }
+  function stopOspfPolling() {
+    stopRoutingPolling('ospf');
+  }
+
+  bindRoutingDatabase('ospf', loadOspfDatabase, renderOspfDatabase);
+  $('#btn-ospf-refresh').addEventListener('click', () => {
+    loadOspf();
+    if ($('#ospf-db-details').open) loadOspfDatabase();
+  });
+  $('#ospf-instance').addEventListener('change', () => {
+    state.ospf.dbOffset = 0;
+    loadOspf();
+    if ($('#ospf-db-details').open) loadOspfDatabase();
+  });
 
   //= ========================================================================
   // 3b4. LAG
@@ -4553,7 +4999,7 @@
   //= ========================================================================
   // Boot
   //= ========================================================================
-  ['#streams-empty', '#sessions-empty', '#bgp-empty', '#lag-empty', '#command-output-empty'].forEach((sel) => {
+  ['#streams-empty', '#sessions-empty', '#bgp-empty', '#isis-empty', '#ospf-empty', '#lag-empty', '#command-output-empty'].forEach((sel) => {
     DEFAULT_EMPTY_TEXT[sel] = $(sel).textContent;
   });
   initJSONEditorDOM();

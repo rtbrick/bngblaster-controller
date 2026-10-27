@@ -210,6 +210,8 @@
       <button role="tab" id="tab-sessions" aria-controls="panel-sessions" aria-selected="false" tabindex="-1">Sessions</button>
       <button role="tab" id="tab-streams" aria-controls="panel-streams" aria-selected="false" tabindex="-1">Streams</button>
       <button role="tab" id="tab-bgp" aria-controls="panel-bgp" aria-selected="false" tabindex="-1" hidden>BGP</button>
+      <button role="tab" id="tab-isis" aria-controls="panel-isis" aria-selected="false" tabindex="-1" hidden>ISIS</button>
+      <button role="tab" id="tab-ospf" aria-controls="panel-ospf" aria-selected="false" tabindex="-1" hidden>OSPF</button>
       <button role="tab" id="tab-lag" aria-controls="panel-lag" aria-selected="false" tabindex="-1" hidden>LAG</button>
       <button role="tab" id="tab-commands" aria-controls="panel-commands" aria-selected="false" tabindex="-1">Commands</button>
       <button role="tab" id="tab-generate" aria-controls="panel-generate" aria-selected="false" tabindex="-1" hidden>Generate</button>
@@ -449,6 +451,164 @@
       </div>
     </div>
 
+    <!-- ---- ISIS ---- -->
+    <div role="tabpanel" id="panel-isis" aria-labelledby="tab-isis" tabindex="0" hidden>
+      <div class="card-header">
+        <p class="hint" style="margin:0;">ISIS adjacencies and link state database of this instance, as reported by
+          the <code>isis-adjacencies</code> and <code>isis-database</code> commands.</p>
+        <button type="button" class="btn btn-sm" id="btn-isis-refresh">Refresh</button>
+      </div>
+      <div class="form-grid">
+        <div class="field">
+          <label for="isis-instance">Instance</label>
+          <select id="isis-instance"></select>
+        </div>
+      </div>
+      <div id="isis-empty" class="empty-state">No ISIS data available. Start the instance to see live ISIS
+        adjacencies here.</div>
+      <div id="isis-content" hidden>
+        <h3>Adjacencies</h3>
+        <div class="table-scroll">
+          <table>
+            <caption class="visually-hidden">ISIS adjacencies</caption>
+            <thead>
+              <tr>
+                <th scope="col">Interface</th>
+                <th scope="col">Type</th>
+                <th scope="col">Level</th>
+                <th scope="col">Peer</th>
+                <th scope="col">State</th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="isis-adjacency-tbody"></tbody>
+          </table>
+        </div>
+        <p class="hint" id="isis-adjacency-hint"></p>
+        <details id="isis-db-details" class="routing-db">
+          <summary>Database</summary>
+          <div class="form-grid">
+            <div class="field">
+              <label for="isis-db-level">Level</label>
+              <select id="isis-db-level"></select>
+            </div>
+            <div class="field">
+              <label for="isis-db-filter">Filter</label>
+              <input type="search" id="isis-db-filter" placeholder="LSP ID or source">
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <caption class="visually-hidden">ISIS link state database</caption>
+              <thead>
+                <tr>
+                  <th scope="col">LSP ID</th>
+                  <th scope="col">Sequence</th>
+                  <th scope="col">Lifetime</th>
+                  <th scope="col">Remaining</th>
+                  <th scope="col">Source</th>
+                  <th scope="col">Source System ID</th>
+                </tr>
+              </thead>
+              <tbody id="isis-db-tbody"></tbody>
+            </table>
+          </div>
+          <div class="routing-pager">
+            <p class="hint" id="isis-db-hint"></p>
+            <button type="button" class="btn btn-sm" id="isis-db-prev">Previous 500</button>
+            <button type="button" class="btn btn-sm" id="isis-db-next">Next 500</button>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <!-- ---- OSPF ---- -->
+    <div role="tabpanel" id="panel-ospf" aria-labelledby="tab-ospf" tabindex="0" hidden>
+      <div class="card-header">
+        <p class="hint" style="margin:0;">OSPF interfaces, neighbors and link state database of this instance, as
+          reported by the <code>ospf-interfaces</code>, <code>ospf-neighbors</code> and <code>ospf-database</code>
+          commands.</p>
+        <button type="button" class="btn btn-sm" id="btn-ospf-refresh">Refresh</button>
+      </div>
+      <div class="form-grid">
+        <div class="field">
+          <label for="ospf-instance">Instance</label>
+          <select id="ospf-instance"></select>
+        </div>
+      </div>
+      <div id="ospf-empty" class="empty-state">No OSPF data available. Start the instance to see live OSPF
+        neighbors here.</div>
+      <div id="ospf-content" hidden>
+        <h3>Interfaces</h3>
+        <div class="table-scroll">
+          <table>
+            <caption class="visually-hidden">OSPF interfaces</caption>
+            <thead>
+              <tr>
+                <th scope="col">Interface</th>
+                <th scope="col">Type</th>
+                <th scope="col">State</th>
+                <th scope="col">DR</th>
+                <th scope="col">BDR</th>
+                <th scope="col">Neighbors</th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="ospf-interface-tbody"></tbody>
+          </table>
+        </div>
+        <h3>Neighbors</h3>
+        <div class="table-scroll">
+          <table>
+            <caption class="visually-hidden">OSPF neighbors</caption>
+            <thead>
+              <tr>
+                <th scope="col">Interface</th>
+                <th scope="col">Router ID</th>
+                <th scope="col">State</th>
+                <th scope="col">Retransmissions</th>
+                <th scope="col">Requests</th>
+              </tr>
+            </thead>
+            <tbody id="ospf-neighbor-tbody"></tbody>
+          </table>
+        </div>
+        <p class="hint" id="ospf-neighbor-hint"></p>
+        <details id="ospf-db-details" class="routing-db">
+          <summary>Database</summary>
+          <div class="form-grid">
+            <div class="field">
+              <label for="ospf-db-filter">Filter</label>
+              <input type="search" id="ospf-db-filter" placeholder="LSA ID, router or source">
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <caption class="visually-hidden">OSPF link state database</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Type</th>
+                  <th scope="col">LSA ID</th>
+                  <th scope="col">Router</th>
+                  <th scope="col">Sequence</th>
+                  <th scope="col">Checksum</th>
+                  <th scope="col">Age</th>
+                  <th scope="col">Source</th>
+                  <th scope="col">Source Router ID</th>
+                </tr>
+              </thead>
+              <tbody id="ospf-db-tbody"></tbody>
+            </table>
+          </div>
+          <div class="routing-pager">
+            <p class="hint" id="ospf-db-hint"></p>
+            <button type="button" class="btn btn-sm" id="ospf-db-prev">Previous 500</button>
+            <button type="button" class="btn btn-sm" id="ospf-db-next">Next 500</button>
+          </div>
+        </details>
+      </div>
+    </div>
+
     <!-- ---- LAG ---- -->
     <div role="tabpanel" id="panel-lag" aria-labelledby="tab-lag" tabindex="0" hidden>
       <div class="card-header" style="justify-content:flex-end;">
@@ -652,6 +812,21 @@
   <div class="dialog-footer">
     <button type="button" class="btn" id="btn-bgp-detail-refresh">Refresh</button>
     <button type="button" class="btn" data-close-dialog="dialog-bgp-detail">Close</button>
+  </div>
+</dialog>
+
+<!-- ===================== ROUTING DETAIL DIALOG ===================== -->
+<dialog id="dialog-routing-detail" aria-labelledby="dialog-routing-detail-title">
+  <div class="dialog-header">
+    <h2 id="dialog-routing-detail-title">Detail</h2>
+    <button type="button" class="btn btn-sm btn-icon" data-close-dialog="dialog-routing-detail" aria-label="Close dialog">✕</button>
+  </div>
+  <div class="dialog-body">
+    <dl id="routing-detail-list" class="detail-grid"></dl>
+  </div>
+  <div class="dialog-footer">
+    <button type="button" class="btn" id="btn-routing-detail-refresh">Refresh</button>
+    <button type="button" class="btn" data-close-dialog="dialog-routing-detail">Close</button>
   </div>
 </dialog>
 
