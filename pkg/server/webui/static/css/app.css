@@ -265,6 +265,10 @@ tbody tr:hover { background: var(--color-surface-alt); }
 .status-pill.stopped { background: #f0f0f0; color: var(--color-text-muted); border-color: var(--color-border); }
 .status-pill.duration-pill { background: var(--color-surface-alt); color: var(--color-text-muted); border-color: var(--color-border); font-weight: 600; }
 .status-pill.duration-pill::before { content: none; }
+/* The "display: inline-flex" above beats the UA [hidden] rule (see
+   .schema-form-nav[hidden]), which left the duration pill of a stopped
+   instance on screen as an empty outline. */
+.status-pill[hidden] { display: none; }
 .status-pill::before {
   content: "";
   width: 0.5rem; height: 0.5rem;
