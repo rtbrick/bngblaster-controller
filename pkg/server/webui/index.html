@@ -209,6 +209,7 @@
       <button role="tab" id="tab-sessions" aria-controls="panel-sessions" aria-selected="false" tabindex="-1">Sessions</button>
       <button role="tab" id="tab-streams" aria-controls="panel-streams" aria-selected="false" tabindex="-1">Streams</button>
       <button role="tab" id="tab-bgp" aria-controls="panel-bgp" aria-selected="false" tabindex="-1" hidden>BGP</button>
+      <button role="tab" id="tab-lag" aria-controls="panel-lag" aria-selected="false" tabindex="-1" hidden>LAG</button>
       <button role="tab" id="tab-commands" aria-controls="panel-commands" aria-selected="false" tabindex="-1">Commands</button>
     </div>
 
@@ -444,6 +445,16 @@
         </div>
         <p class="hint" id="bgp-count-hint"></p>
       </div>
+    </div>
+
+    <!-- ---- LAG ---- -->
+    <div role="tabpanel" id="panel-lag" aria-labelledby="tab-lag" tabindex="0" hidden>
+      <div class="card-header" style="justify-content:flex-end;">
+        <button type="button" class="btn btn-sm" id="btn-lag-refresh">Refresh</button>
+      </div>
+      <div id="lag-empty" class="empty-state">No LAG data available. Start the instance to see live
+        LAG groups here.</div>
+      <div id="lag-content" hidden></div>
     </div>
 
     <!-- ---- Commands ---- -->

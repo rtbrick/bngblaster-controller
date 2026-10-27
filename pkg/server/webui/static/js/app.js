@@ -308,6 +308,9 @@
     stream: { instance: null, total: 0, rowHeight: 34, buffer: 8, pending: false, timer: null, pollTimer: null, filters: {}, detailFlowId: null, detailTimer: null },
     session: { instance: null, total: 0, rowHeight: 34, buffer: 8, pending: false, timer: null, pollTimer: null, filters: {}, detailSessionId: null, detailTimer: null },
     bgp: { pollTimer: null, detailKey: null, detailTimer: null },
+    // pending holds the member interfaces with an enable/disable request in
+    // flight, so their button stays disabled across poll re-renders.
+    lag: { pollTimer: null, pending: new Set() },
     // generations maps instance -> the identity of the run.log it last read,
     // so a restarted instance (which recreates the file) is detected.
     log: { instance: null, offsets: {}, generations: {}, paused: false, mode: 'collapsed', manualSelect: false, timer: null },
@@ -1941,7 +1944,7 @@
   //= ========================================================================
   // Instance detail view: tabs
   //= ========================================================================
-  const TABS = ['overview', 'sessions', 'streams', 'bgp', 'commands'];
+  const TABS = ['overview', 'sessions', 'streams', 'bgp', 'lag', 'commands'];
   function isTabActive(name) {
     const tab = $('#tab-' + name);
     return !!tab && tab.getAttribute('aria-selected') === 'true';
@@ -2004,6 +2007,7 @@
     if (name === 'sessions') initSessionView(); else stopSessionPolling();
     if (name === 'streams') initStreamView(); else stopStreamPolling();
     if (name === 'bgp') initBgpView(); else stopBgpPolling();
+    if (name === 'lag') initLagView(); else stopLagPolling();
     if (name === 'commands') loadCommandBuilder();
   }
   $all('#view-instance [role="tab"]').forEach((tab, idx, all) => {
@@ -2066,6 +2070,14 @@
     $('#bgp-empty').textContent = DEFAULT_EMPTY_TEXT['#bgp-empty'];
     $('#bgp-count-hint').textContent = '';
 
+    // LAG tab: same as BGP, driven by the new instance's config.
+    setTabAvailable('lag', false);
+    state.lag.pending.clear();
+    $('#lag-content').innerHTML = '';
+    $('#lag-content').hidden = true;
+    $('#lag-empty').hidden = false;
+    $('#lag-empty').textContent = DEFAULT_EMPTY_TEXT['#lag-empty'];
+
     // Commands tab: the command list is per instance (it is discovered from
     // the instance itself), as is any response already shown.
     $('#command-select').innerHTML = '';
@@ -2093,6 +2105,7 @@
     stopStreamPolling();
     stopSessionPolling();
     stopBgpPolling();
+    stopLagPolling();
   }
 
   function showDashboard() {
@@ -2640,7 +2653,7 @@
     } catch (e) {
       announce('Failed to refresh status for ' + name, 'error');
     }
-    updateBgpAvailability(name);
+    updateConfigTabAvailability(name);
   }
   $('#btn-instance-refresh').addEventListener('click', refreshInstanceStatus);
   $('#btn-instance-start').addEventListener('click', () => openStartDialog(state.currentInstance));
@@ -3447,18 +3460,26 @@
   // trip per tick for the (common) runs without BGP. The instance config
   // already answers the question - BGP sessions exist only if it has a
   // non-empty "bgp" section - and is a plain file read that also works while
-  // the instance is stopped.
-  async function updateBgpAvailability(name) {
+  // the instance is stopped. The same read also decides the LAG tab, which
+  // has nothing to show unless the config defines LAG interfaces.
+  async function updateConfigTabAvailability(name) {
     let hasBgp = false;
+    let hasLag = false;
     try {
       const config = await API.getConfig(name);
       const bgp = config && config.bgp;
       hasBgp = Array.isArray(bgp) ? bgp.length > 0 : (!!bgp && typeof bgp === 'object');
+      const lag = config && config.interfaces && config.interfaces.lag;
+      hasLag = Array.isArray(lag) ? lag.length > 0 : (!!lag && typeof lag === 'object');
     } catch (e) {
       hasBgp = false;
+      hasLag = false;
     }
     // The user may have moved on to another instance meanwhile.
-    if (state.currentInstance === name) setTabAvailable('bgp', hasBgp);
+    if (state.currentInstance === name) {
+      setTabAvailable('bgp', hasBgp);
+      setTabAvailable('lag', hasLag);
+    }
   }
 
   // bgp-sessions has no session id, so a session is identified by the
@@ -3566,6 +3587,125 @@
   $('#dialog-bgp-detail').addEventListener('close', stopBgpDetailPolling);
   $('#btn-bgp-detail-refresh').addEventListener('click', () => loadBgpDetail(true));
   $('#btn-bgp-refresh').addEventListener('click', loadBgpSessions);
+
+  //= ========================================================================
+  // 3b4. LAG
+  //= ========================================================================
+  // lag-info returns every LAG with its members in one small response, so it
+  // is fetched and rendered as a whole on every tick, like bgp-sessions.
+  async function loadLagInfo() {
+    const name = state.currentInstance;
+    if (!name) return;
+    let lags;
+    try {
+      const resp = await API.command(name, 'lag-info');
+      const result = splitCommandResponse(resp).result;
+      lags = Array.isArray(result) ? result : [];
+    } catch (e) {
+      if (state.currentInstance !== name) return;
+      $('#lag-empty').hidden = false;
+      $('#lag-empty').textContent = e.status === 412 ? 'Instance is not running.' : 'Could not load LAG info: ' + e.message;
+      $('#lag-content').hidden = true;
+      return;
+    }
+    if (state.currentInstance !== name) return;
+    if (!lags.length) {
+      $('#lag-empty').hidden = false;
+      $('#lag-empty').textContent = 'No LAG interfaces reported by this instance.';
+      $('#lag-content').hidden = true;
+      return;
+    }
+    $('#lag-empty').hidden = true;
+    $('#lag-content').hidden = false;
+    renderLagInfo(lags);
+  }
+
+  // Up is the only healthy state; Down is a failure, while Disabled (by the
+  // user) and Standby (lacp-max-active-links) are deliberate, so neutral.
+  function lagStateBadge(s) {
+    const cls = s === 'Up' ? 'status-ok' : (s === 'Down' ? 'status-error' : 'status-code');
+    return el('span', { class: 'badge ' + cls, text: s || 'unknown' });
+  }
+
+  function renderLagInfo(lags) {
+    const content = $('#lag-content');
+    content.innerHTML = '';
+    lags.forEach((lag) => {
+      const members = Array.isArray(lag.members) ? lag.members : [];
+      const tbody = el('tbody', {}, members.map((m) => {
+        // interface-enable/-disable act on the member interface itself; the
+        // LAG interface is rejected by bngblaster, hence no group-level button.
+        const disabled = m.state === 'Disabled';
+        return el('tr', {}, [
+          el('td', { text: m.interface || '' }),
+          el('td', {}, [lagStateBadge(m.state)]),
+          el('td', { text: m['lacp-state'] || '' }),
+          el('td', { text: String(m['packets-rx'] ?? '') }),
+          el('td', { text: String(m['packets-tx'] ?? '') }),
+          el('td', { text: String(m['stream-count'] ?? '') }),
+          el('td', { text: String(m['stream-pps'] ?? '') }),
+          el('td', {}, [
+            el('div', { class: 'row-actions-cell' }, [
+              el('button', {
+                class: 'btn btn-sm' + (disabled ? '' : ' btn-danger'),
+                type: 'button',
+                text: disabled ? 'Enable' : 'Disable',
+                disabled: state.lag.pending.has(m.interface) ? '' : undefined,
+                'aria-label': (disabled ? 'Enable ' : 'Disable ') + m.interface,
+                onclick: () => setLagMemberEnabled(m.interface, disabled),
+              }),
+            ]),
+          ]),
+        ]);
+      }));
+      content.appendChild(el('div', { class: 'iface-group' }, [
+        el('h3', {}, [
+          el('span', { text: (lag.interface || 'lag') + ' ' }),
+          lagStateBadge(lag.state),
+        ]),
+        el('p', {
+          class: 'hint',
+          text: (lag['members-active'] ?? 0) + ' of ' + members.length + ' member' + (members.length === 1 ? '' : 's') +
+            ' active, ' + (lag['stream-count'] ?? 0) + ' stream' + (lag['stream-count'] === 1 ? '' : 's') + '.',
+        }),
+        el('div', { class: 'table-scroll' }, [
+          el('table', {}, [
+            el('caption', { class: 'visually-hidden', text: 'Members of ' + lag.interface }),
+            el('thead', {}, [el('tr', {}, ['Interface', 'State', 'LACP State', 'RX Packets', 'TX Packets', 'Streams', 'Stream PPS', 'Actions']
+              .map((h) => el('th', { scope: 'col', text: h })))]),
+            tbody,
+          ]),
+        ]),
+      ]));
+    });
+  }
+
+  async function setLagMemberEnabled(iface, enable) {
+    const name = state.currentInstance;
+    if (!name || !iface) return;
+    state.lag.pending.add(iface);
+    loadLagInfo();
+    try {
+      await API.command(name, enable ? 'interface-enable' : 'interface-disable', { interface: iface });
+      announce((enable ? 'Enabled' : 'Disabled') + ' interface ' + iface, 'success');
+    } catch (e) {
+      announce('Command failed: ' + e.message, 'error');
+    } finally {
+      state.lag.pending.delete(iface);
+      loadLagInfo();
+    }
+  }
+
+  function initLagView() {
+    loadLagInfo();
+    stopLagPolling();
+    state.lag.pollTimer = schedulePoll(loadLagInfo, 2000);
+  }
+  function stopLagPolling() {
+    state.lag.pollTimer = cancelPoll(state.lag.pollTimer);
+  }
+
+  $('#btn-lag-refresh').addEventListener('click', loadLagInfo);
 
   //= ========================================================================
   // 3c. Dynamic command builder
@@ -3905,7 +4045,7 @@
   //= ========================================================================
   // Boot
   //= ========================================================================
-  ['#streams-empty', '#sessions-empty', '#bgp-empty', '#command-output-empty'].forEach((sel) => {
+  ['#streams-empty', '#sessions-empty', '#bgp-empty', '#lag-empty', '#command-output-empty'].forEach((sel) => {
     DEFAULT_EMPTY_TEXT[sel] = $(sel).textContent;
   });
   initJSONEditorDOM();
