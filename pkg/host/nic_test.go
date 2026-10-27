@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -200,9 +201,14 @@ func fixtureNICs(t *testing.T) string {
 }
 
 // fakeEthtool answers like ethtool for eth0 and veth0, and fails otherwise.
+// Discover queries the interfaces in parallel, so recording the calls is
+// guarded.
 func fakeEthtool(calls *[]string) func(context.Context, ...string) ([]byte, error) {
+	var mu sync.Mutex
 	return func(_ context.Context, args ...string) ([]byte, error) {
+		mu.Lock()
 		*calls = append(*calls, strings.Join(args, " "))
+		mu.Unlock()
 		switch strings.Join(args, " ") {
 		case "-i eth0":
 			return []byte("driver: mlx5_core\nversion: 6.8.0\nfirmware-version: 22.36.1010 (MT_0000000359)\nbus-info: 0000:01:00.0\n"), nil
