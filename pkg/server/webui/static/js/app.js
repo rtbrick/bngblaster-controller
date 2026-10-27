@@ -2656,6 +2656,26 @@
     updateConfigTabAvailability(name);
   }
   $('#btn-instance-refresh').addEventListener('click', refreshInstanceStatus);
+
+  // Read-only view of the stored config.json. The config is re-serialized
+  // rather than shown as stored, so it is always consistently indented, and
+  // highlighted with the JSON editor's tokenizer to match its colors.
+  async function showInstanceConfig() {
+    const name = state.currentInstance;
+    if (!name) return;
+    const code = $('#instance-config-code');
+    $('#dialog-instance-config-title').textContent = 'Configuration — ' + name;
+    code.textContent = 'Loading…';
+    openDialog('dialog-instance-config');
+    try {
+      const text = JSON.stringify(await API.getConfig(name), null, 2);
+      const { tokens } = jsonParseLenient(text);
+      code.innerHTML = renderJSONHighlightHTML(text, tokens, []);
+    } catch (e) {
+      code.textContent = 'Could not load configuration: ' + e.message;
+    }
+  }
+  $('#btn-instance-config').addEventListener('click', showInstanceConfig);
   $('#btn-instance-start').addEventListener('click', () => openStartDialog(state.currentInstance));
   $('#btn-instance-stop').addEventListener('click', () => { doStop(state.currentInstance).then(refreshInstanceStatus); });
   $('#btn-instance-kill').addEventListener('click', () => { doKill(state.currentInstance).then(refreshInstanceStatus); });

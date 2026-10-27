@@ -556,6 +556,22 @@ dialog > form[method="dialog"] {
   color: var(--color-text);
 }
 .json-editor-highlight code { white-space: inherit; font: inherit; }
+/* Read-only highlighted JSON (instance config dialog). */
+.json-view {
+  margin: 0;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  tab-size: 2;
+}
+.json-view code { font: inherit; }
 .jt-key { color: var(--color-accent); font-weight: 600; }
 .jt-string { color: var(--color-success); }
 .jt-number, .jt-boolean, .jt-null { color: #7a4a00; }

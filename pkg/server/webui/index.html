@@ -200,6 +200,7 @@
         <button type="button" class="btn" id="btn-instance-start">Start</button>
         <button type="button" class="btn" id="btn-instance-stop">Stop</button>
         <button type="button" class="btn btn-danger" id="btn-instance-kill">Kill</button>
+        <button type="button" class="btn" id="btn-instance-config">Config</button>
         <button type="button" class="btn" id="btn-instance-refresh">Refresh</button>
       </div>
     </div>
@@ -687,6 +688,19 @@
     <button type="button" class="btn" id="btn-topology-fit">Actual size</button>
     <a class="btn" id="topology-download" href="/api/v1/host/topology.png" download="topology.png">Download</a>
     <button type="button" class="btn" data-close-dialog="dialog-topology">Close</button>
+  </div>
+</dialog>
+
+<dialog id="dialog-instance-config" class="dialog-wide" aria-labelledby="dialog-instance-config-title">
+  <div class="dialog-header">
+    <h2 id="dialog-instance-config-title">Configuration</h2>
+    <button type="button" class="btn btn-sm btn-icon" data-close-dialog="dialog-instance-config" aria-label="Close dialog">✕</button>
+  </div>
+  <div class="dialog-body">
+    <pre class="json-view"><code id="instance-config-code"></code></pre>
+  </div>
+  <div class="dialog-footer">
+    <button type="button" class="btn" data-close-dialog="dialog-instance-config">Close</button>
   </div>
 </dialog>
 
