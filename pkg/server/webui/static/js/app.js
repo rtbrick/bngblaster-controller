@@ -323,7 +323,11 @@
     overviewTimer: null,
     stream: { instance: null, total: 0, rowHeight: 34, buffer: 8, pending: false, timer: null, pollTimer: null, filters: {}, detailFlowId: null, detailTimer: null },
     session: { instance: null, total: 0, rowHeight: 34, buffer: 8, pending: false, timer: null, pollTimer: null, filters: {}, detailSessionId: null, detailTimer: null },
-    bgp: { pollTimer: null, detailKey: null, detailTimer: null },
+    // selected holds the keys (bgpSessionKey) of the sessions ticked for
+    // "Send update", so the selection survives the poll re-renders; items
+    // is the last bgp-sessions result. update is the open send dialog: its
+    // target sessions and the ones skipped by the last send.
+    bgp: { pollTimer: null, detailKey: null, detailTimer: null, selected: new Set(), items: [], update: null },
     // pending holds the member interfaces with an enable/disable request in
     // flight, so their button stays disabled across poll re-renders.
     lag: { pollTimer: null, pending: new Set() },
@@ -2096,6 +2100,9 @@
     // BGP tab: hidden again until the new instance's config says otherwise.
     setTabAvailable('bgp', false);
     $('#bgp-tbody').innerHTML = '';
+    state.bgp.selected.clear();
+    state.bgp.items = [];
+    updateBgpSelectionControls();
     $('#bgp-content').hidden = true;
     $('#bgp-empty').hidden = false;
     $('#bgp-empty').textContent = DEFAULT_EMPTY_TEXT['#bgp-empty'];
@@ -3617,23 +3624,260 @@
   }
 
   function renderBgpSessions(items) {
+    state.bgp.items = items;
+    // Forget selected sessions that are gone or no longer established.
+    const selectable = new Set(items.filter(bgpEstablished).map(bgpSessionKey));
+    state.bgp.selected.forEach((key) => { if (!selectable.has(key)) state.bgp.selected.delete(key); });
+
     const tbody = $('#bgp-tbody');
     tbody.innerHTML = '';
     items.forEach((item) => {
-      const established = item.state === 'established';
+      const established = bgpEstablished(item);
+      const key = bgpSessionKey(item);
+      const label = (item['local-address'] || '?') + ' → ' + (item['peer-address'] || '?');
+      const stats = item.stats || {};
       tbody.appendChild(el('tr', {}, [
+        el('td', { class: 'select-col' }, [el('input', {
+          type: 'checkbox',
+          'aria-label': 'Select BGP session ' + label,
+          checked: state.bgp.selected.has(key) ? '' : null,
+          disabled: established ? null : '',
+          title: established ? null : 'Only established sessions can be updated',
+          onchange: (e) => {
+            if (e.target.checked) state.bgp.selected.add(key);
+            else state.bgp.selected.delete(key);
+            updateBgpSelectionControls();
+          },
+        })]),
         el('td', { text: item.interface || '' }),
         el('td', { text: item['local-address'] || '' }),
         el('td', { text: item['peer-address'] || '' }),
         el('td', {}, [el('span', { class: 'badge ' + (established ? 'status-ok' : 'status-code'), text: item.state || 'unknown' })]),
+        el('td', {}, [bgpRawUpdateCell(item)]),
+        el('td', { text: (stats['update-tx'] || 0).toLocaleString() + ' / ' + (stats['update-rx'] || 0).toLocaleString() }),
         el('td', {}, [
           el('div', { class: 'row-actions-cell' }, [
+            el('button', {
+              class: 'btn btn-sm', type: 'button', text: 'Send update',
+              disabled: established ? null : '',
+              title: established ? null : 'Only established sessions can be updated',
+              onclick: () => showBgpUpdate([item]),
+            }),
             el('button', { class: 'btn btn-sm', type: 'button', text: 'Detail', onclick: () => showBgpDetail(item) }),
           ]),
         ]),
       ]));
     });
+    updateBgpSelectionControls();
   }
+
+  function bgpEstablished(item) {
+    return item.state === 'established';
+  }
+
+  // The raw update progress of a session: the file, its state and, while
+  // sending, the bytes acknowledged by the peer.
+  function bgpRawUpdateCell(item) {
+    const file = item['raw-update-file'];
+    const rawState = item['raw-update-state'];
+    if (!file) return el('span', { class: 'hint', text: '—' });
+    const total = item['raw-update-bytes'] || 0;
+    const acked = rawState === 'done' ? total : (item['raw-update-bytes-acked'] || 0);
+    const pct = total > 0 ? Math.min(100, (acked / total) * 100) : 0;
+    let detail = rawState || '';
+    if (rawState === 'sending') detail += ' ' + pct.toFixed(0) + '% of ' + formatFileSize(total);
+    else if (rawState === 'done') detail += ' (' + formatFileSize(total) + (item['raw-update-duration'] ? ', ' + item['raw-update-duration'] + 's' : '') + ')';
+    return el('div', { class: 'session-meter bgp-update-meter' + (rawState === 'done' ? ' is-complete' : '') }, [
+      el('div', { class: 'meter-label' }, [
+        el('span', { text: file }),
+        el('span', { class: 'count', text: detail }),
+      ]),
+      el('progress', { value: pct.toFixed(1), max: '100', 'aria-label': 'Raw update ' + file + ' ' + detail }),
+    ]);
+  }
+
+  // The header checkbox and the toolbar button follow the selection: the
+  // button sends to the selected sessions, or to all established ones if
+  // none is selected.
+  function updateBgpSelectionControls() {
+    const established = state.bgp.items.filter(bgpEstablished);
+    const selected = state.bgp.selected.size;
+    const all = $('#bgp-select-all');
+    all.checked = established.length > 0 && selected === established.length;
+    all.indeterminate = selected > 0 && selected < established.length;
+    all.disabled = established.length === 0;
+    const btn = $('#btn-bgp-send-update');
+    btn.disabled = established.length === 0;
+    btn.textContent = selected ? 'Send update to ' + selected + ' selected…' : 'Send update to all…';
+  }
+
+  $('#bgp-select-all').addEventListener('change', (e) => {
+    state.bgp.selected.clear();
+    if (e.target.checked) state.bgp.items.filter(bgpEstablished).forEach((i) => state.bgp.selected.add(bgpSessionKey(i)));
+    renderBgpSessions(state.bgp.items);
+  });
+  $('#btn-bgp-send-update').addEventListener('click', () => {
+    const established = state.bgp.items.filter(bgpEstablished);
+    const targets = state.bgp.selected.size ? established.filter((i) => state.bgp.selected.has(bgpSessionKey(i))) : established;
+    if (targets.length) showBgpUpdate(targets);
+  });
+
+  const bgpIsV6 = (item) => String(item['local-address'] || '').includes(':');
+
+  // The bgp-raw-update commands that send a file to exactly the target
+  // sessions. Updating every session takes one command without filter;
+  // otherwise each session is addressed by its local and peer address of
+  // its address family. This relies on bngblaster applying the IPv6 filters
+  // to IPv6 sessions only; up to 1.0.2 they matched every IPv4 session too.
+  function bgpUpdatePlan(targets, items) {
+    if (targets.length === items.length) return [{ targets, args: {} }];
+    return targets.map((item) => {
+      const family = bgpIsV6(item) ? 'ipv6' : 'ipv4';
+      return {
+        targets: [item],
+        args: {
+          ['local-' + family + '-address']: item['local-address'],
+          ['peer-' + family + '-address']: item['peer-address'],
+        },
+      };
+    });
+  }
+
+  function bgpTargetText(targets) {
+    if (targets.length === state.bgp.items.length) {
+      return 'All ' + targets.length + ' BGP session' + (targets.length === 1 ? '' : 's') + ' of this instance.';
+    }
+    if (targets.length === 1) {
+      const t = targets[0];
+      return 'BGP session ' + t['local-address'] + ' → ' + t['peer-address'] + ' (' + t.interface + ').';
+    }
+    return targets.length + ' selected BGP sessions.';
+  }
+
+  function setBgpUpdateStatus(kind, text) {
+    const status = $('#bgp-update-status');
+    status.hidden = !text;
+    status.className = 'form-status ' + (kind || 'info');
+    status.textContent = text || '';
+  }
+
+  async function showBgpUpdate(targets) {
+    const name = state.currentInstance;
+    state.bgp.update = { instance: name, targets, skipped: [] };
+    $('#bgp-update-target').textContent = bgpTargetText(targets);
+    $('#btn-bgp-update-retry').hidden = true;
+    setBgpUpdateStatus(null, '');
+    const select = $('#bgp-update-file');
+    select.innerHTML = '';
+    select.appendChild(el('option', { value: '', text: 'Loading…' }));
+    $('#btn-bgp-update-send').disabled = true;
+    openDialog('dialog-bgp-update');
+
+    await loadBgpUpdateFiles(name);
+  }
+
+  // Offers the .bgp files of the instance folder plus every file bngblaster
+  // has loaded already (bgp-raw-update-list), whatever its name; loaded
+  // files are marked, as sending those again needs no file read.
+  async function loadBgpUpdateFiles(name) {
+    const select = $('#bgp-update-file');
+    let files = [];
+    let loaded = [];
+    try {
+      const [list, resp] = await Promise.all([
+        API.files(name),
+        API.command(name, 'bgp-raw-update-list').catch(() => null),
+      ]);
+      files = (list || []).map((f) => f.name);
+      const result = resp ? splitCommandResponse(resp).result : null;
+      loaded = Array.isArray(result) ? result : [];
+    } catch (e) {
+      if (state.bgp.update && state.bgp.update.instance === name) setBgpUpdateStatus('error', 'Could not list the instance files: ' + e.message);
+      select.innerHTML = '';
+      return;
+    }
+    if (!state.bgp.update || state.bgp.update.instance !== name) return;
+    const loadedByName = new Map(loaded.map((u) => [u.file, u]));
+    const names = new Set(files.filter((f) => /\.bgp$/i.test(f)));
+    loaded.forEach((u) => names.add(u.file));
+    select.innerHTML = '';
+    const sorted = Array.from(names).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    if (!sorted.length) {
+      select.appendChild(el('option', { value: '', text: 'No .bgp files in the instance folder' }));
+      return;
+    }
+    sorted.forEach((file) => {
+      const u = loadedByName.get(file);
+      const text = u ? file + ' (loaded, ' + (u.updates || 0).toLocaleString() + ' updates, ' + formatFileSize(u.len) + ')' : file;
+      select.appendChild(el('option', { value: file, text }));
+    });
+    // Preselect the most recent file of a numbered series (update-003.bgp).
+    select.value = sorted[sorted.length - 1];
+    $('#btn-bgp-update-send').disabled = false;
+  }
+
+  async function sendBgpUpdate(targets) {
+    const update = state.bgp.update;
+    const file = $('#bgp-update-file').value;
+    if (!update || !file) return;
+    const commands = bgpUpdatePlan(targets, state.bgp.items);
+    $('#btn-bgp-update-send').disabled = true;
+    $('#btn-bgp-update-retry').hidden = true;
+    setBgpUpdateStatus('info', 'Sending ' + file + '…');
+    // bngblaster skips a session that is still sending an earlier file and
+    // only counts them in its reply; which ones those are is read from a
+    // fresh bgp-sessions just before sending.
+    const sending = new Set();
+    try {
+      (await fetchBgpSessions() || []).forEach((i) => { if (i['raw-update-state'] === 'sending') sending.add(bgpSessionKey(i)); });
+    } catch (e) {
+      // Without it, Retry skipped is not offered.
+    }
+    let started = 0;
+    let skipped = 0;
+    let error = null;
+    for (const cmd of commands) {
+      try {
+        const resp = await API.command(update.instance, 'bgp-raw-update', Object.assign({ file }, cmd.args));
+        const result = splitCommandResponse(resp).result || {};
+        started += result.started || 0;
+        skipped += result.skipped || 0;
+      } catch (e) {
+        // Same file for every command, so a failure (e.g. file not
+        // loadable) would repeat for the rest.
+        error = e.message;
+        break;
+      }
+    }
+    if (state.bgp.update !== update) return;
+    update.skipped = skipped ? targets.filter((t) => sending.has(bgpSessionKey(t))) : [];
+    $('#btn-bgp-update-send').disabled = false;
+    $('#btn-bgp-update-retry').hidden = update.skipped.length === 0;
+    const sessions = (n) => n + ' session' + (n === 1 ? '' : 's');
+    if (error) {
+      setBgpUpdateStatus('error', 'Sending ' + file + ' failed' + (started ? ' after starting on ' + sessions(started) : '') + ': ' + error);
+    } else if (skipped) {
+      setBgpUpdateStatus('error', file + ' started on ' + sessions(started) + ', skipped on ' + sessions(skipped) +
+        ' still sending an earlier update. Retry once they are done.');
+    } else {
+      setBgpUpdateStatus('success', file + ' started on ' + sessions(started) + '. The Raw Update column shows the progress.');
+    }
+    loadBgpSessions();
+  }
+
+  $('#btn-bgp-update-send').addEventListener('click', () => {
+    if (state.bgp.update) sendBgpUpdate(state.bgp.update.targets);
+  });
+  $('#btn-bgp-update-retry').addEventListener('click', () => {
+    const update = state.bgp.update;
+    if (!update || !update.skipped.length) return;
+    // Retry with the current state of the skipped sessions; one that is no
+    // longer established is left out.
+    const current = new Map(state.bgp.items.map((i) => [bgpSessionKey(i), i]));
+    const targets = update.skipped.map((t) => current.get(bgpSessionKey(t))).filter((i) => i && bgpEstablished(i));
+    if (targets.length) sendBgpUpdate(targets);
+  });
+  $('#dialog-bgp-update').addEventListener('close', () => { state.bgp.update = null; });
 
   function initBgpView() {
     loadBgpSessions();

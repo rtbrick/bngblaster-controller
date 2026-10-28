@@ -427,7 +427,10 @@
       <div class="card-header">
         <p class="hint" style="margin:0;">BGP sessions of this instance, as reported by the
           <code>bgp-sessions</code> command.</p>
-        <button type="button" class="btn btn-sm" id="btn-bgp-refresh">Refresh</button>
+        <div class="row-actions-cell">
+          <button type="button" class="btn btn-sm btn-primary" id="btn-bgp-send-update" disabled>Send update…</button>
+          <button type="button" class="btn btn-sm" id="btn-bgp-refresh">Refresh</button>
+        </div>
       </div>
       <div id="bgp-empty" class="empty-state">No BGP session data available. Start the instance to see live
         BGP sessions here.</div>
@@ -437,10 +440,15 @@
             <caption class="visually-hidden">BGP sessions</caption>
             <thead>
               <tr>
+                <th scope="col" class="select-col">
+                  <input type="checkbox" id="bgp-select-all" aria-label="Select all established BGP sessions">
+                </th>
                 <th scope="col">Interface</th>
                 <th scope="col">Local Address</th>
                 <th scope="col">Peer Address</th>
                 <th scope="col">State</th>
+                <th scope="col">Raw Update</th>
+                <th scope="col">Updates TX / RX</th>
                 <th scope="col">Actions</th>
               </tr>
             </thead>
@@ -812,6 +820,30 @@
   <div class="dialog-footer">
     <button type="button" class="btn" id="btn-bgp-detail-refresh">Refresh</button>
     <button type="button" class="btn" data-close-dialog="dialog-bgp-detail">Close</button>
+  </div>
+</dialog>
+
+<!-- ===================== BGP SEND UPDATE DIALOG ===================== -->
+<dialog id="dialog-bgp-update" aria-labelledby="dialog-bgp-update-title">
+  <div class="dialog-header">
+    <h2 id="dialog-bgp-update-title">Send BGP Update</h2>
+    <button type="button" class="btn btn-sm btn-icon" data-close-dialog="dialog-bgp-update" aria-label="Close dialog">✕</button>
+  </div>
+  <div class="dialog-body">
+    <p id="bgp-update-target"></p>
+    <div class="field">
+      <label for="bgp-update-file">BGP RAW update file</label>
+      <select id="bgp-update-file" aria-describedby="bgp-update-file-hint"></select>
+      <span class="hint" id="bgp-update-file-hint">Files of the instance folder. Create them on the Generate tab
+        (bgpupdate) or upload them via Uploads. bngblaster keeps a file in memory once it is loaded, so
+        changed content needs a new file name.</span>
+    </div>
+    <div id="bgp-update-status" class="form-status" role="status" hidden></div>
+  </div>
+  <div class="dialog-footer">
+    <button type="button" class="btn" id="btn-bgp-update-retry" hidden>Retry skipped</button>
+    <button type="button" class="btn" data-close-dialog="dialog-bgp-update">Close</button>
+    <button type="button" class="btn btn-primary" id="btn-bgp-update-send">Send</button>
   </div>
 </dialog>
 
