@@ -7,7 +7,7 @@ before:
     - make build 
     - make test
 builds:
-  - main: ./cmd/bngblasterctrl/bngblasterctrld.go
+  - main: ./cmd/bngblasterctrl
     binary: bngblasterctrl
     env:
       - CGO_ENABLED=0
