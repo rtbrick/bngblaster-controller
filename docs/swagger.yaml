@@ -250,7 +250,10 @@ paths:
     get:
       summary: Status information of an instance.
       description: >-
-        Get status information of an instance.
+        Get status information of an instance. For the instance started with
+        -autostart, the response also carries the state of the autostart, and
+        it is returned even before the instance folder exists (instead of 404),
+        e.g. while waiting for interfaces.
       parameters:
         - name: instance_name
           description: instance name of the bngblaster
@@ -272,6 +275,28 @@ paths:
                     enum:
                       - started
                       - stopped
+                  exit_code:
+                    type: integer
+                    description: >-
+                      Exit code of the last run once the instance has stopped,
+                      128+n if it was terminated by signal n. Left out while
+                      running and when unknown (a run started before the
+                      controller).
+                    example: 0
+                  autostart:
+                    type: object
+                    description: Only for the -autostart instance.
+                    properties:
+                      state:
+                        type: string
+                        enum:
+                          - waiting-interfaces
+                          - starting
+                          - started
+                          - failed
+                      error:
+                        type: string
+                        description: Why the autostart failed.
         204:
           description: no content, the instance was updated
         400:
@@ -696,8 +721,18 @@ paths:
           required: false
           schema:
             type: integer
-            default: 65536
+            default: 131072
             maximum: 1048576
+        - name: tail
+          description: >-
+            ignore offset and return the complete lines within the last "limit"
+            bytes of run.log; for a viewer starting on (or far behind on) a
+            large log, see "size"
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
       responses:
         200:
           description: ok
@@ -1452,6 +1487,11 @@ components:
         next_offset:
           description: pass this as the "offset" query parameter on the next poll
           type: integer
+        size:
+          description: >-
+            current size of run.log; size - next_offset is how far the client
+            is behind
+          type: integer
         eof:
           description: true if next_offset has reached the current end of the log file
           type: boolean
@@ -1463,6 +1503,7 @@ components:
         {
           "offset": 0,
           "next_offset": 128,
+          "size": 128,
           "eof": true,
           "lines": [
             "2025-01-01 00:00:00.000 INFO: bngblaster started"

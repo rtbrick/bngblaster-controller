@@ -108,6 +108,10 @@
     logs(name, offset, limit) {
       return this.fetchJSON('/api/v1/instances/' + encodeURIComponent(name) + '/_logs?offset=' + offset + (limit ? '&limit=' + limit : ''));
     },
+    // The last complete lines of the log, where the viewer starts.
+    logsTail(name) {
+      return this.fetchJSON('/api/v1/instances/' + encodeURIComponent(name) + '/_logs?tail=true');
+    },
     files(name) {
       return this.fetchJSON('/api/v1/instances/' + encodeURIComponent(name) + '/_files');
     },
@@ -5166,37 +5170,53 @@
     return '';
   }
 
+  // The viewer reads one chunk per poll, 128 KB every 1.5 s. A log that has grown
+  // for days would take hours to page through from the start, so the viewer
+  // starts at the end of the log and skips ahead whenever it falls further
+  // behind than this (after a pause, or while bngblaster logs faster than
+  // the viewer reads). The complete log is the run.log download.
+  const LOG_SKIP_BYTES = 1024 * 1024;
+
   async function pollLogs() {
     const name = state.log.instance;
     if (!name || state.log.paused) return;
-    const offset = state.log.offsets[name] || 0;
+    let offset = state.log.offsets[name];
     let resp;
+    // Where the skipped part of the log begins, for the marker line.
+    let skippedFrom = 0;
     try {
-      resp = await API.logs(name, offset);
+      if (offset !== undefined) {
+        resp = await API.logs(name, offset);
+        // Starting an instance deletes and recreates run.log, so an offset
+        // from the previous run points into a file that no longer exists.
+        // Once the new log has grown past that offset the server cannot
+        // detect this from the size alone, and everything written before it
+        // would be skipped silently. The generation (the file's identity)
+        // changes on every recreation, so start over with the new file.
+        if (state.log.generations[name] !== resp.generation) {
+          clearLogDock();
+          offset = undefined;
+        } else if (resp.size - resp.next_offset > LOG_SKIP_BYTES) {
+          skippedFrom = offset;
+          offset = undefined;
+        }
+      }
+      if (offset === undefined) resp = await API.logsTail(name);
     } catch (e) {
       return;
     }
-    // Starting an instance deletes and recreates run.log, so an offset from
-    // the previous run points into a file that no longer exists. Once the new
-    // log has grown past that offset the server cannot detect this from the
-    // size alone, and everything written before it would be skipped silently.
-    // The generation (the file's identity) changes on every recreation, so
-    // rewind and re-read from the beginning whenever it does.
-    const generation = resp.generation;
-    if (state.log.generations[name] !== generation) {
-      state.log.generations[name] = generation;
-      if (offset !== 0) {
-        state.log.offsets[name] = 0;
-        clearLogDock();
-        // Re-read this instance from the start on the next tick rather than
-        // rendering the tail slice that was fetched against the old offset.
-        return;
-      }
-    }
+    state.log.generations[name] = resp.generation;
     state.log.offsets[name] = resp.next_offset;
-    if (!resp.lines.length) return;
+    const skipped = offset === undefined ? resp.offset - skippedFrom : 0;
+    if (!resp.lines.length && skipped <= 0) return;
     const body = $('#logdock-body');
     const wasAtBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+    if (skipped > 0) {
+      body.appendChild(el('div', {
+        class: 'log-line log-skipped',
+        text: '… ' + formatFileSize(skipped) + ' of log not shown, download run.log for the complete log …',
+      }));
+    }
     resp.lines.forEach((line) => {
       body.appendChild(el('div', { class: 'log-line ' + levelClassFor(line), text: line }));
     });

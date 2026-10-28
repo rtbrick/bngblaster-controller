@@ -17,11 +17,16 @@ import (
 )
 
 const (
-	// uiClientHeader marks the requests of the embedded web UI, see
-	// WithQuietUIRequests. It is set by the client and thus only ever used
-	// to lower the log level of successful reads, never of actions.
-	uiClientHeader = "X-Bngblaster-Client"
-	uiClientValue  = "webui"
+	// ClientHeader marks the requests of the embedded web UI and of the
+	// health check, see WithQuietUIRequests. It is set by the client and
+	// thus only ever used to lower the log level of successful reads, never
+	// of actions.
+	ClientHeader  = "X-Bngblaster-Client"
+	uiClientValue = "webui"
+	// HealthClientValue marks the requests of "bngblasterctrl -health",
+	// which a container runtime runs every few seconds; they are as quiet
+	// as the polling of the web UI.
+	HealthClientValue = "health"
 
 	// maxLoggedErrorBody bounds how much of an error response is kept to
 	// extract the message for the access log line.
@@ -181,7 +186,8 @@ func (w *accessRecorder) errorMessage() string {
 // The level follows the outcome - error for 5xx, warning for 4xx, info
 // otherwise - so the stderr log (warn+) lists every failed request. With
 // quietUI, successful reads of the web UI (its polling, which otherwise
-// floods the log every second) are logged at debug level only.
+// floods the log every second) and of the health check are logged at
+// debug level only.
 func accessLog(next http.Handler, quietUI bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -194,14 +200,14 @@ func accessLog(next http.Handler, quietUI bool) http.Handler {
 			// Nothing written at all, which net/http answers with 200.
 			status = http.StatusOK
 		}
-		ui := r.Header.Get(uiClientHeader) == uiClientValue
+		client := knownClient(r)
 		read := rl.readOnly || r.Method == http.MethodGet || r.Method == http.MethodHead
-		level := accessLevel(status, quietUI && ui && read)
+		level := accessLevel(status, quietUI && client != "" && read)
 		if level < zerolog.GlobalLevel() {
 			return
 		}
 		event := log.WithLevel(level).Str("remote_addr", clientIP(r))
-		rl.addTo(event, ui)
+		rl.addTo(event, client)
 		if status >= http.StatusBadRequest {
 			if msg := rec.errorMessage(); msg != "" {
 				event.Str("error", msg)
@@ -209,6 +215,17 @@ func accessLog(next http.Handler, quietUI bool) http.Handler {
 		}
 		event.Msg(fmt.Sprintf("%s %s %d %s", r.Method, r.RequestURI, status, roundDuration(time.Since(start))))
 	})
+}
+
+// knownClient returns the client marked by ClientHeader, if it is one that
+// polls (the web UI or the health check), and "" otherwise.
+func knownClient(r *http.Request) string {
+	switch client := r.Header.Get(ClientHeader); client {
+	case uiClientValue, HealthClientValue:
+		return client
+	default:
+		return ""
+	}
 }
 
 // accessLevel returns the log level of a request by its outcome; quiet
@@ -227,12 +244,12 @@ func accessLevel(status int, quiet bool) zerolog.Level {
 }
 
 // addTo adds the recorded fields to the request's log line.
-func (rl *requestLog) addTo(event *zerolog.Event, ui bool) {
+func (rl *requestLog) addTo(event *zerolog.Event, client string) {
 	if rl.instance != "" {
 		event.Str("instance", rl.instance)
 	}
-	if ui {
-		event.Str("client", uiClientValue)
+	if client != "" {
+		event.Str("client", client)
 	}
 	if rl.action != "" {
 		event.Str("action", rl.action)

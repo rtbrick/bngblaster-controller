@@ -112,6 +112,8 @@ type Server struct {
 	// quietUI logs successful reads of the web UI at debug level only,
 	// see accessLog.
 	quietUI bool
+	// autostart is the instance started at controller start, if any.
+	autostart *controller.Autostart
 
 	streamCache   *summaryCache[[]controller.StreamSummaryStream]
 	sessionCache  *summaryCache[[]controller.SessionSummarySession]
@@ -452,25 +454,39 @@ func (s *Server) create() http.HandlerFunc {
 	}
 }
 
+// status reports whether an instance is running ("started") or not
+// ("stopped"), the exit code of its last run once stopped, if known, and
+// for the autostart instance the state of the autostart. The autostart
+// instance has a status even before it exists, so that a health check can
+// tell waiting for interfaces and a failed start from an unknown instance.
 func (s *Server) status() http.HandlerFunc {
 	type response struct {
-		Status string `json:"status"`
+		Status    string                      `json:"status"`
+		ExitCode  *int                        `json:"exit_code,omitempty"`
+		Autostart *controller.AutostartStatus `json:"autostart,omitempty"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		instanceVariable := mux.Vars(r)[instanceNameParameter]
 		instance := cleanPathVariable(instanceVariable)
-		if !s.repository.Exists(instance) {
+		var resp response
+		if s.autostart != nil && s.autostart.Instance() == instance {
+			autostart := s.autostart.Status()
+			resp.Autostart = &autostart
+		}
+		if resp.Autostart == nil && !s.repository.Exists(instance) {
 			JSONNotFound(w, r)
 			return
 		}
 
+		resp.Status = "stopped"
+		if s.repository.Running(instance) {
+			resp.Status = "started"
+		} else if code, ok := s.repository.ExitCode(instance); ok {
+			resp.ExitCode = &code
+		}
 		w.Header().Set(contentType, applicationJSON)
 		w.WriteHeader(http.StatusOK)
-		if s.repository.Running(instance) {
-			_ = json.NewEncoder(w).Encode(&response{Status: "started"})
-		} else {
-			_ = json.NewEncoder(w).Encode(&response{Status: "stopped"})
-		}
+		_ = json.NewEncoder(w).Encode(&resp)
 	}
 }
 

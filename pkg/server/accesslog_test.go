@@ -61,6 +61,7 @@ func TestAccessLog(t *testing.T) {
 		name    string
 		quietUI bool
 		ui      bool
+		health  bool
 		method  string
 		url     string
 		body    string
@@ -77,6 +78,10 @@ func TestAccessLog(t *testing.T) {
 		}, {
 			name: "quiet ui read", quietUI: true, ui: true, method: http.MethodGet, url: "/api/v1/instances/x",
 			wantLevel: "debug", wantMsg: "GET /api/v1/instances/x 200",
+		}, {
+			name: "quiet health read", quietUI: true, health: true, method: http.MethodGet, url: "/api/v1/instances/x",
+			wantLevel: "debug", wantMsg: "GET /api/v1/instances/x 200",
+			want: map[string]any{"client": "health"},
 		}, {
 			name: "quiet non-ui read", quietUI: true, method: http.MethodGet, url: "/api/v1/instances/x",
 			wantLevel: "info", wantMsg: "GET /api/v1/instances/x 200",
@@ -117,7 +122,10 @@ func TestAccessLog(t *testing.T) {
 			handler := NewServer(repository, WithQuietUIRequests(tt.quietUI))
 			req := httptest.NewRequestWithContext(t.Context(), tt.method, tt.url, strings.NewReader(tt.body))
 			if tt.ui {
-				req.Header.Set(uiClientHeader, uiClientValue)
+				req.Header.Set(ClientHeader, uiClientValue)
+			}
+			if tt.health {
+				req.Header.Set(ClientHeader, HealthClientValue)
 			}
 			if tt.name == "cross-origin rejected" {
 				req.Header.Set("Sec-Fetch-Site", "cross-site")
@@ -135,7 +143,7 @@ func TestAccessLog(t *testing.T) {
 			for key, value := range tt.want {
 				require.Equal(t, value, line[key], key)
 			}
-			if !tt.ui {
+			if !tt.ui && !tt.health {
 				require.NotContains(t, line, "client")
 			}
 		})

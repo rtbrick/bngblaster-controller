@@ -58,6 +58,8 @@ Usage of /usr/local/bin/bngblasterctrl:
     	HTTP network address (default ":8001")
   -allowed-hosts string
     	comma-separated host names clients may use to reach the controller, against DNS rebinding (IP addresses and localhost are always allowed; empty allows any host)
+  -autostart string
+    	start this instance after startup, with the run.json in its folder as start arguments if there is one (once; the instance is not restarted when it exits)
   -bgpupdate string
     	bgpupdate executable (default "/usr/bin/bgpupdate")
   -color
@@ -72,6 +74,8 @@ Usage of /usr/local/bin/bngblasterctrl:
     	bngblaster executable (default "/usr/bin/bngblaster")
   -generators
     	enable the lspgen, bgpupdate and ldpupdate generator endpoints (disable with -generators=false) (default true)
+  -health
+    	check the health of the controller running on -addr and of its -autostart instance, then exit with 0 if healthy and 1 otherwise (for container health checks)
   -host-api
     	enable the host information endpoints (disable with -host-api=false) (default true)
   -interfaces-api
@@ -85,9 +89,16 @@ Usage of /usr/local/bin/bngblasterctrl:
   -schema string
     	path to the bngblaster configuration JSON schema served on /api/v1/schema (default "/usr/share/bngblaster/bngblaster-config.json")
   -ui
-    	enable the embedded web UI (experimental, disable with -ui=false) (default true)
+    	enable the embedded web UI (disable with -ui=false) (default true)
   -upload
     	enable file upload (disable with -upload=false) (default true)
+  -wait-interfaces int
+    	before -autostart, wait until at least this many network interfaces besides lo and eth0 exist (0: no wait)
+  -wait-interfaces-timeout duration
+    	give up -wait-interfaces after this time and do not start the instance (0: no limit) (default 5m0s)
+
+Every flag can also be set with the environment variable BNGBLASTERCTRL_<FLAG>
+(upper case, dashes as underscores, e.g. BNGBLASTERCTRL_WAIT_INTERFACES); a flag on the command line wins.
 ```
 
 ## Logging
@@ -116,12 +127,162 @@ upload and non-read-only commands are always logged. `-debug` shows everything,
 including the source location of each line. `-console=false` switches to
 JSON lines.
 
+### Instance logs and log rotation
+
+An instance started with logging enabled writes `run.log` into its folder
+for as long as it runs; neither bngblaster nor the controller limits its
+size. The web UI's log viewer starts at the end of the log and skips ahead
+when it falls more than 1 MB behind, so a log that has grown for days is
+never paged through from the start; download `run.log` for the complete log.
+
+To limit the size of long-running logs, rotate them with `copytruncate`:
+
+```
+/var/bngblaster/*/run.log {
+    size 100M
+    rotate 3
+    compress
+    delaycompress
+    copytruncate
+    missingok
+    notifempty
+}
+```
+
+* Use `copytruncate`. bngblaster keeps `run.log` open and cannot reopen it,
+  so with logrotate's default (rename and create) it keeps writing into the
+  renamed file, and the new, empty `run.log` the viewer follows stays empty.
+  bngblaster appends to the log, so writing continues cleanly at the start
+  of the truncated file. As with any `copytruncate`, lines written between
+  copy and truncate can be lost.
+* Never signal bngblaster in `postrotate` (e.g. `kill -HUP`): SIGHUP is a
+  teardown signal for bngblaster and ends the running test.
+* Rotated copies (`run.log.1`, `run.log.2.gz`, `run.log-20261028`, ...)
+  belong to the run they were rotated from: the controller deletes them
+  together with `run.log` when the instance is started again or its
+  configuration is replaced.
+
 ## Configuration
 
 ### Command line
 
 All options above can be passed directly on the command line when running
 `bngblasterctrl` manually.
+
+### Environment variables
+
+Every flag can also be set through the environment variable
+`BNGBLASTERCTRL_<FLAG>`: the flag name in upper case with dashes replaced by
+underscores, e.g. `BNGBLASTERCTRL_WAIT_INTERFACES` for `-wait-interfaces` and
+`BNGBLASTERCTRL_D` for `-d`. A flag given on the command line overrides its
+environment variable, and an empty variable counts as not set. Booleans accept
+the values of Go's `strconv.ParseBool` (`1`, `t`, `true`, `0`, `f`, `false`,
+...); an invalid value stops the controller with an error naming the
+variable.
+
+| Flag | Environment variable |
+|------|----------------------|
+| `-addr` | `BNGBLASTERCTRL_ADDR` |
+| `-allowed-hosts` | `BNGBLASTERCTRL_ALLOWED_HOSTS` |
+| `-autostart` | `BNGBLASTERCTRL_AUTOSTART` |
+| `-bgpupdate` | `BNGBLASTERCTRL_BGPUPDATE` |
+| `-color` | `BNGBLASTERCTRL_COLOR` |
+| `-console` | `BNGBLASTERCTRL_CONSOLE` |
+| `-d` | `BNGBLASTERCTRL_D` |
+| `-debug` | `BNGBLASTERCTRL_DEBUG` |
+| `-e` | `BNGBLASTERCTRL_E` |
+| `-generators` | `BNGBLASTERCTRL_GENERATORS` |
+| `-health` | `BNGBLASTERCTRL_HEALTH` |
+| `-host-api` | `BNGBLASTERCTRL_HOST_API` |
+| `-interfaces-api` | `BNGBLASTERCTRL_INTERFACES_API` |
+| `-ldpupdate` | `BNGBLASTERCTRL_LDPUPDATE` |
+| `-log-ui` | `BNGBLASTERCTRL_LOG_UI` |
+| `-lspgen` | `BNGBLASTERCTRL_LSPGEN` |
+| `-schema` | `BNGBLASTERCTRL_SCHEMA` |
+| `-ui` | `BNGBLASTERCTRL_UI` |
+| `-upload` | `BNGBLASTERCTRL_UPLOAD` |
+| `-wait-interfaces` | `BNGBLASTERCTRL_WAIT_INTERFACES` |
+| `-wait-interfaces-timeout` | `BNGBLASTERCTRL_WAIT_INTERFACES_TIMEOUT` |
+
+`BNGBLASTERCTRL_OPTS` of the systemd service (below) is not one of them: it
+is expanded into command line flags by the unit.
+
+### Container startup
+
+In a container, the controller can start a test by itself and report its
+health, configured through the environment:
+
+```
+BNGBLASTERCTRL_AUTOSTART=test           # start /var/bngblaster/test/config.json
+BNGBLASTERCTRL_WAIT_INTERFACES=2        # once two data interfaces are attached
+```
+
+* `-autostart <instance>` starts the instance from
+  `<config folder>/<instance>/config.json` after startup, the same way as
+  `POST /api/v1/instances/<instance>/_start`. If the instance folder holds a
+  `run.json` (e.g. mounted next to `config.json`), it is used as the start
+  arguments, exactly like the body of `_start`; otherwise the defaults are
+  used. A `run.json` holding the same arguments is left untouched, so it can
+  be mounted read-only. The instance is started once and not restarted when
+  it exits; the controller and its API keep running, so reports and logs stay
+  accessible. A missing `config.json`, an invalid `run.json` or a failed
+  start is logged as an error.
+* `-wait-interfaces <n>` delays the autostart until at least `n` network
+  interfaces exist besides `lo`, `eth0` (the management interface) and the
+  fallback tunnel devices the kernel creates in every network namespace
+  (`tunl0`, `sit0`, `gre0`, ...). Container labs often attach the data
+  interfaces after the container has started. Their presence is enough:
+  bngblaster sets the links up itself. If they do not show up within
+  `-wait-interfaces-timeout` (default 5m, 0 for no limit), the instance is
+  not started and the autostart fails.
+* The API is served while the controller waits. On `SIGTERM` (e.g.
+  `docker stop`) the controller stops the autostarted instance like `_stop`
+  does and waits up to 30s for it to exit, so it can write its report.
+* `-health` checks a running controller and exits: no server is started. It
+  queries the API on the local address derived from `-addr` (2s timeout)
+  and resolves the instance from `-autostart`, so in a container with the
+  environment above the health check needs no arguments:
+
+  ```
+  HEALTHCHECK --start-period=5m CMD ["/usr/bin/bngblasterctrl", "-health"]
+  ```
+
+  The health check is a separate process: it sees the container's
+  environment, but not the command line of the running controller. Set
+  `-autostart` and `-addr` through the environment (as above), or repeat them
+  in the health check command; otherwise it only checks that a controller
+  answers on the default address.
+
+  It exits with 0 (healthy) if the controller responds and, with an
+  autostart instance, that instance is running or has terminated with exit
+  code 0. It exits with 1 (unhealthy) if the controller does not respond,
+  while it waits for interfaces or the instance is starting, if the
+  interface wait timed out or the start failed, or if bngblaster terminated
+  with a non-zero exit code. The start period of the health check should
+  cover the time it takes to attach the interfaces and start the test.
+
+The state of the autostart is kept in memory only and starts over with every
+controller start, so a persistent instance folder never carries a stale
+state into a new deployment.
+
+### Instance status
+
+`GET /api/v1/instances/<instance>` returns the instance status:
+
+```json
+{"status": "stopped", "exit_code": 0, "autostart": {"state": "started"}}
+```
+
+* `status`: `started` while bngblaster runs, `stopped` otherwise.
+* `exit_code`: the exit code of the last run once it has stopped, `128+n`
+  if it was terminated by signal `n` (e.g. 137 after `_kill`). It is left out
+  while the instance runs and when it is unknown, i.e. for a run started
+  before the controller itself.
+* `autostart` (only for the `-autostart` instance): `state` is
+  `waiting-interfaces`, `starting` (bngblaster is coming up), `started`
+  (it came up; `status` and `exit_code` tell how it is doing) or `failed`,
+  with the reason in `error`. The autostart instance returns this status
+  even before its folder exists, instead of 404.
 
 ### systemd service
 
@@ -162,9 +323,9 @@ Note that the `bngblaster` instances run inside the service's control group,
 so stopping or restarting the service (including through a package upgrade)
 also stops every running test instance.
 
-## Experimental Web UI
+## Web UI
 
-The controller ships with an embedded, experimental web UI for creating and
+The controller ships with an embedded web UI for creating and
 observing test instances without calling the REST API directly. It is
 **enabled by default**, along with the additional endpoints it depends
 on:
@@ -228,9 +389,8 @@ Note that the web UI needs the interfaces, host and upload endpoints for some of
 its features, so disabling them while keeping `-ui` enabled leaves those
 parts of the UI non-functional.
 
-With the defaults, open `http://<host>:<port>/` in a browser. As the UI is experimental,
-expect rough edges, and only expose the controller on networks you trust, since none of
-these endpoints require authentication yet.
+With the defaults, open `http://<host>:<port>/` in a browser. Only expose the controller
+on networks you trust, since none of these endpoints require authentication yet.
 
 ## Security
 

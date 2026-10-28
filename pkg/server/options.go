@@ -2,7 +2,11 @@
 // Copyright (C) 2020-2026, RtBrick, Inc.
 package server
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/rtbrick/bngblaster-controller/pkg/controller"
+)
 
 // DefaultSchemaPath is the default location of the bngblaster configuration
 // JSON schema, used to drive the "New Instance" config editor in the web UI.
@@ -92,11 +96,21 @@ func WithAuthMiddleware(mw AuthMiddleware) Option {
 }
 
 // WithQuietUIRequests logs the successful reads of the embedded web UI -
-// its polling of instance state, logs and statistics - at debug level only.
-// Failed requests and actions (start, stop, upload, ...) are logged as
-// usual. Disabled by default.
+// its polling of instance state, logs and statistics - and of the health
+// check (bngblasterctrl -health) at debug level only. Failed requests and
+// actions (start, stop, upload, ...) are logged as usual. Disabled by
+// default.
 func WithQuietUIRequests(enabled bool) Option {
 	return func(s *Server) {
 		s.quietUI = enabled
+	}
+}
+
+// WithAutostart reports the state of an instance autostart in the status
+// of that instance (GET /api/v1/instances/<name>), also before the
+// instance exists. Disabled by default.
+func WithAutostart(autostart *controller.Autostart) Option {
+	return func(s *Server) {
+		s.autostart = autostart
 	}
 }

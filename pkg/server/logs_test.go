@@ -97,3 +97,46 @@ func TestTailLogFile_missingFile(t *testing.T) {
 	_, err := tailLogFile(filepath.Join(t.TempDir(), "absent.log"), 0, defaultLogReadLimit)
 	require.True(t, os.IsNotExist(err))
 }
+
+func TestReadLogEnd(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   string
+		limit     int
+		want      []string
+		wantStart int64
+	}{
+		{
+			name: "whole_file", content: "a\nb\n", limit: 100,
+			want: []string{"a", "b"}, wantStart: 0,
+		}, {
+			// The window starts inside "second": it is left out.
+			name: "cut_line", content: "first\nsecond\nthird\n", limit: 9,
+			want: []string{"third"}, wantStart: int64(len("first\nsecond\n")),
+		}, {
+			// The window starts exactly at "second".
+			name: "line_boundary", content: "first\nsecond\nthird\n", limit: 13,
+			want: []string{"second", "third"}, wantStart: int64(len("first\n")),
+		}, {
+			// A trailing partial line is held back as in a normal poll.
+			name: "partial_tail", content: "first\nsecond\nthi", limit: 10,
+			want: []string{"second"}, wantStart: int64(len("first\n")),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "run.log")
+			writeLogFile(t, file, tt.content)
+			resp, err := readLogEnd(file, tt.limit)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, resp.Lines)
+			require.Equal(t, tt.wantStart, resp.Offset)
+			require.Equal(t, int64(len(tt.content)), resp.Size)
+
+			// Polling on from next_offset continues seamlessly.
+			next, err := tailLogFile(file, resp.NextOffset, defaultLogReadLimit)
+			require.NoError(t, err)
+			require.Equal(t, resp.Generation, next.Generation)
+		})
+	}
+}

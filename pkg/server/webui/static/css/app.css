@@ -1042,6 +1042,7 @@ dialog > form[method="dialog"] {
 .log-line { white-space: pre-wrap; word-break: break-word; border-bottom: 1px solid rgba(255,255,255,0.04); padding: 0.1rem 0; }
 .log-line.level-error, .log-line.level-err { color: #ff8a8a; }
 .log-line.level-warn, .log-line.level-warning { color: #ffcf7a; }
+.log-line.log-skipped { font-style: italic; opacity: 0.7; }
 
 .sr-status { position: absolute; width: 1px; height: 1px; overflow: hidden; }
 

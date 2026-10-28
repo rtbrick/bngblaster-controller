@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -25,12 +26,21 @@ import (
 
 var Version = "dev"
 
+const (
+	// exitUsage is the exit code for invalid flags, as used by flag.
+	exitUsage = 2
+	// exitUnhealthy is the exit code of an unhealthy -health check.
+	exitUnhealthy = 1
+	// defaultWaitInterfacesTimeout is the default of -wait-interfaces-timeout.
+	defaultWaitInterfacesTimeout = 5 * time.Minute
+)
+
 func main() {
 	addr := flag.String("addr", ":8001", "HTTP network address")
 	directory := flag.String("d", controller.DefaultConfigFolder, "config folder")
 	executable := flag.String("e", controller.DefaultExecutable, "bngblaster executable")
 	upload := flag.Bool("upload", true, "enable file upload (disable with -upload=false)")
-	ui := flag.Bool("ui", true, "enable the embedded web UI (experimental, disable with -ui=false)")
+	ui := flag.Bool("ui", true, "enable the embedded web UI (disable with -ui=false)")
 	interfacesAPI := flag.Bool("interfaces-api", true, "enable the interfaces endpoint (disable with -interfaces-api=false)")
 	hostAPI := flag.Bool("host-api", true, "enable the host information endpoints (disable with -host-api=false)")
 	generators := flag.Bool("generators", true, "enable the lspgen, bgpupdate and ldpupdate generator endpoints (disable with -generators=false)")
@@ -50,7 +60,11 @@ func main() {
 		"also log successful read requests of the web UI (its polling) at info level; "+
 			"failed requests and actions are always logged")
 
-	flag.Parse()
+	startup := startupFlags()
+	parseFlags(startup)
+	if *startup.health {
+		os.Exit(runHealth(*addr, *startup.autostart))
+	}
 
 	// setup logging
 	initializeLogger(*debug, *console, *color)
@@ -68,7 +82,9 @@ func main() {
 		}
 		repo.RemoveGeneratorTempFiles()
 	}
+	autostarter := startup.newAutostart(repo)
 	srv := server.NewServer(repo,
+		server.WithAutostart(autostarter),
 		server.WithGenerators(generatorExecutables),
 		server.WithUI(*ui),
 		server.WithQuietUIRequests(!*logUI),
@@ -77,7 +93,73 @@ func main() {
 		server.WithSchemaPath(*schema),
 		server.WithAllowedHosts(splitList(*allowedHosts)))
 	srv.Version = Version
-	serve(*addr, srv)
+	serve(*addr, srv, autostarter)
+}
+
+// startup holds the flags for starting a test at container start.
+type startup struct {
+	autostart             *string
+	waitInterfaces        *int
+	waitInterfacesTimeout *time.Duration
+	health                *bool
+}
+
+// startupFlags defines the flags for starting a test at container start.
+func startupFlags() startup {
+	return startup{
+		autostart: flag.String("autostart", "",
+			"start this instance after startup, with the run.json in its folder as start arguments "+
+				"if there is one (once; the instance is not restarted when it exits)"),
+		waitInterfaces: flag.Int("wait-interfaces", 0,
+			"before -autostart, wait until at least this many network interfaces besides lo and eth0 exist (0: no wait)"),
+		waitInterfacesTimeout: flag.Duration("wait-interfaces-timeout", defaultWaitInterfacesTimeout,
+			"give up -wait-interfaces after this time and do not start the instance (0: no limit)"),
+		health: flag.Bool("health", false,
+			"check the health of the controller running on -addr and of its -autostart instance, "+
+				"then exit with 0 if healthy and 1 otherwise (for container health checks)"),
+	}
+}
+
+// newAutostart returns the autostart of -autostart, nil without one.
+func (f startup) newAutostart(repo controller.Repository) *controller.Autostart {
+	if *f.autostart == "" {
+		return nil
+	}
+	return controller.NewAutostart(repo, *f.autostart,
+		controller.WithWaitInterfaces(*f.waitInterfaces, *f.waitInterfacesTimeout))
+}
+
+// parseFlags parses the command line and completes it from the
+// environment (see applyEnv). Invalid flags end the program.
+func parseFlags(f startup) {
+	flag.CommandLine.Usage = usage(flag.CommandLine)
+	flag.Parse()
+	err := applyEnv(flag.CommandLine, os.LookupEnv)
+	if err == nil && *f.autostart != "" &&
+		(strings.ContainsAny(*f.autostart, "/.") || strings.TrimSpace(*f.autostart) != *f.autostart) {
+		// The API strips dots and slashes from instance names, so such an
+		// instance could not be reached through it.
+		err = fmt.Errorf("invalid -autostart instance %q: must not contain '/' or '.'", *f.autostart)
+	}
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		if *f.health {
+			// Docker reserves health check exit codes other than 0 and 1.
+			os.Exit(exitUnhealthy)
+		}
+		os.Exit(exitUsage)
+	}
+}
+
+// runHealth runs the -health check and returns the exit code.
+func runHealth(addr, instance string) int {
+	msg, err := checkHealth(context.Background(), addr, instance)
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "unhealthy:", err)
+		return exitUnhealthy
+	}
+	_, _ = fmt.Fprintln(os.Stdout, "healthy:", msg)
+	return 0
 }
 
 // defaultGeneratorExecutable returns the default executable of a generator tool.
@@ -97,7 +179,9 @@ func splitList(value string) []string {
 	return items
 }
 
-func serve(addr string, handler http.Handler) {
+// serve runs the HTTP server, and autostart (if not nil) next to it, until
+// a termination signal arrives.
+func serve(addr string, handler http.Handler, autostart *controller.Autostart) {
 	const idleTimeout = time.Second * 80
 	const writeTimeout = time.Second * 40
 	const readHeaderTimeout = time.Second * 40
@@ -108,6 +192,20 @@ func serve(addr string, handler http.Handler) {
 		ReadHeaderTimeout: readHeaderTimeout,
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
+	}
+
+	// The autostart waits for interfaces and for the instance to come up,
+	// which takes a while; the API is served in the meantime, so that the
+	// health check can follow it.
+	autostartCtx, cancelAutostart := context.WithCancel(context.Background())
+	autostartDone := make(chan struct{})
+	if autostart != nil {
+		go func() {
+			defer close(autostartDone)
+			autostart.Run(autostartCtx)
+		}()
+	} else {
+		close(autostartDone)
 	}
 
 	log.Info().Msgf("Starting server on %s\n", addr)
@@ -122,6 +220,13 @@ func serve(addr string, handler http.Handler) {
 	// 90s, so stay well below it.
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
+	// A container ends with the controller, killing what still runs in it:
+	// stop the autostarted instance first, so it can write its report.
+	cancelAutostart()
+	<-autostartDone
+	if autostart != nil {
+		autostart.StopInstance(ctx)
+	}
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Warn().Err(err).Msg("graceful shutdown incomplete")
 	}

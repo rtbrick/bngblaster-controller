@@ -32,6 +32,10 @@ type Repository interface {
 	Exists(name string) bool
 	// Running checks if a bngblaster instance is running.
 	Running(name string) bool
+	// ExitCode returns the exit code of the instance's last run, 128+n if
+	// it was terminated by signal n. ok is false while the instance is
+	// running and if the run was not started by this controller process.
+	ExitCode(name string) (code int, ok bool)
 	// Start the bngblaster instance with the given running configuration.
 	// It blocks until the instance is known to have come up or to have
 	// failed (see DefaultRepository.Start); ctx bounds that wait, so a

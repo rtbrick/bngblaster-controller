@@ -2,6 +2,8 @@
 #
 # Set BNGBLASTERCTRL_OPTS to any combination of the bngblasterctrl
 # command-line flags. Run "bngblasterctrl -h" for the full list.
+# Each flag can also be set as its own variable BNGBLASTERCTRL_<FLAG>
+# (e.g. BNGBLASTERCTRL_LOG_UI=true); a flag in BNGBLASTERCTRL_OPTS wins.
 #
 # Examples:
 #   BNGBLASTERCTRL_OPTS="-addr :8080 -d /var/bngblaster"

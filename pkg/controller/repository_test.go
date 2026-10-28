@@ -610,3 +610,23 @@ func TestDefaultRepository_Files(t *testing.T) {
 	_, err = r.Files("missing")
 	require.ErrorIs(t, err, ErrBlasterNotExists)
 }
+
+func TestDefaultRepository_cleanupRunFiles_removesRotatedLogs(t *testing.T) {
+	configFolder := t.TempDir()
+	folder := path.Join(configFolder, "instance")
+	require.NoError(t, os.Mkdir(folder, 0o700))
+	rotated := []string{"run.log", "run.log.1", "run.log.2.gz", "run.log-20261028", "run.log-20261027.gz"}
+	kept := []string{"config.json", "run.logs", "my-run.log.1", "streams.json"}
+	for _, name := range append(rotated, kept...) {
+		require.NoError(t, os.WriteFile(path.Join(folder, name), []byte("x"), 0o600))
+	}
+	r := NewDefaultRepository(WithConfigFolder(configFolder))
+	require.NoError(t, r.Create("instance", []byte("{}")))
+
+	for _, name := range rotated {
+		require.NoFileExists(t, path.Join(folder, name))
+	}
+	for _, name := range kept {
+		require.FileExists(t, path.Join(folder, name))
+	}
+}

@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	defaultLogReadLimit = 64 * 1024
+	defaultLogReadLimit = 128 * 1024
 	maxLogReadLimit     = 1 << 20
 	// A single log line can never be longer than one read, so the line
 	// scanner never needs a bigger buffer than maxLogReadLimit.
@@ -34,11 +34,16 @@ const (
 // over from a previous run points into a file that no longer exists: if the
 // new log has already grown past that offset, a plain size comparison cannot
 // detect the rotation and everything written before it is silently skipped.
-// A client must therefore reset its offset to 0 whenever Generation changes.
+// A client must therefore reset its offset whenever Generation changes.
+//
+// Size is the size of the log file, so that a client can tell how far it is
+// behind (Size - NextOffset) and skip ahead with "tail" instead of paging
+// through a log that has grown for days at one limit per poll.
 type logsResponse struct {
 	Generation uint64   `json:"generation"`
 	Offset     int64    `json:"offset"`
 	NextOffset int64    `json:"next_offset"`
+	Size       int64    `json:"size"`
 	EOF        bool     `json:"eof"`
 	Lines      []string `json:"lines"`
 }
@@ -94,7 +99,9 @@ func logGeneration(f *os.File, info os.FileInfo) uint64 {
 // bngblaster process writes to when started with logging enabled
 // (see RunningConfig.Logging). The UI polls this endpoint with the
 // "offset" it last received, which keeps the request cheap regardless of
-// how large the log file grows.
+// how large the log file grows. "tail=true" ignores the offset and returns
+// the last complete lines within limit instead, where a viewer opening (or
+// falling far behind on) a large log starts.
 //
 // Once bngblaster gains a native "log" (or similar) socket command capable
 // of streaming structured log messages, this handler should be replaced
@@ -117,7 +124,13 @@ func (s *Server) logs() http.HandlerFunc {
 		}
 
 		file := path.Join(s.repository.ConfigFolder(), instance, controller.RunLogFilename)
-		resp, err := tailLogFile(file, offset, limit)
+		var resp logsResponse
+		var err error
+		if r.URL.Query().Get("tail") == "true" {
+			resp, err = readLogEnd(file, limit)
+		} else {
+			resp, err = tailLogFile(file, offset, limit)
+		}
 		if err != nil {
 			// No log file yet (e.g. instance never started with logging
 			// enabled) is not an error from the UI's perspective.
@@ -194,7 +207,43 @@ func tailLogFile(file string, offset int64, limit int) (logsResponse, error) {
 		Generation: generation,
 		Offset:     offset,
 		NextOffset: nextOffset,
+		Size:       size,
 		EOF:        nextOffset >= size,
 		Lines:      lines,
 	}, nil
+}
+
+// readLogEnd returns the complete lines within the last limit bytes of the
+// log file. A line cut by the start of that window is left out, so the
+// first line returned is never a fragment.
+func readLogEnd(file string, limit int) (logsResponse, error) {
+	info, err := os.Stat(file)
+	if err != nil {
+		return logsResponse{}, err
+	}
+	offset := max(info.Size()-int64(limit), 0)
+	resp, err := tailLogFile(file, offset, limit)
+	if err != nil || resp.Offset == 0 || len(resp.Lines) == 0 {
+		return resp, err
+	}
+	if !startsLine(file, resp.Offset) {
+		resp.Offset += int64(len(resp.Lines[0])) + 1
+		resp.Lines = resp.Lines[1:]
+	}
+	return resp, nil
+}
+
+// startsLine reports whether a line of the file starts at offset, i.e. the
+// byte before it is a newline.
+func startsLine(file string, offset int64) bool {
+	f, err := os.Open(file)
+	if err != nil {
+		return false
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+	b := make([]byte, 1)
+	_, err = f.ReadAt(b, offset-1)
+	return err == nil && b[0] == '\n'
 }

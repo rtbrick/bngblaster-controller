@@ -39,6 +39,9 @@ var _ Repository = &RepositoryMock{}
 //			ExecutableFunc: func() string {
 //				panic("mock out the Executable method")
 //			},
+//			ExitCodeFunc: func(name string) (int, bool) {
+//				panic("mock out the ExitCode method")
+//			},
 //			ExistsFunc: func(name string) bool {
 //				panic("mock out the Exists method")
 //			},
@@ -87,6 +90,9 @@ type RepositoryMock struct {
 
 	// ExecutableFunc mocks the Executable method.
 	ExecutableFunc func() string
+
+	// ExitCodeFunc mocks the ExitCode method.
+	ExitCodeFunc func(name string) (int, bool)
 
 	// ExistsFunc mocks the Exists method.
 	ExistsFunc func(name string) bool
@@ -141,6 +147,11 @@ type RepositoryMock struct {
 		}
 		// Executable holds details about calls to the Executable method.
 		Executable []struct {
+		}
+		// ExitCode holds details about calls to the ExitCode method.
+		ExitCode []struct {
+			// Name is the name argument value.
+			Name string
 		}
 		// Exists holds details about calls to the Exists method.
 		Exists []struct {
@@ -197,6 +208,7 @@ type RepositoryMock struct {
 	lockCreate       sync.RWMutex
 	lockDelete       sync.RWMutex
 	lockExecutable   sync.RWMutex
+	lockExitCode     sync.RWMutex
 	lockExists       sync.RWMutex
 	lockFiles        sync.RWMutex
 	lockGenerate     sync.RWMutex
@@ -389,6 +401,38 @@ func (mock *RepositoryMock) ExecutableCalls() []struct {
 	mock.lockExecutable.RLock()
 	calls = mock.calls.Executable
 	mock.lockExecutable.RUnlock()
+	return calls
+}
+
+// ExitCode calls ExitCodeFunc.
+func (mock *RepositoryMock) ExitCode(name string) (int, bool) {
+	if mock.ExitCodeFunc == nil {
+		panic("RepositoryMock.ExitCodeFunc: method is nil but Repository.ExitCode was just called")
+	}
+	callInfo := struct {
+		Name string
+	}{
+		Name: name,
+	}
+	mock.lockExitCode.Lock()
+	mock.calls.ExitCode = append(mock.calls.ExitCode, callInfo)
+	mock.lockExitCode.Unlock()
+	return mock.ExitCodeFunc(name)
+}
+
+// ExitCodeCalls gets all the calls that were made to ExitCode.
+// Check the length with:
+//
+//	len(mockedRepository.ExitCodeCalls())
+func (mock *RepositoryMock) ExitCodeCalls() []struct {
+	Name string
+} {
+	var calls []struct {
+		Name string
+	}
+	mock.lockExitCode.RLock()
+	calls = mock.calls.ExitCode
+	mock.lockExitCode.RUnlock()
 	return calls
 }
 

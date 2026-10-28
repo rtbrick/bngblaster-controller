@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,6 +45,9 @@ const (
 	// exitStartupAborted is the exit status of bngblaster if its startup
 	// was aborted by a teardown request (test-stop or a signal).
 	exitStartupAborted = 3
+	// exitSignalBase plus the signal number is the exit code of a process
+	// terminated by a signal, as shells and docker report it.
+	exitSignalBase = 128
 
 	// ConfigFilename configuration file of the blaster.
 	ConfigFilename = "config.json"
@@ -130,7 +134,7 @@ func (r *DefaultRepository) Create(name string, config []byte) error {
 	if err := os.WriteFile(file, config, permission); err != nil {
 		return err
 	}
-	if err := r.cleanupRunFiles(name); err != nil {
+	if err := r.cleanupRunFiles(name, false); err != nil {
 		return err
 	}
 	return nil
@@ -149,6 +153,7 @@ func (r *DefaultRepository) Delete(name string) error {
 	}
 	defer generating.unlock(folder)
 	_ = os.RemoveAll(folder)
+	exits.clear(folder)
 	return nil
 }
 
@@ -208,11 +213,61 @@ func (r *DefaultRepository) RemoveGeneratorTempFiles() {
 	}
 }
 
-func (r *DefaultRepository) cleanupRunFiles(name string) error {
+// exits holds the exit code of the last run of each instance folder, for
+// as long as this controller runs. Like generating, it is keyed by folder.
+// It is deliberately not persisted: after a controller restart, a code
+// found in a (persistent) instance folder could belong to any earlier run.
+var exits = exitCodes{codes: map[string]int{}}
+
+// exitCodes maps instance folders to the exit code of their last run.
+type exitCodes struct {
+	mu    sync.Mutex
+	codes map[string]int
+}
+
+func (e *exitCodes) set(folder string, code int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.codes[folder] = code
+}
+
+func (e *exitCodes) get(folder string) (int, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	code, ok := e.codes[folder]
+	return code, ok
+}
+
+func (e *exitCodes) clear(folder string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	delete(e.codes, folder)
+}
+
+// exitCode converts the result of waiting for a process into its exit
+// code, reporting a termination by signal n as 128+n like a shell (and
+// docker) does. ok is false if the process could not be waited for.
+func exitCode(waitErr error) (int, bool) {
+	if waitErr == nil {
+		return 0, true
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(waitErr, &exitErr) {
+		return 0, false
+	}
+	if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+		return exitSignalBase + int(status.Signal()), true
+	}
+	return exitErr.ExitCode(), true
+}
+
+// cleanupRunFiles removes the files of the previous run. keepRunConfig
+// leaves run.json alone, for Start, which writes it anyway.
+func (r *DefaultRepository) cleanupRunFiles(name string, keepRunConfig bool) error {
 	folder := path.Join(r.configFolder, name)
+	exits.clear(folder)
 	files := []string{
 		path.Join(folder, runPidFilename),
-		path.Join(folder, RunConfigFilename),
 		path.Join(folder, RunLogFilename),
 		path.Join(folder, RunReportFilename),
 		path.Join(folder, RunPcapFilename),
@@ -220,6 +275,10 @@ func (r *DefaultRepository) cleanupRunFiles(name string) error {
 		path.Join(folder, RunStdErr),
 		path.Join(folder, RunStdOut),
 	}
+	if !keepRunConfig {
+		files = append(files, path.Join(folder, RunConfigFilename))
+	}
+	files = append(files, rotatedLogs(folder)...)
 	for _, f := range files {
 		if err := os.Remove(f); err != nil {
 			if os.IsNotExist(err) {
@@ -229,6 +288,25 @@ func (r *DefaultRepository) cleanupRunFiles(name string) error {
 		}
 	}
 	return nil
+}
+
+// rotatedLogs returns the copies of run.log that a log rotation (e.g.
+// logrotate) left in folder: run.log.1, run.log.2.gz, run.log-20261028
+// and the like. They belong to the run whose log they continue, so they
+// go together with run.log instead of piling up across runs.
+func rotatedLogs(folder string) []string {
+	entries, err := os.ReadDir(folder)
+	if err != nil {
+		return nil
+	}
+	var files []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() && (strings.HasPrefix(name, RunLogFilename+".") || strings.HasPrefix(name, RunLogFilename+"-")) {
+			files = append(files, path.Join(folder, name))
+		}
+	}
+	return files
 }
 
 // Instances implements Repository.
@@ -307,16 +385,11 @@ func (r *DefaultRepository) Start(ctx context.Context, name string, runningConfi
 	if err != nil {
 		return err
 	}
-	if err := r.cleanupRunFiles(name); err != nil {
+	if err := r.cleanupRunFiles(name, true); err != nil {
 		return err
 	}
 	folder := path.Join(r.configFolder, name)
-	file := path.Join(folder, RunConfigFilename)
-	config, err := json.Marshal(runningConfig)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(file, config, permission); err != nil {
+	if err := writeRunConfig(path.Join(folder, RunConfigFilename), runningConfig); err != nil {
 		return err
 	}
 	// folder as the working directory lets bngblaster resolve any relative
@@ -333,7 +406,45 @@ func (r *DefaultRepository) Start(ctx context.Context, name string, runningConfi
 		return err
 	}
 
-	return waitForStartup(ctx, folder, done)
+	// The exit code is recorded here rather than in waitForStartup, which
+	// stops reading done once the instance is up.
+	exited := make(chan error, 1)
+	go func() {
+		waitErr := <-done
+		if code, ok := exitCode(waitErr); ok {
+			exits.set(folder, code)
+		}
+		exited <- waitErr
+	}()
+	return waitForStartup(ctx, folder, exited)
+}
+
+// writeRunConfig stores the start arguments of a run as run.json, unless
+// the file already holds the same arguments. That is the case when an
+// instance is started from its own run.json (see Autostart), which may be
+// a file mounted read-only into a container: replacing it would fail.
+func writeRunConfig(file string, runningConfig RunningConfig) error {
+	if current, err := ReadRunConfig(file); err == nil && reflect.DeepEqual(current, runningConfig) {
+		return nil
+	}
+	config, err := json.Marshal(runningConfig)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(file, config, permission)
+}
+
+// ReadRunConfig reads the start arguments stored in a run.json file. It
+// decodes them the same way the _start API decodes its request body.
+func ReadRunConfig(file string) (RunningConfig, error) {
+	var runningConfig RunningConfig
+	f, err := os.Open(file)
+	if err != nil {
+		return runningConfig, err
+	}
+	defer f.Close()
+	err = json.NewDecoder(f).Decode(&runningConfig)
+	return runningConfig, err
 }
 
 // waitForStartup waits for a freshly spawned bngblaster to either come up
@@ -434,6 +545,14 @@ func startupCompleted(sockFile string) bool {
 		// "running", or a version reporting no status at all.
 		return true
 	}
+}
+
+// ExitCode implements Repository.
+func (r *DefaultRepository) ExitCode(name string) (int, bool) {
+	if r.Running(name) {
+		return 0, false
+	}
+	return exits.get(path.Join(r.configFolder, name))
 }
 
 // Stop implements Repository.

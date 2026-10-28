@@ -26,7 +26,10 @@ Run locally without root by pointing at a writable folder:
 
 ## Layout
 
-- `cmd/bngblasterctrl/` – flag parsing, zerolog setup (warn+ goes to stderr, rest to stdout), HTTP server.
+- `cmd/bngblasterctrl/` – flag parsing (every flag falls back to `BNGBLASTERCTRL_<FLAG>`, `env.go`),
+  zerolog setup (warn+ goes to stderr, rest to stdout), HTTP server, `-health` check (`health.go`).
+  `-autostart` (`controller.Autostart`) starts one instance at startup for containers; its state is
+  in memory only and reported in the instance status.
 - `pkg/controller/` – instance lifecycle on disk and process management.
   - `Repository` interface (`model.go`) is the seam between HTTP and the file system/processes;
     `DefaultRepository` (`repository.go`) is the real implementation.

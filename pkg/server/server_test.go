@@ -94,12 +94,17 @@ func TestServer_create(t *testing.T) {
 }
 
 func TestServer_status(t *testing.T) {
+	exitCode := func(code int) *int { return &code }
 	tests := []struct {
 		name          string
 		resultRunning bool
 		resultExists  bool
-		wantBody      string
-		want          int
+		// resultExitCode is the exit code of the last run, nil if unknown.
+		resultExitCode *int
+		wantBody       string
+		want           int
+		// wantExitCode is the expected exit_code, nil for none.
+		wantExitCode any
 	}{
 		{
 			name:          "not_exists",
@@ -119,6 +124,20 @@ func TestServer_status(t *testing.T) {
 			resultRunning: true,
 			wantBody:      "started",
 			want:          http.StatusOK,
+		}, {
+			name:           "exited",
+			resultExists:   true,
+			resultExitCode: exitCode(0),
+			wantBody:       "stopped",
+			want:           http.StatusOK,
+			wantExitCode:   0.0,
+		}, {
+			name:           "failed",
+			resultExists:   true,
+			resultExitCode: exitCode(137),
+			wantBody:       "stopped",
+			want:           http.StatusOK,
+			wantExitCode:   137.0,
 		},
 	}
 	for _, tt := range tests {
@@ -127,11 +146,17 @@ func TestServer_status(t *testing.T) {
 				ConfigFolderFunc: func() string {
 					return configFolder
 				},
-				RunningFunc: func(name string) bool {
+				RunningFunc: func(string) bool {
 					return tt.resultRunning
 				},
-				ExistsFunc: func(name string) bool {
+				ExistsFunc: func(string) bool {
 					return tt.resultExists
+				},
+				ExitCodeFunc: func(string) (int, bool) {
+					if tt.resultExitCode == nil {
+						return 0, false
+					}
+					return *tt.resultExitCode, true
 				},
 			}
 
@@ -147,13 +172,75 @@ func TestServer_status(t *testing.T) {
 			if tt.wantBody == "" {
 				response.NoContent()
 			} else if response.Raw().StatusCode == http.StatusOK {
-				response.JSON().Object().ContainsKey("status").ValueEqual("status", tt.wantBody)
+				object := response.JSON().Object()
+				object.ContainsKey("status").ValueEqual("status", tt.wantBody)
+				object.NotContainsKey("autostart")
+				if tt.wantExitCode == nil {
+					object.NotContainsKey("exit_code")
+				} else {
+					object.ValueEqual("exit_code", tt.wantExitCode)
+				}
 			} else {
 				response.JSON().Object().ContainsKey("message").ValueEqual("message", tt.wantBody)
 			}
 			for _, call := range repository.ExistsCalls() {
 				require.Equal(t, call.Name, tt.name)
 			}
+		})
+	}
+}
+
+func TestServer_status_autostart(t *testing.T) {
+	tests := []struct {
+		name string
+		// run runs the autostart, which fails for lack of a config.json;
+		// otherwise it is still waiting for interfaces.
+		run       bool
+		exists    bool
+		running   bool
+		wantState string
+		wantError bool
+		wantBody  string
+	}{
+		{
+			// Before the instance exists, its autostart state replaces
+			// the 404.
+			name: "waiting", wantState: controller.AutostartWaitingInterfaces, wantBody: "stopped",
+		}, {
+			name: "failed", run: true, wantState: controller.AutostartFailed, wantError: true, wantBody: "stopped",
+		}, {
+			name: "running", exists: true, running: true, wantState: controller.AutostartWaitingInterfaces, wantBody: "started",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			folder := t.TempDir()
+			repository := &controller.RepositoryMock{
+				ConfigFolderFunc: func() string { return folder },
+				RunningFunc:      func(string) bool { return tt.running },
+				ExistsFunc:       func(name string) bool { return name == "auto" && tt.exists },
+				ExitCodeFunc:     func(string) (int, bool) { return 0, false },
+			}
+			autostart := controller.NewAutostart(repository, "auto")
+			if tt.run {
+				autostart.Run(t.Context())
+			}
+			server := httptest.NewServer(NewServer(repository, WithAutostart(autostart)))
+			defer server.Close()
+			e := httpexpect.New(t, server.URL)
+
+			object := e.GET("/api/v1/instances/auto").Expect().Status(http.StatusOK).JSON().Object()
+			object.ValueEqual("status", tt.wantBody)
+			state := object.Value("autostart").Object()
+			state.ValueEqual("state", tt.wantState)
+			if tt.wantError {
+				state.Value("error").String().Contains("config.json")
+			} else {
+				state.NotContainsKey("error")
+			}
+
+			// Other instances are not affected.
+			e.GET("/api/v1/instances/other").Expect().Status(http.StatusNotFound)
 		})
 	}
 }
