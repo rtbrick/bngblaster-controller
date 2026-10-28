@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -145,10 +147,19 @@ func initializeLogger(debug, console bool, color bool) {
 	logCtx := zerolog.New(levelSplitWriter{out: out, errOut: errOut}).With().Timestamp()
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	if debug {
+		zerolog.CallerMarshalFunc = shortCaller
 		logCtx = logCtx.Caller()
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
 	log.Logger = logCtx.Logger()
+}
+
+// shortCaller reduces the source location to package folder, file and
+// line ("server/accesslog.go:210"): the module path in front of it is the
+// same on every line.
+func shortCaller(file string, line int) string {
+	dir, name := filepath.Split(file)
+	return filepath.Join(filepath.Base(dir), name) + ":" + strconv.Itoa(line)
 }
 
 // levelSplitWriter routes warn/error/fatal/panic records to errOut and
