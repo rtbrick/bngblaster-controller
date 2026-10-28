@@ -21,48 +21,48 @@ func TestInstanceHealth(t *testing.T) {
 	}
 	tests := []struct {
 		name    string
-		status  instanceStatus
+		status  server.InstanceStatus
 		wantErr string
 	}{
 		{
 			name:    "waiting_interfaces",
-			status:  instanceStatus{Status: "stopped", Autostart: autostart(controller.AutostartWaitingInterfaces, "")},
+			status:  server.InstanceStatus{Status: "stopped", Autostart: autostart(controller.AutostartWaitingInterfaces, "")},
 			wantErr: "waiting for interfaces",
 		}, {
 			name:    "starting",
-			status:  instanceStatus{Status: "started", Autostart: autostart(controller.AutostartStarting, "")},
+			status:  server.InstanceStatus{Status: "started", Autostart: autostart(controller.AutostartStarting, "")},
 			wantErr: "instance test is starting",
 		}, {
 			name: "interfaces_timeout",
-			status: instanceStatus{Status: "stopped", Autostart: autostart(controller.AutostartFailed,
+			status: server.InstanceStatus{Status: "stopped", Autostart: autostart(controller.AutostartFailed,
 				"timed out after 5m0s waiting for 2 interfaces, found 1")},
 			wantErr: "autostart of instance test failed: timed out after 5m0s waiting for 2 interfaces, found 1",
 		}, {
 			name:    "start_failed",
-			status:  instanceStatus{Status: "stopped", Autostart: autostart(controller.AutostartFailed, "invalid run.json: EOF")},
+			status:  server.InstanceStatus{Status: "stopped", Autostart: autostart(controller.AutostartFailed, "invalid run.json: EOF")},
 			wantErr: "autostart of instance test failed: invalid run.json: EOF",
 		}, {
 			name:   "running",
-			status: instanceStatus{Status: "started", Autostart: autostart(controller.AutostartStarted, "")},
+			status: server.InstanceStatus{Status: "started", Autostart: autostart(controller.AutostartStarted, "")},
 		}, {
 			name:   "exited_ok",
-			status: instanceStatus{Status: "stopped", ExitCode: code(0), Autostart: autostart(controller.AutostartStarted, "")},
+			status: server.InstanceStatus{Status: "stopped", ExitCode: code(0), Autostart: autostart(controller.AutostartStarted, "")},
 		}, {
 			name:    "exited_error",
-			status:  instanceStatus{Status: "stopped", ExitCode: code(1), Autostart: autostart(controller.AutostartStarted, "")},
+			status:  server.InstanceStatus{Status: "stopped", ExitCode: code(1), Autostart: autostart(controller.AutostartStarted, "")},
 			wantErr: "instance test terminated with exit code 1",
 		}, {
 			name:    "killed",
-			status:  instanceStatus{Status: "stopped", ExitCode: code(137), Autostart: autostart(controller.AutostartStarted, "")},
+			status:  server.InstanceStatus{Status: "stopped", ExitCode: code(137), Autostart: autostart(controller.AutostartStarted, "")},
 			wantErr: "instance test terminated with exit code 137",
 		}, {
 			name:    "exit_unknown",
-			status:  instanceStatus{Status: "stopped", Autostart: autostart(controller.AutostartStarted, "")},
+			status:  server.InstanceStatus{Status: "stopped", Autostart: autostart(controller.AutostartStarted, "")},
 			wantErr: "instance test stopped, exit code unknown",
 		}, {
 			// A controller without (this) autostart: only the instance counts.
 			name:   "no_autostart_running",
-			status: instanceStatus{Status: "started"},
+			status: server.InstanceStatus{Status: "started"},
 		},
 	}
 	for _, tt := range tests {

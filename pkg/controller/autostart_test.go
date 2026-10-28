@@ -16,14 +16,20 @@ import (
 )
 
 // fakeSysClassNet returns a folder listing the interfaces names, like
-// /sys/class/net.
+// /sys/class/net: a symbolic link per interface.
 func fakeSysClassNet(t *testing.T, names ...string) string {
 	t.Helper()
 	dir := t.TempDir()
 	for _, name := range names {
-		require.NoError(t, os.Mkdir(path.Join(dir, name), 0o700))
+		attachInterface(t, dir, name)
 	}
 	return dir
+}
+
+// attachInterface adds the interface name to a fakeSysClassNet folder.
+func attachInterface(t *testing.T, dir, name string) {
+	t.Helper()
+	require.NoError(t, os.Symlink("../../devices/virtual/net/"+name, path.Join(dir, name)))
 }
 
 func TestCountInterfaces(t *testing.T) {
@@ -41,7 +47,10 @@ func TestCountInterfaces(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := countInterfaces(fakeSysClassNet(t, tt.interfaces...))
+			dir := fakeSysClassNet(t, tt.interfaces...)
+			// Created by the bonding module in every network namespace.
+			require.NoError(t, os.WriteFile(path.Join(dir, "bonding_masters"), nil, 0o600))
+			got, err := countInterfaces(dir)
 			require.NoError(t, err)
 			require.Equal(t, tt.want, got)
 		})
@@ -71,7 +80,9 @@ func TestAutostart_waitForInterfaces(t *testing.T) {
 			a.sysClassNet = dir
 			a.pollInterval = 10 * time.Millisecond
 			for _, name := range tt.attach {
-				time.AfterFunc(50*time.Millisecond, func() { _ = os.Mkdir(path.Join(dir, name), 0o700) })
+				time.AfterFunc(50*time.Millisecond, func() {
+					_ = os.Symlink("../../devices/virtual/net/"+name, path.Join(dir, name))
+				})
 			}
 			err := a.waitForInterfaces(t.Context())
 			if tt.wantErr != "" {
@@ -146,6 +157,8 @@ func TestAutostart_Run(t *testing.T) {
 				},
 			}
 			a := NewAutostart(repository, "test", WithWaitInterfaces(tt.interfaces, 50*time.Millisecond))
+			changed := 0
+			a.OnLifecycleChange(func() { changed++ })
 			a.sysClassNet = fakeSysClassNet(t, "lo", "eth0", "eth1")
 			a.pollInterval = 10 * time.Millisecond
 			require.Equal(t, AutostartWaitingInterfaces, a.Status().State)
@@ -162,6 +175,8 @@ func TestAutostart_Run(t *testing.T) {
 			} else {
 				require.Empty(t, started)
 			}
+			// Every start attempt counts as a change, failed or not.
+			require.Equal(t, len(started), changed)
 		})
 	}
 }
@@ -173,7 +188,7 @@ func TestAutostart_Run_cancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	time.AfterFunc(50*time.Millisecond, cancel)
 	a.Run(ctx)
-	require.Equal(t, AutostartStatus{Instance: "test", State: AutostartWaitingInterfaces}, a.Status())
+	require.Equal(t, AutostartStatus{State: AutostartWaitingInterfaces}, a.Status())
 }
 
 func TestAutostart_StopInstance(t *testing.T) {

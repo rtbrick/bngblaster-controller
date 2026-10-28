@@ -97,8 +97,9 @@ Usage of /usr/local/bin/bngblasterctrl:
   -wait-interfaces-timeout duration
     	give up -wait-interfaces after this time and do not start the instance (0: no limit) (default 5m0s)
 
-Every flag can also be set with the environment variable BNGBLASTERCTRL_<FLAG>
-(upper case, dashes as underscores, e.g. BNGBLASTERCTRL_WAIT_INTERFACES); a flag on the command line wins.
+Every flag except -health can also be set with the environment variable
+BNGBLASTERCTRL_<FLAG> (upper case, dashes as underscores, e.g. BNGBLASTERCTRL_WAIT_INTERFACES);
+a flag on the command line wins.
 ```
 
 ## Logging
@@ -171,7 +172,7 @@ All options above can be passed directly on the command line when running
 
 ### Environment variables
 
-Every flag can also be set through the environment variable
+Every flag except `-health` can also be set through the environment variable
 `BNGBLASTERCTRL_<FLAG>`: the flag name in upper case with dashes replaced by
 underscores, e.g. `BNGBLASTERCTRL_WAIT_INTERFACES` for `-wait-interfaces` and
 `BNGBLASTERCTRL_D` for `-d`. A flag given on the command line overrides its
@@ -192,7 +193,6 @@ variable.
 | `-debug` | `BNGBLASTERCTRL_DEBUG` |
 | `-e` | `BNGBLASTERCTRL_E` |
 | `-generators` | `BNGBLASTERCTRL_GENERATORS` |
-| `-health` | `BNGBLASTERCTRL_HEALTH` |
 | `-host-api` | `BNGBLASTERCTRL_HOST_API` |
 | `-interfaces-api` | `BNGBLASTERCTRL_INTERFACES_API` |
 | `-ldpupdate` | `BNGBLASTERCTRL_LDPUPDATE` |
@@ -204,8 +204,10 @@ variable.
 | `-wait-interfaces` | `BNGBLASTERCTRL_WAIT_INTERFACES` |
 | `-wait-interfaces-timeout` | `BNGBLASTERCTRL_WAIT_INTERFACES_TIMEOUT` |
 
-`BNGBLASTERCTRL_OPTS` of the systemd service (below) is not one of them: it
-is expanded into command line flags by the unit.
+`-health` has no environment variable: set in a container's environment, it
+would turn the controller itself into a one-shot health check.
+`BNGBLASTERCTRL_OPTS` of the systemd service (below) is not one of them
+either: it is expanded into command line flags by the unit.
 
 ### Container startup
 
@@ -259,7 +261,10 @@ BNGBLASTERCTRL_WAIT_INTERFACES=2        # once two data interfaces are attached
   while it waits for interfaces or the instance is starting, if the
   interface wait timed out or the start failed, or if bngblaster terminated
   with a non-zero exit code. The start period of the health check should
-  cover the time it takes to attach the interfaces and start the test.
+  cover the time it takes to attach the interfaces and start the test. An
+  instance that was already running when the controller started (e.g. after
+  a restart of the controller alone) has no known exit code once it stops,
+  and then stays unhealthy.
 
 The state of the autostart is kept in memory only and starts over with every
 controller start, so a persistent instance folder never carries a stale

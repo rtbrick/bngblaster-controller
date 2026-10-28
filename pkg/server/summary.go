@@ -4,6 +4,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -71,7 +72,7 @@ func serveSummaryPage[T any](s *Server, e summaryEndpoint[T]) http.HandlerFunc {
 			}
 			return e.items(result)
 		})
-		if err == controller.ErrBlasterNotRunning {
+		if errors.Is(err, controller.ErrBlasterNotRunning) {
 			JSONError(w, "instance is not running", http.StatusPreconditionFailed)
 			return
 		}

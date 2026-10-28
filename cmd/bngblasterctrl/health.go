@@ -25,13 +25,6 @@ const healthTimeout = 2 * time.Second
 // non-loopback address (loopback is never proxied anyway).
 var healthClient = &http.Client{Transport: &http.Transport{Proxy: nil}}
 
-// instanceStatus is the response of GET /api/v1/instances/<name>.
-type instanceStatus struct {
-	Status    string                      `json:"status"`
-	ExitCode  *int                        `json:"exit_code"`
-	Autostart *controller.AutostartStatus `json:"autostart"`
-}
-
 // checkHealth checks the controller listening on addr (the -addr value)
 // and, if instance is not empty, the autostart of that instance. It
 // returns a description of the healthy state, or the reason why it is not
@@ -50,7 +43,7 @@ func checkHealth(ctx context.Context, addr, instance string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var st instanceStatus
+	var st server.InstanceStatus
 	if err := json.Unmarshal(body, &st); err != nil {
 		return "", fmt.Errorf("invalid status response: %w", err)
 	}
@@ -61,7 +54,7 @@ func checkHealth(ctx context.Context, addr, instance string) (string, error) {
 // is while it runs, and once it has terminated with exit code 0. Waiting
 // for interfaces and starting are not healthy yet - the start period of
 // the health check covers them.
-func instanceHealth(instance string, st instanceStatus) (string, error) {
+func instanceHealth(instance string, st server.InstanceStatus) (string, error) {
 	if st.Autostart != nil {
 		switch st.Autostart.State {
 		case controller.AutostartWaitingInterfaces:
@@ -73,7 +66,7 @@ func instanceHealth(instance string, st instanceStatus) (string, error) {
 		}
 	}
 	switch {
-	case st.Status == "started":
+	case st.Status == server.StatusStarted:
 		return fmt.Sprintf("instance %s running", instance), nil
 	case st.ExitCode == nil:
 		return "", fmt.Errorf("instance %s stopped, exit code unknown", instance)

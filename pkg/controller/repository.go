@@ -82,6 +82,22 @@ func IsRunFile(name string) bool {
 	return false
 }
 
+// IsReservedFile reports whether name must not be used for a file put into
+// an instance folder from outside (an upload): the run files and the
+// temporary files of a generator run, which the next run would remove or
+// move into place.
+func IsReservedFile(name string) bool {
+	return IsRunFile(name) || generator.IsTempName(name)
+}
+
+// IsHiddenFile reports whether name is a file of an instance folder that is
+// neither listed nor downloadable: the pid file and control socket, which
+// are internal, and the temporary files of a running generator, which are
+// incomplete by definition.
+func IsHiddenFile(name string) bool {
+	return name == runPidFilename || name == RunSockFilename || generator.IsTempName(name)
+}
+
 // make sure the DefaultRepository implements UseRepository.
 var _ Repository = &DefaultRepository{}
 
@@ -406,17 +422,7 @@ func (r *DefaultRepository) Start(ctx context.Context, name string, runningConfi
 		return err
 	}
 
-	// The exit code is recorded here rather than in waitForStartup, which
-	// stops reading done once the instance is up.
-	exited := make(chan error, 1)
-	go func() {
-		waitErr := <-done
-		if code, ok := exitCode(waitErr); ok {
-			exits.set(folder, code)
-		}
-		exited <- waitErr
-	}()
-	return waitForStartup(ctx, folder, exited)
+	return waitForStartup(ctx, folder, done)
 }
 
 // writeRunConfig stores the start arguments of a run as run.json, unless
@@ -660,8 +666,7 @@ func (r *DefaultRepository) Files(name string) ([]InstanceFile, error) {
 	}
 	files := make([]InstanceFile, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() || entry.Name() == runPidFilename || entry.Name() == RunSockFilename ||
-			generator.IsTempName(entry.Name()) {
+		if entry.IsDir() || IsHiddenFile(entry.Name()) {
 			continue
 		}
 		info, err := entry.Info()

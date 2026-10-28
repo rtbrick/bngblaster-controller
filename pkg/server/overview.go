@@ -4,6 +4,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -47,7 +48,7 @@ func (s *Server) overview() http.HandlerFunc {
 		result, err := s.overviewCache.get(instance, func() (map[string]json.RawMessage, error) {
 			return s.fetchOverview(instance)
 		})
-		if err == controller.ErrBlasterNotRunning {
+		if errors.Is(err, controller.ErrBlasterNotRunning) {
 			JSONError(w, "instance is not running", http.StatusPreconditionFailed)
 			return
 		}

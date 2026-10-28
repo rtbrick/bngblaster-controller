@@ -64,6 +64,15 @@ func TestApplyEnv(t *testing.T) {
 			env:     map[string]string{"BNGBLASTERCTRL_WAIT_INTERFACES_TIMEOUT": "5"},
 			wantErr: `invalid value "5" for BNGBLASTERCTRL_WAIT_INTERFACES_TIMEOUT`,
 		}, {
+			// It would turn the controller of a container into a check.
+			name:    "health_not_from_env",
+			env:     map[string]string{"BNGBLASTERCTRL_HEALTH": "true", "BNGBLASTERCTRL_DEBUG": "maybe"},
+			wantErr: `invalid value "maybe" for BNGBLASTERCTRL_DEBUG`,
+		}, {
+			name: "health_ignored",
+			env:  map[string]string{"BNGBLASTERCTRL_HEALTH": "true"},
+			want: map[string]string{"health": "false"},
+		}, {
 			// Only BNGBLASTERCTRL_<FLAG> is read; the packaging's variable
 			// for command line flags is not one.
 			name: "opts_ignored",
@@ -82,6 +91,7 @@ func TestApplyEnv(t *testing.T) {
 			fs.String("autostart", "", "")
 			fs.Int("wait-interfaces", 0, "")
 			fs.Duration("wait-interfaces-timeout", 5*time.Minute, "")
+			fs.Bool("health", false, "")
 			require.NoError(t, fs.Parse(tt.args))
 
 			err := applyEnv(fs, func(key string) (string, bool) {

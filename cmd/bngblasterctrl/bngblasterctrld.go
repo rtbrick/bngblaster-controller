@@ -60,10 +60,10 @@ func main() {
 		"also log successful read requests of the web UI (its polling) at info level; "+
 			"failed requests and actions are always logged")
 
-	startup := startupFlags()
-	parseFlags(startup)
-	if *startup.health {
-		os.Exit(runHealth(*addr, *startup.autostart))
+	container := defineContainerFlags()
+	parseFlags(container)
+	if *container.health {
+		os.Exit(runHealth(*addr, *container.autostart))
 	}
 
 	// setup logging
@@ -82,7 +82,7 @@ func main() {
 		}
 		repo.RemoveGeneratorTempFiles()
 	}
-	autostarter := startup.newAutostart(repo)
+	autostarter := container.newAutostart(repo)
 	srv := server.NewServer(repo,
 		server.WithAutostart(autostarter),
 		server.WithGenerators(generatorExecutables),
@@ -96,17 +96,18 @@ func main() {
 	serve(*addr, srv, autostarter)
 }
 
-// startup holds the flags for starting a test at container start.
-type startup struct {
+// containerFlags are the flags for running in a container: starting a test
+// at container start and checking its health.
+type containerFlags struct {
 	autostart             *string
 	waitInterfaces        *int
 	waitInterfacesTimeout *time.Duration
 	health                *bool
 }
 
-// startupFlags defines the flags for starting a test at container start.
-func startupFlags() startup {
-	return startup{
+// defineContainerFlags defines the containerFlags.
+func defineContainerFlags() containerFlags {
+	return containerFlags{
 		autostart: flag.String("autostart", "",
 			"start this instance after startup, with the run.json in its folder as start arguments "+
 				"if there is one (once; the instance is not restarted when it exits)"),
@@ -121,7 +122,7 @@ func startupFlags() startup {
 }
 
 // newAutostart returns the autostart of -autostart, nil without one.
-func (f startup) newAutostart(repo controller.Repository) *controller.Autostart {
+func (f containerFlags) newAutostart(repo controller.Repository) *controller.Autostart {
 	if *f.autostart == "" {
 		return nil
 	}
@@ -131,7 +132,7 @@ func (f startup) newAutostart(repo controller.Repository) *controller.Autostart 
 
 // parseFlags parses the command line and completes it from the
 // environment (see applyEnv). Invalid flags end the program.
-func parseFlags(f startup) {
+func parseFlags(f containerFlags) {
 	flag.CommandLine.Usage = usage(flag.CommandLine)
 	flag.Parse()
 	err := applyEnv(flag.CommandLine, os.LookupEnv)

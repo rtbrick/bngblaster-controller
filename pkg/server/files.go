@@ -11,7 +11,7 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/rtbrick/bngblaster-controller/pkg/generator"
+	"github.com/rtbrick/bngblaster-controller/pkg/controller"
 )
 
 // disableWriteDeadline lifts the server-wide WriteTimeout for the current
@@ -75,9 +75,8 @@ func (s *Server) fileDownload() http.HandlerFunc {
 			http.Error(w, "invalid filename", http.StatusBadRequest)
 			return
 		}
-		// A generator's temporary file is incomplete by definition and is
-		// not listed by files() either.
-		if generator.IsTempName(file) {
+		// Not listed by files() either.
+		if controller.IsHiddenFile(file) {
 			JSONNotFound(w, r)
 			return
 		}

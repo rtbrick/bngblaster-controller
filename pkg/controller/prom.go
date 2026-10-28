@@ -3,12 +3,12 @@
 package controller
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"os"
 	"path"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -534,21 +534,25 @@ func (p *Prom) Collect(ch chan<- prometheus.Metric) {
 	wg.Wait()
 }
 
+// query sends command to the control socket of instance and decodes the
+// response into v. Failures are logged; false means there is nothing to
+// report for this command.
+func (p *Prom) query(instance, command string, v any) bool {
+	result, err := p.repository.Command(instance, SocketCommand{Command: command})
+	if err != nil {
+		log.Warn().Str("instance", instance).Str("command", command).Err(err).Msg("metrics: command failed")
+		return false
+	}
+	if err := json.NewDecoder(bytes.NewReader(result)).Decode(v); err != nil {
+		log.Warn().Str("instance", instance).Str("command", command).Err(err).Msg("metrics: invalid command response")
+		return false
+	}
+	return true
+}
+
 func (p *Prom) collectInstanceSessionCounters(instance string, ch chan<- prometheus.Metric) {
-	// Invoke command.
-	command := SocketCommand{
-		Command: "session-counters",
-	}
-	result, err := p.repository.Command(instance, command)
-	if err != nil {
-		log.Warn().Str("instance", instance).Str("command", "session-counters").Err(err).Msg("metrics: command failed")
-		return
-	}
-	// Decode response.
 	var cr SessionCountersResponse
-	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
-	if err != nil {
-		log.Warn().Str("instance", instance).Str("command", "session-counters").Err(err).Msg("metrics: invalid command response")
+	if !p.query(instance, "session-counters", &cr) {
 		return
 	}
 	if !commandSucceeded(cr.Code) {
@@ -580,20 +584,8 @@ func (p *Prom) collectInstanceSessionCounters(instance string, ch chan<- prometh
 }
 
 func (p *Prom) collectInstanceInterfaces(instance string, ch chan<- prometheus.Metric) {
-	// Invoke command.
-	command := SocketCommand{
-		Command: "interfaces",
-	}
-	result, err := p.repository.Command(instance, command)
-	if err != nil {
-		log.Warn().Str("instance", instance).Str("command", "interfaces").Err(err).Msg("metrics: command failed")
-		return
-	}
-	// Decode response.
 	var cr InterfacesResponse
-	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
-	if err != nil {
-		log.Warn().Str("instance", instance).Str("command", "interfaces").Err(err).Msg("metrics: invalid command response")
+	if !p.query(instance, "interfaces", &cr) {
 		return
 	}
 	if !commandSucceeded(cr.Code) {
@@ -609,20 +601,8 @@ func (p *Prom) collectInstanceInterfaces(instance string, ch chan<- prometheus.M
 }
 
 func (p *Prom) collectInstanceAccessInterfaces(instance string, ch chan<- prometheus.Metric) {
-	// Invoke command.
-	command := SocketCommand{
-		Command: "access-interfaces",
-	}
-	result, err := p.repository.Command(instance, command)
-	if err != nil {
-		log.Warn().Str("instance", instance).Str("command", "access-interfaces").Err(err).Msg("metrics: command failed")
-		return
-	}
-	// Decode response.
 	var cr AccessInterfacesResponse
-	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
-	if err != nil {
-		log.Warn().Str("instance", instance).Str("command", "access-interfaces").Err(err).Msg("metrics: invalid command response")
+	if !p.query(instance, "access-interfaces", &cr) {
 		return
 	}
 	if !commandSucceeded(cr.Code) {
@@ -665,20 +645,8 @@ func (p *Prom) collectInstanceAccessInterfaces(instance string, ch chan<- promet
 }
 
 func (p *Prom) collectInstanceNetworkInterfaces(instance string, ch chan<- prometheus.Metric) {
-	// Invoke command.
-	command := SocketCommand{
-		Command: "network-interfaces",
-	}
-	result, err := p.repository.Command(instance, command)
-	if err != nil {
-		log.Warn().Str("instance", instance).Str("command", "network-interfaces").Err(err).Msg("metrics: command failed")
-		return
-	}
-	// Decode response.
 	var cr NetworkInterfacesResponse
-	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
-	if err != nil {
-		log.Warn().Str("instance", instance).Str("command", "network-interfaces").Err(err).Msg("metrics: invalid command response")
+	if !p.query(instance, "network-interfaces", &cr) {
 		return
 	}
 	if !commandSucceeded(cr.Code) {
@@ -720,20 +688,8 @@ func (p *Prom) collectInstanceNetworkInterfaces(instance string, ch chan<- prome
 }
 
 func (p *Prom) collectInstanceA10nspInterfaces(instance string, ch chan<- prometheus.Metric) {
-	// Invoke command.
-	command := SocketCommand{
-		Command: "a10nsp-interfaces",
-	}
-	result, err := p.repository.Command(instance, command)
-	if err != nil {
-		log.Warn().Str("instance", instance).Str("command", "a10nsp-interfaces").Err(err).Msg("metrics: command failed")
-		return
-	}
-	// Decode response.
 	var cr A10nspInterfacesResponse
-	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
-	if err != nil {
-		log.Warn().Str("instance", instance).Str("command", "a10nsp-interfaces").Err(err).Msg("metrics: invalid command response")
+	if !p.query(instance, "a10nsp-interfaces", &cr) {
 		return
 	}
 	if !commandSucceeded(cr.Code) {
@@ -773,20 +729,8 @@ func (p *Prom) collectInstanceA10nspInterfaces(instance string, ch chan<- promet
 }
 
 func (p *Prom) collectInstanceStreams(instance string, ch chan<- prometheus.Metric) {
-	// Invoke command.
-	command := SocketCommand{
-		Command: "stream-summary",
-	}
-	result, err := p.repository.Command(instance, command)
-	if err != nil {
-		log.Warn().Str("instance", instance).Str("command", "stream-summary").Err(err).Msg("metrics: command failed")
-		return
-	}
-	// Decode response.
 	var cr StreamSummaryResponse
-	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
-	if err != nil {
-		log.Warn().Str("instance", instance).Str("command", "stream-summary").Err(err).Msg("metrics: invalid command response")
+	if !p.query(instance, "stream-summary", &cr) {
 		return
 	}
 	if !commandSucceeded(cr.Code) {

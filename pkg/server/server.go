@@ -24,7 +24,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/rtbrick/bngblaster-controller/pkg/controller"
-	"github.com/rtbrick/bngblaster-controller/pkg/generator"
 	"github.com/rtbrick/bngblaster-controller/pkg/host"
 )
 
@@ -270,6 +269,25 @@ func noCache(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-cache")
 }
 
+// Instance status values of the instance status and listing.
+const (
+	// StatusStarted: the bngblaster instance is running.
+	StatusStarted = "started"
+	// StatusStopped: the instance is not running.
+	StatusStopped = "stopped"
+)
+
+// InstanceStatus is the response of GET /api/v1/instances/<name>, see
+// status.
+type InstanceStatus struct {
+	// Status is StatusStarted or StatusStopped.
+	Status string `json:"status"`
+	// ExitCode is the exit code of the last run once stopped, if known.
+	ExitCode *int `json:"exit_code,omitempty"`
+	// Autostart is the state of the autostart, for its instance only.
+	Autostart *controller.AutostartStatus `json:"autostart,omitempty"`
+}
+
 // instanceDetail is one entry of the detailed instance listing.
 type instanceDetail struct {
 	Name   string `json:"name"`
@@ -295,9 +313,9 @@ func (s *Server) instances() http.HandlerFunc {
 		}
 		details := make([]instanceDetail, 0, len(instances))
 		for _, name := range instances {
-			status := "stopped"
+			status := StatusStopped
 			if s.repository.Running(name) {
-				status = "started"
+				status = StatusStarted
 			}
 			details = append(details, instanceDetail{Name: name, Status: status})
 		}
@@ -441,7 +459,7 @@ func (s *Server) create() http.HandlerFunc {
 			status = http.StatusNoContent
 		}
 		err = s.repository.Create(instance, content)
-		if err == controller.ErrBlasterRunning {
+		if errors.Is(err, controller.ErrBlasterRunning) {
 			http.Error(w, errInstanceIsRunning, http.StatusPreconditionFailed)
 			return
 		}
@@ -460,15 +478,10 @@ func (s *Server) create() http.HandlerFunc {
 // instance has a status even before it exists, so that a health check can
 // tell waiting for interfaces and a failed start from an unknown instance.
 func (s *Server) status() http.HandlerFunc {
-	type response struct {
-		Status    string                      `json:"status"`
-		ExitCode  *int                        `json:"exit_code,omitempty"`
-		Autostart *controller.AutostartStatus `json:"autostart,omitempty"`
-	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		instanceVariable := mux.Vars(r)[instanceNameParameter]
 		instance := cleanPathVariable(instanceVariable)
-		var resp response
+		var resp InstanceStatus
 		if s.autostart != nil && s.autostart.Instance() == instance {
 			autostart := s.autostart.Status()
 			resp.Autostart = &autostart
@@ -478,9 +491,9 @@ func (s *Server) status() http.HandlerFunc {
 			return
 		}
 
-		resp.Status = "stopped"
+		resp.Status = StatusStopped
 		if s.repository.Running(instance) {
-			resp.Status = "started"
+			resp.Status = StatusStarted
 		} else if code, ok := s.repository.ExitCode(instance); ok {
 			resp.ExitCode = &code
 		}
@@ -497,11 +510,11 @@ func (s *Server) delete() http.HandlerFunc {
 		status := http.StatusNoContent
 		s.invalidateInstanceCaches(instance)
 		err := s.repository.Delete(instance)
-		if err == controller.ErrBlasterRunning {
+		if errors.Is(err, controller.ErrBlasterRunning) {
 			JSONError(w, errInstanceIsRunning, http.StatusPreconditionFailed)
 			return
 		}
-		if err == controller.ErrGeneratorBusy {
+		if errors.Is(err, controller.ErrGeneratorBusy) {
 			JSONError(w, err.Error(), http.StatusConflict)
 			return
 		}
@@ -537,20 +550,20 @@ func (s *Server) start() http.HandlerFunc {
 		disableWriteDeadline(w)
 		s.invalidateInstanceCaches(instance)
 		err = s.repository.Start(r.Context(), instance, runningConfig)
-		if err == controller.ErrBlasterNotExists {
+		if errors.Is(err, controller.ErrBlasterNotExists) {
 			JSONNotFound(w, r)
 			return
 		}
-		if err == controller.ErrBlasterRunning {
+		if errors.Is(err, controller.ErrBlasterRunning) {
 			JSONError(w, errInstanceIsRunning, http.StatusPreconditionFailed)
 			return
 		}
-		if err == controller.ErrBlasterStartupAborted {
+		if errors.Is(err, controller.ErrBlasterStartupAborted) {
 			audit(r, instance, "start aborted")
 			JSONError(w, err.Error(), http.StatusConflict)
 			return
 		}
-		if err == controller.ErrInvalidStreamConfig {
+		if errors.Is(err, controller.ErrInvalidStreamConfig) {
 			audit(r, instance, "start rejected").Str("stream_config", runningConfig.StreamConfig)
 			JSONError(w, err.Error(), http.StatusBadRequest)
 			return
@@ -618,11 +631,11 @@ func (s *Server) command() http.HandlerFunc {
 		status := http.StatusOK
 
 		result, err := s.repository.Command(instance, command)
-		if err == controller.ErrBlasterNotExists {
+		if errors.Is(err, controller.ErrBlasterNotExists) {
 			JSONNotFound(w, r)
 			return
 		}
-		if err == controller.ErrBlasterNotRunning {
+		if errors.Is(err, controller.ErrBlasterNotRunning) {
 			JSONError(w, "instance is not running", http.StatusPreconditionFailed)
 			return
 		}
@@ -700,7 +713,7 @@ func (s *Server) uploadFile() http.HandlerFunc {
 			http.Error(w, "invalid filename", http.StatusBadRequest)
 			return
 		}
-		if isReservedUpload(name) {
+		if controller.IsReservedFile(name) {
 			logFields(r).Str("file", name)
 			http.Error(w, "reserved filename", http.StatusBadRequest)
 			return
@@ -724,13 +737,6 @@ func (s *Server) uploadFile() http.HandlerFunc {
 
 		w.WriteHeader(http.StatusOK)
 	}
-}
-
-// isReservedUpload reports whether an upload must not use name: the
-// controller's own run files, and the temporary names of a generator run,
-// which the next run would remove or move into place.
-func isReservedUpload(name string) bool {
-	return controller.IsRunFile(name) || generator.IsTempName(name)
 }
 
 // uploadFilePart returns the multipart part carrying the uploaded file (the

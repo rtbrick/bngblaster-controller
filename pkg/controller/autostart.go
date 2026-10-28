@@ -51,8 +51,6 @@ var ignoredInterfaces = map[string]struct{}{
 
 // AutostartStatus is the state of the autostart of an instance.
 type AutostartStatus struct {
-	// Instance is the name of the instance to start.
-	Instance string `json:"-"`
 	// State is one of the Autostart* states.
 	State string `json:"state"`
 	// Error tells why the autostart failed.
@@ -84,6 +82,10 @@ type Autostart struct {
 	sysClassNet  string
 	pollInterval time.Duration
 
+	// changed is called after each start and stop of the instance, see
+	// OnLifecycleChange.
+	changed func()
+
 	mu     sync.Mutex
 	status AutostartStatus
 }
@@ -98,12 +100,26 @@ func NewAutostart(repository Repository, instance string, opts ...AutostartOptio
 		pollInterval: interfacePollInterval,
 		// Run begins with the interface wait (which ends at once without
 		// interfaces to wait for), so that is also the state until then.
-		status: AutostartStatus{Instance: instance, State: AutostartWaitingInterfaces},
+		status: AutostartStatus{State: AutostartWaitingInterfaces},
 	}
 	for _, opt := range opts {
 		opt(a)
 	}
 	return a
+}
+
+// OnLifecycleChange registers fn to be called after the autostart has
+// started or stopped the instance, like the server does on _start and
+// _stop to drop the summaries it caches. Call it before Run.
+func (a *Autostart) OnLifecycleChange(fn func()) {
+	a.changed = fn
+}
+
+// lifecycleChanged calls the OnLifecycleChange function, if any.
+func (a *Autostart) lifecycleChanged() {
+	if a.changed != nil {
+		a.changed()
+	}
 }
 
 // Instance returns the name of the instance to start.
@@ -152,6 +168,7 @@ func (a *Autostart) Run(ctx context.Context) {
 	if err == nil {
 		logger.Info().Msg("autostart: starting instance")
 		err = a.repository.Start(ctx, a.instance, runningConfig)
+		a.lifecycleChanged()
 	}
 	if errors.Is(err, ErrBlasterRunning) {
 		// Started by an earlier controller process, which this one
@@ -218,7 +235,8 @@ func (a *Autostart) waitForInterfaces(ctx context.Context) error {
 }
 
 // countInterfaces counts the network interfaces in dir (/sys/class/net)
-// except ignoredInterfaces.
+// except ignoredInterfaces. Interfaces are the symbolic links there; other
+// entries, such as the bonding_masters file of the bonding module, are not.
 func countInterfaces(dir string) (int, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -226,7 +244,7 @@ func countInterfaces(dir string) (int, error) {
 	}
 	n := 0
 	for _, entry := range entries {
-		if _, ok := ignoredInterfaces[entry.Name()]; !ok {
+		if _, ok := ignoredInterfaces[entry.Name()]; !ok && entry.Type()&os.ModeSymlink != 0 {
 			n++
 		}
 	}
@@ -244,6 +262,7 @@ func (a *Autostart) StopInstance(ctx context.Context) {
 	}
 	log.Info().Str("instance", a.instance).Msg("autostart: stopping instance")
 	a.repository.Stop(a.instance)
+	a.lifecycleChanged()
 	ticker := time.NewTicker(stopPollInterval)
 	defer ticker.Stop()
 	for a.repository.Running(a.instance) {

@@ -14,7 +14,7 @@ info:
   contact:
     email: bngblaster@rtbrick.com
     url: https://github.com/rtbrick/bngblaster-controller
-  version: 1.0.1
+  version: 1.1.0
 servers:
   - url: 'http://localhost:8001'
 
@@ -1094,8 +1094,8 @@ paths:
 
         The files the controller itself manages for a run (`run.pid`, `run.sock`, `run.json`,
         `run.log`, `run_report.json`, `run.pcap`, `run.stdout`, `run.stderr`) cannot be uploaded,
-        nor can names starting with `.gen`, which are reserved for the temporary files of the
-        generators.
+        nor can names starting with `.gen-` or `.gen.bak-`, which are reserved for the temporary
+        files of the generators.
 
         **Example:**
         `curl --location --request POST 'http://<host>:<port>/api/v1/instances/<instance_name>/_upload' --form 'file=@<local-filename>'`
@@ -1627,7 +1627,7 @@ components:
         command:
           type: string
           description: the command line that was run
-        exit-code:
+        exit_code:
           type: integer
         stdout:
           type: string
@@ -1635,7 +1635,7 @@ components:
         stderr:
           type: string
           description: the last 256 KiB of the tool's standard error
-        duration-ms:
+        duration_ms:
           type: integer
         message:
           type: string
@@ -1644,8 +1644,8 @@ components:
         {
           "files": ["start.bgp"],
           "command": "bgpupdate --next-hop-base=10.0.0.1 --prefix-base=11.0.0.0/24 --prefix-num=1000 --file=start.bgp",
-          "exit-code": 0,
+          "exit_code": 0,
           "stdout": "[INFO   ] init 1000 IPv4 prefixes\n[INFO   ] finished\n",
           "stderr": "",
-          "duration-ms": 398
+          "duration_ms": 398
         }

@@ -38,7 +38,7 @@ Run locally without root by pointing at a writable folder:
     (filename constants in `repository.go`). "Running" is derived from these files, not from in-memory state.
   - `prom.go` – Prometheus metrics collected from running instances via the control socket.
 - `pkg/server/` – gorilla/mux router (`server.go` `routes()`), one file per feature
-  (streams, sessions, overview, logs, files, ui, apidocs). `cache.go` is a short-TTL,
+  (streams, sessions, overview, logs, files, generate, ui, apidocs). `cache.go` is a short-TTL,
   per-instance summary cache with in-flight dedup; invalidate it on any lifecycle change.
   `hardening.go` holds the auth-independent protections (cross-origin check for
   state-changing requests, `-allowed-hosts`, security headers/CSP, body size limits); bound every
@@ -51,7 +51,7 @@ Run locally without root by pointing at a writable folder:
   validated against per-tool option whitelists (`tools.go`, also served to the UI), never passed as argv;
   outputs are written under `.gen-*` temp names and moved into place only on success (no replace while
   running). lspgen socket mode is deliberately out of scope.
-- `pkg/server/webui/` – experimental embedded SPA. Vanilla HTML/CSS/JS, **no build step,
+- `pkg/server/webui/` – embedded SPA. Vanilla HTML/CSS/JS, **no build step,
   no framework, no npm** – files are `go:embed`ed and served as-is. `index.html` is a Go
   template (`{{.AssetVersion}}` cache-busting).
 - `docs/` – `swagger.yaml` + Swagger UI, embedded into the binary and also published via GitHub Pages.

@@ -86,10 +86,10 @@ type Result struct {
 	Files []string `json:"files"`
 	// Command is the command line that was run, with final file names.
 	Command    string `json:"command"`
-	ExitCode   int    `json:"exit-code"`
+	ExitCode   int    `json:"exit_code"`
 	Stdout     string `json:"stdout"`
 	Stderr     string `json:"stderr"`
-	DurationMS int64  `json:"duration-ms"`
+	DurationMS int64  `json:"duration_ms"`
 }
 
 // Run runs job in dir, the instance folder, with executable as the tool.

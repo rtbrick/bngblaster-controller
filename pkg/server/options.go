@@ -27,8 +27,8 @@ func noopAuthMiddleware(next http.Handler) http.Handler {
 // Option configures optional behavior of the Server.
 type Option func(*Server)
 
-// WithUI enables or disables serving the embedded web UI on "/". The web
-// UI is experimental and disabled by default.
+// WithUI enables or disables serving the embedded web UI on "/". Disabled
+// by default.
 func WithUI(enabled bool) Option {
 	return func(s *Server) {
 		s.enableUI = enabled
@@ -112,5 +112,9 @@ func WithQuietUIRequests(enabled bool) Option {
 func WithAutostart(autostart *controller.Autostart) Option {
 	return func(s *Server) {
 		s.autostart = autostart
+		if autostart != nil {
+			// Like _start and _stop, see invalidateInstanceCaches.
+			autostart.OnLifecycleChange(func() { s.invalidateInstanceCaches(autostart.Instance()) })
+		}
 	}
 }

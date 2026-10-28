@@ -3734,7 +3734,12 @@
   // its address family. This relies on bngblaster applying the IPv6 filters
   // to IPv6 sessions only; up to 1.0.2 they matched every IPv4 session too.
   function bgpUpdatePlan(targets, items) {
-    if (targets.length === items.length) return [{ targets, args: {} }];
+    // Compared as sets: items can be from a later poll than targets (e.g. on
+    // retry), when the counts may match although the sessions differ.
+    const keys = new Set(targets.map(bgpSessionKey));
+    if (items.length === keys.size && items.every((item) => keys.has(bgpSessionKey(item)))) {
+      return [{ targets, args: {} }];
+    }
     return targets.map((item) => {
       const family = bgpIsV6(item) ? 'ipv6' : 'ipv4';
       return {
@@ -4829,7 +4834,7 @@
     const ok = !error;
     box.appendChild(el('p', {}, [
       el('span', { class: 'badge ' + (ok ? 'status-ok' : 'status-error'), text: ok ? 'ok' : 'failed' }),
-      el('span', { text: ' ' + (ok ? 'Generated in ' + formatMillis(result['duration-ms'] || 0) : error) }),
+      el('span', { text: ' ' + (ok ? 'Generated in ' + formatMillis(result.duration_ms || 0) : error) }),
     ]));
     if (result && result.command) box.appendChild(el('pre', { class: 'json-view' }, [el('code', { text: result.command })]));
 

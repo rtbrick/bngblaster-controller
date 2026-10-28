@@ -26,6 +26,7 @@ var ExecCommand = exec.Command
 // stdFile file that should be written with the stdout
 // errFile file that should be written with the stderr
 // args first argument will be the command to execute, all the rest are arguments that are used for this command.
+// The exit code is recorded for dir, see DefaultRepository.ExitCode.
 // The returned channel receives the command's exit error (nil on a clean
 // exit) exactly once, once the process has terminated; it is buffered so a
 // caller that stops waiting (e.g. after a startup grace period) never
@@ -66,6 +67,11 @@ func RunCommand(dir string, pidFile string, stdFile string, errFile string, args
 		waitErr := cmd.Wait()
 		_ = stdout.Close()
 		_ = stderr.Close()
+		// Recorded before the pid file goes, so that an instance is never
+		// seen as stopped without the exit code of its run.
+		if code, ok := exitCode(waitErr); ok {
+			exits.set(dir, code)
+		}
 		_ = os.Remove(pidFile)
 		done <- waitErr
 		close(done)
