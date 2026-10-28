@@ -30,7 +30,7 @@ BUILD_DIR := bin/$(OS)_$(ARCH)
 build:
 	@echo build $(OS)_$(ARCH) $(app_ver)
 	@mkdir -p $(BUILD_DIR)
-	env GOOS=$(OS) GOARCH=$(ARCH) go build -o $(BUILD_DIR)/$(app_name) -ldflags '$(LDFLAGS)' ./cmd/$(app_name)/
+	env GOOS=$(OS) GOARCH=$(ARCH) go build -trimpath -o $(BUILD_DIR)/$(app_name) -ldflags '$(LDFLAGS)' ./cmd/$(app_name)/
 
 .PHONY: clean test
 clean:

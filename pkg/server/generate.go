@@ -129,14 +129,11 @@ func (s *Server) generate() http.HandlerFunc {
 			JSONNotFound(w, r)
 			return
 		}
-		event := auditLog(r, instance).Str("tool", tool).Strs("files", result.Files).
-			Int("exit_code", result.ExitCode).Int64("duration_ms", result.DurationMS)
+		audit(r, instance, "generated").Str("tool", tool).Strs("files", result.Files).Int("exit_code", result.ExitCode)
 		response := generateResponse{Result: result}
 		if err != nil {
-			event = event.Err(err)
 			response.Message = err.Error()
 		}
-		event.Msg("generator run")
 		w.Header().Set(contentType, applicationJSON)
 		w.WriteHeader(status)
 		_ = json.NewEncoder(w).Encode(response)

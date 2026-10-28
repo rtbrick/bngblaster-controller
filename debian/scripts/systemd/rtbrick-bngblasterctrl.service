@@ -11,8 +11,8 @@ Environment="USER=root"
 Environment="GROUP=root"
 EnvironmentFile=-/etc/default/rtbrick-bngblasterctrl
 ExecStart=/usr/local/bin/bngblasterctrl $BNGBLASTERCTRL_OPTS
-StandardOutput=file:/var/log/rtbrick-bngblasterctrl-service-out.log
-StandardError=file:/var/log/rtbrick-bngblasterctrl-service-err.log
+StandardOutput=append:/var/log/rtbrick-bngblasterctrl-service-out.log
+StandardError=append:/var/log/rtbrick-bngblasterctrl-service-err.log
 Restart=on-failure
 RestartSec=30s
 

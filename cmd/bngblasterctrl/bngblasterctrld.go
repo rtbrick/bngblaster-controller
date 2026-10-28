@@ -44,6 +44,9 @@ func main() {
 	debug := flag.Bool("debug", false, "turn on debug logging")
 	console := flag.Bool("console", true, "turn on pretty console logging")
 	color := flag.Bool("color", false, "turn on color of color output")
+	logUI := flag.Bool("log-ui", false,
+		"also log successful read requests of the web UI (its polling) at info level; "+
+			"failed requests and actions are always logged")
 
 	flag.Parse()
 
@@ -66,6 +69,7 @@ func main() {
 	srv := server.NewServer(repo,
 		server.WithGenerators(generatorExecutables),
 		server.WithUI(*ui),
+		server.WithQuietUIRequests(!*logUI),
 		server.WithInterfacesAPI(*interfacesAPI),
 		server.WithHostAPI(*hostAPI),
 		server.WithSchemaPath(*schema),
@@ -136,11 +140,15 @@ func initializeLogger(debug, console bool, color bool) {
 		}
 	}
 
-	log.Logger = zerolog.New(levelSplitWriter{out: out, errOut: errOut}).With().Timestamp().Caller().Logger()
+	// The source location only helps when debugging; in normal operation
+	// it is noise on every line.
+	logCtx := zerolog.New(levelSplitWriter{out: out, errOut: errOut}).With().Timestamp()
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	if debug {
+		logCtx = logCtx.Caller()
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
+	log.Logger = logCtx.Logger()
 }
 
 // levelSplitWriter routes warn/error/fatal/panic records to errOut and

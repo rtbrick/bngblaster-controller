@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -31,7 +34,10 @@ func RunCommand(dir string, pidFile string, stdFile string, errFile string, args
 	if len(args) == 0 {
 		return nil, fmt.Errorf("at least one argument need to be specified")
 	}
-	log.Info().Str("command", strings.Join(args, " ")).Msg("start Command")
+	// The instance folder names the instance; the full command line is
+	// only of interest when debugging.
+	instance := filepath.Base(dir)
+	log.Debug().Str("instance", instance).Str("command", strings.Join(args, " ")).Msg("process starting")
 	cmd := ExecCommand(args[0], args[1:]...)
 	cmd.Dir = dir
 
@@ -51,6 +57,8 @@ func RunCommand(dir string, pidFile string, stdFile string, errFile string, args
 		return nil, err
 	}
 	pid := cmd.Process.Pid
+	started := time.Now()
+	log.Info().Str("instance", instance).Int("pid", pid).Str("executable", filepath.Base(args[0])).Msg("process started")
 	_ = os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", pid)), permission)
 
 	done := make(chan error, 1)
@@ -61,7 +69,12 @@ func RunCommand(dir string, pidFile string, stdFile string, errFile string, args
 		_ = os.Remove(pidFile)
 		done <- waitErr
 		close(done)
-		log.Info().Str("command", strings.Join(args, " ")).Msg("stopped Command")
+		level := zerolog.InfoLevel
+		if waitErr != nil {
+			level = zerolog.WarnLevel
+		}
+		log.WithLevel(level).Err(waitErr).Str("instance", instance).Int("pid", pid).Int("exit_code", cmd.ProcessState.ExitCode()).
+			Str("runtime", time.Since(started).Round(time.Second).String()).Msg("process exited")
 	}()
 	return done, nil
 }

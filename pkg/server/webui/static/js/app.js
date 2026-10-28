@@ -7,9 +7,17 @@
   //= ========================================================================
   // API client
   //= ========================================================================
+  // apiFetch marks every request as coming from the web UI, which lets the
+  // controller keep its polling out of the log (-log-ui=false).
+  function apiFetch(url, opts) {
+    const o = Object.assign({}, opts);
+    o.headers = Object.assign({ 'X-BNGBlaster-Client': 'webui' }, o.headers);
+    return fetch(url, o);
+  }
+
   const API = {
     async fetchJSON(url, opts) {
-      const res = await fetch(url, opts);
+      const res = await apiFetch(url, opts);
       if (res.status === 204 || res.status === 202) return null;
       const text = await res.text();
       let body = null;
@@ -47,7 +55,7 @@
       // used elsewhere and can't go through fetchJSON as-is. no-store: the
       // editor must show what was just saved, never a cached older copy
       // (e.g. from a proxy or an older controller without Cache-Control).
-      return fetch('/api/v1/instances/' + encodeURIComponent(name) + '/config.json', { cache: 'no-store' }).then((res) => {
+      return apiFetch('/api/v1/instances/' + encodeURIComponent(name) + '/config.json', { cache: 'no-store' }).then((res) => {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();
       });
@@ -117,7 +125,7 @@
     upload(name, file) {
       const fd = new FormData();
       fd.append('file', file);
-      return fetch('/api/v1/instances/' + encodeURIComponent(name) + '/_upload', { method: 'POST', body: fd })
+      return apiFetch('/api/v1/instances/' + encodeURIComponent(name) + '/_upload', { method: 'POST', body: fd })
         .then((res) => {
           if (!res.ok) return res.text().then((t) => { throw new Error(t || res.statusText); });
         });

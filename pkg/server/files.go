@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/rs/zerolog/log"
 
 	"github.com/rtbrick/bngblaster-controller/pkg/generator"
 )
@@ -62,7 +61,6 @@ func (s *Server) files() http.HandlerFunc {
 // cross-site scripting vector against every other user of this UI.
 func (s *Server) fileDownload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		remoteAddr := clientIP(r)
 		instanceVariable := mux.Vars(r)[instanceNameParameter]
 		instance := cleanPathVariable(instanceVariable)
 		if !s.repository.Exists(instance) {
@@ -83,7 +81,7 @@ func (s *Server) fileDownload() http.HandlerFunc {
 			JSONNotFound(w, r)
 			return
 		}
-		log.Info().Str("remote_addr", remoteAddr).Str("instance", instance).Str("file", file).Msg("file downloaded")
+		logFields(r).Str("file", file)
 		w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(file))
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set(contentType, "application/octet-stream")

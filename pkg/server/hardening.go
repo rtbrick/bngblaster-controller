@@ -7,8 +7,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-
-	"github.com/rs/zerolog/log"
 )
 
 // Request body limits. The controller runs as root without authentication,
@@ -68,8 +66,13 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 func crossOriginMiddleware() func(http.Handler) http.Handler {
 	protection := http.NewCrossOriginProtection()
 	protection.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Warn().Str("remote_addr", clientIP(r)).Str("method", r.Method).Str("origin", r.Header.Get("Origin")).
-			Str("sec_fetch_site", r.Header.Get("Sec-Fetch-Site")).Msg("cross-origin request rejected: " + r.RequestURI)
+		rl := logFields(r)
+		if origin := r.Header.Get("Origin"); origin != "" {
+			rl.Str("origin", origin)
+		}
+		if site := r.Header.Get("Sec-Fetch-Site"); site != "" {
+			rl.Str("sec_fetch_site", site)
+		}
 		JSONError(w, "cross-origin request rejected", http.StatusForbidden)
 	}))
 	return protection.Handler
@@ -106,7 +109,7 @@ func hostAllowlistMiddleware(allowed []string) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			log.Warn().Str("remote_addr", clientIP(r)).Str("host", r.Host).Msg("request rejected: host not allowed")
+			logFields(r).Str("host", r.Host)
 			JSONError(w, "host not allowed", http.StatusForbidden)
 		})
 	}

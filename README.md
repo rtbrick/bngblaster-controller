@@ -78,6 +78,8 @@ Usage of /usr/local/bin/bngblasterctrl:
     	enable the interfaces endpoint (disable with -interfaces-api=false) (default true)
   -ldpupdate string
     	ldpupdate executable (default "/usr/bin/ldpupdate")
+  -log-ui
+    	also log successful read requests of the web UI (its polling) at info level; failed requests and actions are always logged
   -lspgen string
     	lspgen executable (default "/usr/bin/lspgen")
   -schema string
@@ -87,6 +89,32 @@ Usage of /usr/local/bin/bngblasterctrl:
   -upload
     	enable file upload (disable with -upload=false) (default true)
 ```
+
+## Logging
+
+Every request is logged as one line once it has been handled, with its
+method, path, HTTP status and duration, followed by the instance, the action
+it performed (`started`, `deleted`, `uploaded`, ...) and, for a failed
+request, the error returned to the client:
+
+```
+2026-10-28 10:15:02 UTC INF POST /api/v1/instances/x/_start 204 1.24s action=started instance=x remote_addr=10.0.0.5
+2026-10-28 10:15:09 UTC WRN POST /api/v1/instances/x/_start 412 3ms error="instance is running" instance=x remote_addr=10.0.0.5
+```
+
+Successful requests are logged at info level, client errors (4xx) as
+warnings and server errors (5xx) as errors. Warnings and errors go to stderr,
+everything else to stdout, so with the systemd service
+`/var/log/rtbrick-bngblasterctrl-service-err.log` lists every failed request.
+
+The web UI polls the controller every few seconds and marks its requests
+with the `X-Bngblaster-Client: webui` header (logged as `client=webui`).
+By default those successful reads are logged at debug level only, so the
+polling does not flood the log; `-log-ui` logs them at info level like any
+other request. Failed requests and actions such as start, stop, delete,
+upload and non-read-only commands are always logged. `-debug` shows everything,
+including the source location of each line. `-console=false` switches to
+JSON lines.
 
 ## Configuration
 

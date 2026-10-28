@@ -90,3 +90,13 @@ func WithAuthMiddleware(mw AuthMiddleware) Option {
 		}
 	}
 }
+
+// WithQuietUIRequests logs the successful reads of the embedded web UI -
+// its polling of instance state, logs and statistics - at debug level only.
+// Failed requests and actions (start, stop, upload, ...) are logged as
+// usual. Disabled by default.
+func WithQuietUIRequests(enabled bool) Option {
+	return func(s *Server) {
+		s.quietUI = enabled
+	}
+}

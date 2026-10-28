@@ -22,8 +22,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 
 	"github.com/rtbrick/bngblaster-controller/pkg/controller"
 	"github.com/rtbrick/bngblaster-controller/pkg/generator"
@@ -66,12 +64,6 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-// auditLog starts an info log event for a state-changing request. Without
-// authentication the client address is the only record of who did what.
-func auditLog(r *http.Request, instance string) *zerolog.Event {
-	return log.Info().Str("remote_addr", clientIP(r)).Str("instance", instance) //nolint:zerologlint // callers dispatch it
-}
-
 // availableDiskSpace returns the bytes available to the controller on the
 // file system holding dir. ok is false if that cannot be determined, in
 // which case the caller should not reject anything based on it.
@@ -85,8 +77,10 @@ func availableDiskSpace(dir string) (uint64, bool) {
 
 // Server implementation for the rest api.
 type Server struct {
-	Version    string
-	router     *mux.Router
+	Version string
+	router  *mux.Router
+	// handler is the router wrapped into the access log.
+	handler    http.Handler
 	prom       *controller.Prom
 	repository controller.Repository
 
@@ -115,6 +109,9 @@ type Server struct {
 	// WithAuthMiddleware is used, and is the extension point for plugging
 	// in authentication/login later.
 	authMiddleware AuthMiddleware
+	// quietUI logs successful reads of the web UI at debug level only,
+	// see accessLog.
+	quietUI bool
 
 	streamCache   *summaryCache[[]controller.StreamSummaryStream]
 	sessionCache  *summaryCache[[]controller.SessionSummarySession]
@@ -166,6 +163,7 @@ func NewServer(repository controller.Repository, opts ...Option) *Server {
 		opt(r)
 	}
 	r.routes()
+	r.handler = accessLog(r.router, r.quietUI)
 	if r.enableHost {
 		// Discover the interface details in the background, so neither
 		// the startup nor the first request waits for them; a request
@@ -177,21 +175,12 @@ func NewServer(repository controller.Repository, opts ...Option) *Server {
 
 // ServeHTTP A Handler responds to an HTTP request.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.router.ServeHTTP(w, r)
-}
-
-func loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Do stuff here.
-		log.Info().Str("method", r.Method).Str("remote_addr", clientIP(r)).Msg(r.RequestURI)
-		// Call the next handler, which can be another middleware in the chain, or the final handler.
-		next.ServeHTTP(w, r)
-	})
+	s.handler.ServeHTTP(w, r)
 }
 
 func (s *Server) routes() {
 	const instanceURL = "/api/v1/instances/{instance_name}"
-	s.router.Use(loggingMiddleware)
+	s.router.Use(instanceLogMiddleware)
 	// Hardening that does not depend on authentication; see hardening.go.
 	// Security headers come first so that rejections carry them too.
 	s.router.Use(securityHeadersMiddleware)
@@ -458,7 +447,7 @@ func (s *Server) create() http.HandlerFunc {
 			http.Error(w, "not able to create instance", http.StatusInternalServerError)
 			return
 		}
-		auditLog(r, instance).Msg("instance configured")
+		audit(r, instance, "configured")
 		w.WriteHeader(status)
 	}
 }
@@ -504,7 +493,7 @@ func (s *Server) delete() http.HandlerFunc {
 			JSONError(w, "not able to delete instance", http.StatusInternalServerError)
 			return
 		}
-		auditLog(r, instance).Msg("instance deleted")
+		audit(r, instance, "deleted")
 		w.WriteHeader(status)
 	}
 }
@@ -541,21 +530,21 @@ func (s *Server) start() http.HandlerFunc {
 			return
 		}
 		if err == controller.ErrBlasterStartupAborted {
-			auditLog(r, instance).Msg("instance start aborted")
+			audit(r, instance, "start aborted")
 			JSONError(w, err.Error(), http.StatusConflict)
 			return
 		}
 		if err == controller.ErrInvalidStreamConfig {
-			auditLog(r, instance).Str("stream_config", runningConfig.StreamConfig).Msg("start rejected: invalid stream config")
+			audit(r, instance, "start rejected").Str("stream_config", runningConfig.StreamConfig)
 			JSONError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		if err != nil {
-			auditLog(r, instance).Err(err).Msg("instance start failed")
+			audit(r, instance, "start failed")
 			JSONError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		auditLog(r, instance).Msg("instance started")
+		audit(r, instance, "started")
 		w.WriteHeader(status)
 	}
 }
@@ -567,7 +556,7 @@ func (s *Server) stop() http.HandlerFunc {
 		status := http.StatusAccepted
 		s.repository.Stop(instance)
 		s.invalidateInstanceCaches(instance)
-		auditLog(r, instance).Msg("instance stop requested")
+		audit(r, instance, "stop requested")
 		w.WriteHeader(status)
 	}
 }
@@ -579,7 +568,7 @@ func (s *Server) kill() http.HandlerFunc {
 		status := http.StatusAccepted
 		s.repository.Kill(instance)
 		s.invalidateInstanceCaches(instance)
-		auditLog(r, instance).Msg("instance kill requested")
+		audit(r, instance, "kill requested")
 		w.WriteHeader(status)
 	}
 }
@@ -601,10 +590,14 @@ func (s *Server) command() http.HandlerFunc {
 			JSONError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		// Debug only: the web UI issues read-only commands on every poll,
-		// and the request itself is already logged by loggingMiddleware.
-		log.Debug().Str("remote_addr", clientIP(r)).Str("instance", instance).Str("command", command.Command).
-			Msg("instance command")
+		// The web UI issues read-only commands on every poll; those count as
+		// reads in the access log, every other command as an action.
+		rl := logFields(r).Str("command", command.Command)
+		if _, ok := readOnlyCommands[command.Command]; ok {
+			rl.readOnly = true
+		} else {
+			rl.action = "command"
+		}
 
 		status := http.StatusOK
 
@@ -639,7 +632,6 @@ func (s *Server) command() http.HandlerFunc {
 
 func (s *Server) uploadFile() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		remoteAddr := clientIP(r)
 		instanceVariable := mux.Vars(r)[instanceNameParameter]
 		instance := cleanPathVariable(instanceVariable)
 		if !s.repository.Exists(instance) {
@@ -648,7 +640,6 @@ func (s *Server) uploadFile() http.HandlerFunc {
 		}
 
 		if !s.repository.AllowUpload() {
-			log.Warn().Str("remote_addr", remoteAddr).Str("instance", instance).Msg("upload forbidden")
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -658,8 +649,7 @@ func (s *Server) uploadFile() http.HandlerFunc {
 		instanceFolder := filepath.Join(s.repository.ConfigFolder(), instance)
 		if r.ContentLength > 0 {
 			if available, ok := availableDiskSpace(instanceFolder); ok && uint64(r.ContentLength) > available {
-				log.Warn().Str("remote_addr", remoteAddr).Str("instance", instance).Int64("size", r.ContentLength).
-					Uint64("available", available).Msg("upload rejected: insufficient disk space")
+				logFields(r).Int64("size", r.ContentLength).Int64("available", int64(available)) //nolint:gosec // disk sizes fit
 				http.Error(w, "insufficient disk space", http.StatusInsufficientStorage)
 				return
 			}
@@ -690,14 +680,12 @@ func (s *Server) uploadFile() http.HandlerFunc {
 		// them would land outside the instance folder.
 		name := filepath.Base(part.FileName())
 		if isUnsafeFileName(name) {
-			log.Warn().Str("remote_addr", remoteAddr).Str("instance", instance).Str("file", part.FileName()).
-				Msg("upload rejected: invalid filename")
+			logFields(r).Str("file", part.FileName())
 			http.Error(w, "invalid filename", http.StatusBadRequest)
 			return
 		}
 		if isReservedUpload(name) {
-			log.Warn().Str("remote_addr", remoteAddr).Str("instance", instance).Str("file", name).
-				Msg("upload rejected: reserved run file")
+			logFields(r).Str("file", name)
 			http.Error(w, "reserved filename", http.StatusBadRequest)
 			return
 		}
@@ -708,8 +696,7 @@ func (s *Server) uploadFile() http.HandlerFunc {
 			http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
 			return
 		case errors.Is(err, syscall.ENOSPC):
-			log.Warn().Str("remote_addr", remoteAddr).Str("instance", instance).Str("file", name).
-				Msg("upload failed: disk full")
+			logFields(r).Str("file", name)
 			http.Error(w, "insufficient disk space", http.StatusInsufficientStorage)
 			return
 		case err != nil:
@@ -717,7 +704,7 @@ func (s *Server) uploadFile() http.HandlerFunc {
 			return
 		}
 
-		log.Info().Str("remote_addr", remoteAddr).Str("instance", instance).Str("file", name).Msg("file uploaded")
+		audit(r, instance, "uploaded").Str("file", name)
 
 		w.WriteHeader(http.StatusOK)
 	}

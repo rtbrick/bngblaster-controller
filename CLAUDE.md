@@ -39,7 +39,11 @@ Run locally without root by pointing at a writable folder:
   per-instance summary cache with in-flight dedup; invalidate it on any lifecycle change.
   `hardening.go` holds the auth-independent protections (cross-origin check for
   state-changing requests, `-allowed-hosts`, security headers/CSP, body size limits); bound every
-  new request body with `http.MaxBytesReader` and log lifecycle changes via `auditLog`.
+  new request body with `http.MaxBytesReader`.
+  `accesslog.go` writes one log line per request after the handler (status, duration, error message
+  taken from the error response). Handlers don't log themselves: record lifecycle changes with
+  `audit(r, instance, action)` and extra fields with `logFields(r)`. New read-only bngblaster
+  commands belong in `readOnlyCommands`.
 - `pkg/generator/` – runs `lspgen`/`bgpupdate`/`ldpupdate` in an instance folder (`_generate`). Requests are
   validated against per-tool option whitelists (`tools.go`, also served to the UI), never passed as argv;
   outputs are written under `.gen-*` temp names and moved into place only on success (no replace while

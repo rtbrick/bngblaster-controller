@@ -541,14 +541,14 @@ func (p *Prom) collectInstanceSessionCounters(instance string, ch chan<- prometh
 	}
 	result, err := p.repository.Command(instance, command)
 	if err != nil {
-		log.Warn().Msgf("failed to execute session-counters: %s", err.Error())
+		log.Warn().Str("instance", instance).Str("command", "session-counters").Err(err).Msg("metrics: command failed")
 		return
 	}
 	// Decode response.
 	var cr SessionCountersResponse
 	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
 	if err != nil {
-		log.Warn().Msgf("failed to decode session-counters: %s", err.Error())
+		log.Warn().Str("instance", instance).Str("command", "session-counters").Err(err).Msg("metrics: invalid command response")
 		return
 	}
 	if !commandSucceeded(cr.Code) {
@@ -586,14 +586,14 @@ func (p *Prom) collectInstanceInterfaces(instance string, ch chan<- prometheus.M
 	}
 	result, err := p.repository.Command(instance, command)
 	if err != nil {
-		log.Warn().Msgf("failed to execute interfaces: %s", err.Error())
+		log.Warn().Str("instance", instance).Str("command", "interfaces").Err(err).Msg("metrics: command failed")
 		return
 	}
 	// Decode response.
 	var cr InterfacesResponse
 	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
 	if err != nil {
-		log.Warn().Msgf("failed to decode interfaces: %s", err.Error())
+		log.Warn().Str("instance", instance).Str("command", "interfaces").Err(err).Msg("metrics: invalid command response")
 		return
 	}
 	if !commandSucceeded(cr.Code) {
@@ -615,14 +615,14 @@ func (p *Prom) collectInstanceAccessInterfaces(instance string, ch chan<- promet
 	}
 	result, err := p.repository.Command(instance, command)
 	if err != nil {
-		log.Warn().Msgf("failed to execute access-interfaces: %s", err.Error())
+		log.Warn().Str("instance", instance).Str("command", "access-interfaces").Err(err).Msg("metrics: command failed")
 		return
 	}
 	// Decode response.
 	var cr AccessInterfacesResponse
 	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
 	if err != nil {
-		log.Warn().Msgf("failed to decode access-interfaces: %s", err.Error())
+		log.Warn().Str("instance", instance).Str("command", "access-interfaces").Err(err).Msg("metrics: invalid command response")
 		return
 	}
 	if !commandSucceeded(cr.Code) {
@@ -671,14 +671,14 @@ func (p *Prom) collectInstanceNetworkInterfaces(instance string, ch chan<- prome
 	}
 	result, err := p.repository.Command(instance, command)
 	if err != nil {
-		log.Warn().Msgf("failed to execute network-interfaces: %s", err.Error())
+		log.Warn().Str("instance", instance).Str("command", "network-interfaces").Err(err).Msg("metrics: command failed")
 		return
 	}
 	// Decode response.
 	var cr NetworkInterfacesResponse
 	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
 	if err != nil {
-		log.Warn().Msgf("failed to decode network-interfaces: %s", err.Error())
+		log.Warn().Str("instance", instance).Str("command", "network-interfaces").Err(err).Msg("metrics: invalid command response")
 		return
 	}
 	if !commandSucceeded(cr.Code) {
@@ -726,14 +726,14 @@ func (p *Prom) collectInstanceA10nspInterfaces(instance string, ch chan<- promet
 	}
 	result, err := p.repository.Command(instance, command)
 	if err != nil {
-		log.Warn().Msgf("failed to execute a10nsp-interfaces: %s", err.Error())
+		log.Warn().Str("instance", instance).Str("command", "a10nsp-interfaces").Err(err).Msg("metrics: command failed")
 		return
 	}
 	// Decode response.
 	var cr A10nspInterfacesResponse
 	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
 	if err != nil {
-		log.Warn().Msgf("failed to decode a10nsp-interfaces: %s", err.Error())
+		log.Warn().Str("instance", instance).Str("command", "a10nsp-interfaces").Err(err).Msg("metrics: invalid command response")
 		return
 	}
 	if !commandSucceeded(cr.Code) {
@@ -779,14 +779,14 @@ func (p *Prom) collectInstanceStreams(instance string, ch chan<- prometheus.Metr
 	}
 	result, err := p.repository.Command(instance, command)
 	if err != nil {
-		log.Warn().Msgf("failed to execute stream-summary: %s", err.Error())
+		log.Warn().Str("instance", instance).Str("command", "stream-summary").Err(err).Msg("metrics: command failed")
 		return
 	}
 	// Decode response.
 	var cr StreamSummaryResponse
 	err = json.NewDecoder(strings.NewReader(string(result))).Decode(&cr)
 	if err != nil {
-		log.Warn().Msgf("failed to decode stream-summary: %s", err.Error())
+		log.Warn().Str("instance", instance).Str("command", "stream-summary").Err(err).Msg("metrics: invalid command response")
 		return
 	}
 	if !commandSucceeded(cr.Code) {
@@ -811,14 +811,14 @@ func (p *Prom) collectInstance(wg *sync.WaitGroup, instance string, ch chan<- pr
 	path := path.Join(folder, RunConfigFilename)
 	file, err := os.Open(path)
 	if err != nil {
-		log.Warn().Msgf("failed to open %s: %s", path, err.Error())
+		log.Warn().Str("instance", instance).Err(err).Msg("metrics: run config not readable")
 		return
 	}
 
 	var runningConfig RunningConfig
 	err = json.NewDecoder(file).Decode(&runningConfig)
 	if err != nil {
-		log.Warn().Msgf("failed to decode %s: %s", path, err.Error())
+		log.Warn().Str("instance", instance).Err(err).Msg("metrics: invalid run config")
 		return
 	}
 
@@ -837,7 +837,7 @@ func (p *Prom) collectInstance(wg *sync.WaitGroup, instance string, ch chan<- pr
 		case "streams":
 			p.collectInstanceStreams(instance, ch)
 		default:
-			log.Warn().Msgf("unknown metrics flag: %s", flag)
+			log.Warn().Str("instance", instance).Str("flag", flag).Msg("metrics: unknown metrics flag")
 		}
 	}
 }
