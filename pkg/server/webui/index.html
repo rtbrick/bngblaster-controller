@@ -213,6 +213,7 @@
       <button role="tab" id="tab-isis" aria-controls="panel-isis" aria-selected="false" tabindex="-1" hidden>ISIS</button>
       <button role="tab" id="tab-ospf" aria-controls="panel-ospf" aria-selected="false" tabindex="-1" hidden>OSPF</button>
       <button role="tab" id="tab-lag" aria-controls="panel-lag" aria-selected="false" tabindex="-1" hidden>LAG</button>
+      <button role="tab" id="tab-l2tp" aria-controls="panel-l2tp" aria-selected="false" tabindex="-1" hidden>L2TP</button>
       <button role="tab" id="tab-commands" aria-controls="panel-commands" aria-selected="false" tabindex="-1">Commands</button>
       <button role="tab" id="tab-generate" aria-controls="panel-generate" aria-selected="false" tabindex="-1" hidden>Generate</button>
     </div>
@@ -627,6 +628,40 @@
       <div id="lag-content" hidden></div>
     </div>
 
+    <!-- ---- L2TP ---- -->
+    <div role="tabpanel" id="panel-l2tp" aria-labelledby="tab-l2tp" tabindex="0" hidden>
+      <div class="card-header">
+        <p class="hint" style="margin:0;">L2TP tunnels of this instance, as reported by the
+          <code>l2tp-tunnels</code> command, with their sessions counted from <code>l2tp-sessions</code>.
+          The role is the one of this instance: LNS for an <code>l2tp-server</code>, LAC for an
+          <code>l2tp-client</code>.</p>
+        <button type="button" class="btn btn-sm" id="btn-l2tp-refresh">Refresh</button>
+      </div>
+      <div id="l2tp-empty" class="empty-state">No L2TP tunnel data available. Start the instance to see live
+        L2TP tunnels here.</div>
+      <div id="l2tp-content" hidden>
+        <div class="table-scroll">
+          <table>
+            <caption class="visually-hidden">L2TP tunnels</caption>
+            <thead>
+              <tr>
+                <th scope="col">Role</th>
+                <th scope="col">Name</th>
+                <th scope="col">Tunnel ID / Peer</th>
+                <th scope="col">Peer</th>
+                <th scope="col">State</th>
+                <th scope="col">Sessions</th>
+                <th scope="col">Control TX / RX</th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="l2tp-tbody"></tbody>
+          </table>
+        </div>
+        <p class="hint" id="l2tp-count-hint"></p>
+      </div>
+    </div>
+
     <!-- ---- Commands ---- -->
     <div role="tabpanel" id="panel-commands" aria-labelledby="tab-commands" tabindex="0" hidden>
       <div class="form-grid">
@@ -844,6 +879,57 @@
     <button type="button" class="btn" id="btn-bgp-update-retry" hidden>Retry skipped</button>
     <button type="button" class="btn" data-close-dialog="dialog-bgp-update">Close</button>
     <button type="button" class="btn btn-primary" id="btn-bgp-update-send">Send</button>
+  </div>
+</dialog>
+
+<!-- ===================== L2TP TUNNEL DETAIL DIALOG ===================== -->
+<dialog id="dialog-l2tp-detail" aria-labelledby="dialog-l2tp-detail-title">
+  <div class="dialog-header">
+    <h2 id="dialog-l2tp-detail-title">L2TP Tunnel Detail</h2>
+    <button type="button" class="btn btn-sm btn-icon" data-close-dialog="dialog-l2tp-detail" aria-label="Close dialog">✕</button>
+  </div>
+  <div class="dialog-body">
+    <dl id="l2tp-detail-list" class="detail-grid"></dl>
+    <h3>Sessions</h3>
+    <p class="hint" id="l2tp-detail-sessions-hint"></p>
+    <div class="table-scroll" id="l2tp-detail-sessions-wrap" hidden>
+      <table>
+        <caption class="visually-hidden">Sessions of the L2TP tunnel</caption>
+        <thead>
+          <tr>
+            <th scope="col">Session ID / Peer</th>
+            <th scope="col">State</th>
+            <th scope="col">Proxy Auth Name</th>
+            <th scope="col">Calling / Called Number</th>
+            <th scope="col">Peer TX / RX bps</th>
+            <th scope="col">Data TX / RX</th>
+          </tr>
+        </thead>
+        <tbody id="l2tp-detail-sessions-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="dialog-footer">
+    <button type="button" class="btn" id="btn-l2tp-detail-refresh">Refresh</button>
+    <button type="button" class="btn" data-close-dialog="dialog-l2tp-detail">Close</button>
+  </div>
+</dialog>
+
+<!-- ===================== L2TP CSURQ DIALOG ===================== -->
+<dialog id="dialog-l2tp-csurq" aria-labelledby="dialog-l2tp-csurq-title">
+  <div class="dialog-header">
+    <h2 id="dialog-l2tp-csurq-title">Send CSURQ</h2>
+    <button type="button" class="btn btn-sm btn-icon" data-close-dialog="dialog-l2tp-csurq" aria-label="Close dialog">✕</button>
+  </div>
+  <div class="dialog-body">
+    <p id="l2tp-csurq-target"></p>
+    <p class="hint">A Connect-Speed-Update-Request (RFC 5515) asks the LAC to report the current connect
+      speeds of the established sessions of this tunnel. It is sent in requests of up to 50 sessions.</p>
+    <div id="l2tp-csurq-status" class="form-status" role="status" hidden></div>
+  </div>
+  <div class="dialog-footer">
+    <button type="button" class="btn" data-close-dialog="dialog-l2tp-csurq">Close</button>
+    <button type="button" class="btn btn-primary" id="btn-l2tp-csurq-send">Send</button>
   </div>
 </dialog>
 

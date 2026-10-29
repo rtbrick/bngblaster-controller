@@ -335,6 +335,10 @@
     // pending holds the member interfaces with an enable/disable request in
     // flight, so their button stays disabled across poll re-renders.
     lag: { pollTimer: null, pending: new Set() },
+    // tunnels is the last l2tp-tunnels result with the session counts
+    // added; detailTunnelId the tunnel shown in the detail dialog, csurq the
+    // tunnel of the open CSURQ dialog.
+    l2tp: { pollTimer: null, tunnels: [], detailTunnelId: null, detailTimer: null, csurq: null },
     // ISIS and OSPF tabs: the instance the selects were filled for, and the
     // last database read, kept for re-filtering without a new request.
     isis: { pollTimer: null, dbTimer: null, instance: null, config: null, database: [], dbOffset: 0 },
@@ -1980,7 +1984,7 @@
   //= ========================================================================
   // Instance detail view: tabs
   //= ========================================================================
-  const TABS = ['overview', 'sessions', 'streams', 'bgp', 'isis', 'ospf', 'lag', 'commands', 'generate'];
+  const TABS = ['overview', 'sessions', 'streams', 'bgp', 'isis', 'ospf', 'lag', 'l2tp', 'commands', 'generate'];
   function isTabActive(name) {
     const tab = $('#tab-' + name);
     return !!tab && tab.getAttribute('aria-selected') === 'true';
@@ -2046,6 +2050,7 @@
     if (name === 'isis') initIsisView(); else stopIsisPolling();
     if (name === 'ospf') initOspfView(); else stopOspfPolling();
     if (name === 'lag') initLagView(); else stopLagPolling();
+    if (name === 'l2tp') initL2tpView(); else stopL2tpPolling();
     if (name === 'commands') loadCommandBuilder();
     if (name === 'generate') initGenerateView();
   }
@@ -2145,6 +2150,15 @@
     $('#lag-content').hidden = true;
     $('#lag-empty').hidden = false;
     $('#lag-empty').textContent = DEFAULT_EMPTY_TEXT['#lag-empty'];
+
+    // L2TP tab: same as BGP, driven by the new instance's config.
+    setTabAvailable('l2tp', false);
+    state.l2tp.tunnels = [];
+    $('#l2tp-tbody').innerHTML = '';
+    $('#l2tp-content').hidden = true;
+    $('#l2tp-empty').hidden = false;
+    $('#l2tp-empty').textContent = DEFAULT_EMPTY_TEXT['#l2tp-empty'];
+    $('#l2tp-count-hint').textContent = '';
 
     // Generate tab: prefilled from the instance's config, so rebuilt for
     // the next instance; whether it is shown at all does not depend on
@@ -3564,9 +3578,10 @@
   // trip per tick for the (common) runs without BGP. The instance config
   // already answers the question - BGP sessions exist only if it has a
   // non-empty "bgp" section - and is a plain file read that also works while
-  // the instance is stopped. The same read also decides the ISIS, OSPF and
-  // LAG tabs, which have nothing to show unless the config defines ISIS or
-  // OSPF instances or LAG interfaces.
+  // the instance is stopped. The same read also decides the ISIS, OSPF, LAG
+  // and L2TP tabs, which have nothing to show unless the config defines ISIS
+  // or OSPF instances, LAG interfaces or L2TP servers (LNS) or clients (LAC):
+  // L2TP tunnels exist only for those.
   async function updateConfigTabAvailability(name) {
     const present = (v) => (Array.isArray(v) ? v.length > 0 : (!!v && typeof v === 'object'));
     let config = null;
@@ -3581,6 +3596,7 @@
       setTabAvailable('isis', present(config && config.isis));
       setTabAvailable('ospf', present(config && config.ospf));
       setTabAvailable('lag', present(config && config.interfaces && config.interfaces.lag));
+      setTabAvailable('l2tp', present(config && config['l2tp-server']) || present(config && config['l2tp-client']));
     }
   }
 
@@ -4466,6 +4482,256 @@
   $('#btn-lag-refresh').addEventListener('click', loadLagInfo);
 
   //= ========================================================================
+  // 3b4a. L2TP
+  //= ========================================================================
+  // l2tp-tunnels reports no session count, so the sessions are counted from
+  // l2tp-sessions, which lists every session of every tunnel. With many
+  // sessions that is a large response, so this tab polls slower than BGP.
+  const L2TP_POLL_MS = 5000;
+  // The most sessions bngblaster accepts in one l2tp-csurq: the Connect
+  // Speed Update AVPs that fit into one message.
+  const L2TP_CSURQ_MAX_SESSIONS = 50;
+  // The detail dialog lists at most this many sessions of a tunnel (up to
+  // 65535); the count above the table is always the full one.
+  const L2TP_DETAIL_MAX_SESSIONS = 500;
+
+  // The role of this instance in a tunnel: tunnels of an l2tp-server (this
+  // instance is the LNS) carry the server-name, those of an l2tp-client
+  // (the LAC) the client-name.
+  function l2tpRole(tunnel) {
+    return tunnel['client-name'] !== undefined ? 'LAC' : 'LNS';
+  }
+  const l2tpEstablished = (item) => item.state === 'Established';
+  const l2tpTunnelLabel = (tunnel) => (tunnel['server-name'] || tunnel['client-name'] || 'L2TP') + ' tunnel ' + tunnel['tunnel-id'];
+
+  async function fetchL2tp(command, args) {
+    const resp = await API.command(state.currentInstance, command, args);
+    const result = splitCommandResponse(resp).result;
+    return Array.isArray(result) ? result : [];
+  }
+
+  const hasL2tpCounts = (tunnel) => typeof tunnel.sessions === 'number' && typeof tunnel['sessions-established'] === 'number';
+
+  // The tunnels with the number of their sessions and established sessions
+  // (sessions, sessions-established). bngblaster reports both in
+  // l2tp-tunnels; older versions do not, and only for those the sessions
+  // are counted from l2tp-sessions, which lists every session with all its
+  // fields - megabytes per poll with many sessions. The tunnel id is
+  // unique within an instance.
+  async function fetchL2tpTunnels() {
+    const tunnels = await fetchL2tp('l2tp-tunnels');
+    if (tunnels.every(hasL2tpCounts)) return tunnels;
+    const counts = new Map();
+    (await fetchL2tp('l2tp-sessions')).forEach((session) => {
+      const c = counts.get(session['tunnel-id']) || { sessions: 0, 'sessions-established': 0 };
+      c.sessions++;
+      if (l2tpEstablished(session)) c['sessions-established']++;
+      counts.set(session['tunnel-id'], c);
+    });
+    return tunnels.map((tunnel) => Object.assign({ sessions: 0, 'sessions-established': 0 }, tunnel, counts.get(tunnel['tunnel-id'])));
+  }
+
+  async function loadL2tpTunnels() {
+    const name = state.currentInstance;
+    if (!name) return;
+    let tunnels;
+    try {
+      tunnels = await fetchL2tpTunnels();
+    } catch (e) {
+      if (state.currentInstance !== name) return;
+      $('#l2tp-empty').hidden = false;
+      $('#l2tp-empty').textContent = e.status === 412 ? 'Instance is not running.' : 'Could not load L2TP tunnels: ' + e.message;
+      $('#l2tp-content').hidden = true;
+      return;
+    }
+    if (state.currentInstance !== name) return;
+    state.l2tp.tunnels = tunnels;
+    if (!tunnels.length) {
+      $('#l2tp-empty').hidden = false;
+      $('#l2tp-empty').textContent = 'No L2TP tunnels reported by this instance.';
+      $('#l2tp-content').hidden = true;
+      return;
+    }
+    $('#l2tp-empty').hidden = true;
+    $('#l2tp-content').hidden = false;
+    renderL2tpTunnels(tunnels);
+    const established = tunnels.filter(l2tpEstablished).length;
+    const sessions = tunnels.reduce((n, t) => n + t.sessions, 0);
+    $('#l2tp-count-hint').textContent = tunnels.length + ' L2TP tunnel' + (tunnels.length === 1 ? '' : 's') + ', ' +
+      established + ' established, ' + sessions.toLocaleString() + ' session' + (sessions === 1 ? '' : 's') + '.';
+  }
+
+  function renderL2tpTunnels(tunnels) {
+    const tbody = $('#l2tp-tbody');
+    tbody.innerHTML = '';
+    tunnels.forEach((tunnel) => {
+      const role = l2tpRole(tunnel);
+      const established = l2tpEstablished(tunnel);
+      const csurqHint = established ? null : 'Only established tunnels';
+      const actions = [el('button', { class: 'btn btn-sm', type: 'button', text: 'Detail', onclick: () => showL2tpDetail(tunnel) })];
+      // CSURQ is a request of the LNS to the LAC.
+      if (role === 'LNS') {
+        actions.unshift(el('button', {
+          class: 'btn btn-sm', type: 'button', text: 'CSURQ',
+          disabled: established && tunnel['sessions-established'] ? null : '',
+          title: csurqHint || (tunnel['sessions-established'] ? 'Request connect speed updates from the LAC' : 'No established sessions'),
+          onclick: () => showL2tpCsurq(tunnel),
+        }));
+      }
+      tbody.appendChild(el('tr', {}, [
+        el('td', {}, [el('span', { class: 'badge status-code', text: role })]),
+        el('td', { text: tunnel['server-name'] || tunnel['client-name'] || '' }),
+        el('td', { text: tunnel['tunnel-id'] + ' / ' + tunnel['peer-tunnel-id'] }),
+        el('td', { text: (tunnel['peer-name'] && tunnel['peer-name'] !== 'N/A' ? tunnel['peer-name'] + ' ' : '') + (tunnel['peer-address'] || '') }),
+        el('td', {}, [el('span', { class: 'badge ' + (established ? 'status-ok' : 'status-code'), text: tunnel.state || 'unknown' })]),
+        el('td', {
+          text: tunnel['sessions-established'].toLocaleString() + ' / ' + tunnel.sessions.toLocaleString(),
+          title: tunnel['sessions-established'] + ' established of ' + tunnel.sessions + ' sessions',
+        }),
+        el('td', { text: (tunnel['control-packets-tx'] || 0).toLocaleString() + ' / ' + (tunnel['control-packets-rx'] || 0).toLocaleString() }),
+        el('td', {}, [el('div', { class: 'row-actions-cell' }, actions)]),
+      ]));
+    });
+  }
+
+  function initL2tpView() {
+    loadL2tpTunnels();
+    stopL2tpPolling();
+    state.l2tp.pollTimer = schedulePoll(loadL2tpTunnels, L2TP_POLL_MS);
+  }
+  function stopL2tpPolling() {
+    state.l2tp.pollTimer = cancelPoll(state.l2tp.pollTimer);
+  }
+
+  // The detail dialog shows the full l2tp-tunnels entry and the sessions of
+  // the tunnel (l2tp-sessions with its tunnel-id), refreshed like the BGP
+  // session detail.
+  async function loadL2tpDetail(showLoading) {
+    const id = state.l2tp.detailTunnelId;
+    if (!state.currentInstance || id == null) return;
+    if (showLoading) renderDetailFields('#l2tp-detail-list', { Loading: '…' });
+    try {
+      const tunnel = (await fetchL2tp('l2tp-tunnels')).find((t) => t['tunnel-id'] === id);
+      if (!tunnel) {
+        renderDetailFields('#l2tp-detail-list', { Error: 'L2TP tunnel no longer reported by this instance.' });
+        renderL2tpDetailSessions([]);
+        return;
+      }
+      renderResultFields('#l2tp-detail-list', Object.assign({ role: l2tpRole(tunnel) }, tunnel));
+      // A tunnel without sessions is not found by l2tp-sessions (404).
+      let sessions = [];
+      try {
+        sessions = await fetchL2tp('l2tp-sessions', { 'tunnel-id': id });
+      } catch (e) {
+        if (e.status !== 404) throw e;
+      }
+      if (state.l2tp.detailTunnelId === id) renderL2tpDetailSessions(sessions);
+    } catch (e) {
+      renderDetailFields('#l2tp-detail-list', { Error: e.message });
+    }
+  }
+
+  function renderL2tpDetailSessions(sessions) {
+    const established = sessions.filter(l2tpEstablished).length;
+    let hint = sessions.length.toLocaleString() + ' session' + (sessions.length === 1 ? '' : 's') + ', ' + established.toLocaleString() + ' established.';
+    if (sessions.length > L2TP_DETAIL_MAX_SESSIONS) hint += ' The first ' + L2TP_DETAIL_MAX_SESSIONS + ' are listed.';
+    $('#l2tp-detail-sessions-hint').textContent = hint;
+    $('#l2tp-detail-sessions-wrap').hidden = sessions.length === 0;
+    const na = (v) => (v === undefined || v === 'N/A' ? '' : String(v));
+    const tbody = $('#l2tp-detail-sessions-tbody');
+    tbody.innerHTML = '';
+    sessions.slice(0, L2TP_DETAIL_MAX_SESSIONS).forEach((session) => {
+      tbody.appendChild(el('tr', {}, [
+        el('td', { text: session['session-id'] + ' / ' + session['peer-session-id'] }),
+        el('td', {}, [el('span', { class: 'badge ' + (l2tpEstablished(session) ? 'status-ok' : 'status-code'), text: session.state || 'unknown' })]),
+        el('td', { text: na(session['peer-proxy-auth-name']) }),
+        el('td', { text: [na(session['peer-calling-number']), na(session['peer-called-number'])].filter(Boolean).join(' / ') }),
+        el('td', { text: (session['peer-tx-bps'] || 0).toLocaleString() + ' / ' + (session['peer-rx-bps'] || 0).toLocaleString() }),
+        el('td', { text: (session['data-packets-tx'] || 0).toLocaleString() + ' / ' + (session['data-packets-rx'] || 0).toLocaleString() }),
+      ]));
+    });
+  }
+
+  function stopL2tpDetailPolling() {
+    state.l2tp.detailTimer = cancelPoll(state.l2tp.detailTimer);
+  }
+
+  function showL2tpDetail(tunnel) {
+    state.l2tp.detailTunnelId = tunnel['tunnel-id'];
+    $('#dialog-l2tp-detail-title').textContent = 'L2TP Tunnel Detail — ' + l2tpTunnelLabel(tunnel) + ' (' + l2tpRole(tunnel) + ')';
+    $('#l2tp-detail-sessions-hint').textContent = '';
+    $('#l2tp-detail-sessions-wrap').hidden = true;
+    openDialog('dialog-l2tp-detail');
+    loadL2tpDetail(true);
+    stopL2tpDetailPolling();
+    state.l2tp.detailTimer = schedulePoll(() => loadL2tpDetail(false), L2TP_POLL_MS);
+  }
+
+  $('#dialog-l2tp-detail').addEventListener('close', () => {
+    stopL2tpDetailPolling();
+    state.l2tp.detailTunnelId = null;
+  });
+  $('#btn-l2tp-detail-refresh').addEventListener('click', () => loadL2tpDetail(true));
+  $('#btn-l2tp-refresh').addEventListener('click', loadL2tpTunnels);
+
+  function setL2tpCsurqStatus(kind, text) {
+    const status = $('#l2tp-csurq-status');
+    status.hidden = !text;
+    status.className = 'form-status ' + (kind || 'info');
+    status.textContent = text || '';
+  }
+
+  function showL2tpCsurq(tunnel) {
+    state.l2tp.csurq = { instance: state.currentInstance, tunnelId: tunnel['tunnel-id'] };
+    $('#l2tp-csurq-target').textContent = 'Request connect speed updates for the ' + tunnel['sessions-established'].toLocaleString() +
+      ' established session' + (tunnel['sessions-established'] === 1 ? '' : 's') + ' of ' + l2tpTunnelLabel(tunnel) +
+      ' to ' + (tunnel['peer-address'] || 'the LAC') + '.';
+    setL2tpCsurqStatus(null, '');
+    $('#btn-l2tp-csurq-send').disabled = false;
+    openDialog('dialog-l2tp-csurq');
+  }
+
+  // Sends l2tp-csurq for the sessions of the tunnel that are established
+  // now, read just before sending, in requests of up to
+  // L2TP_CSURQ_MAX_SESSIONS. bngblaster encodes each request when it
+  // receives it, so they can follow each other without waiting.
+  async function sendL2tpCsurq() {
+    const csurq = state.l2tp.csurq;
+    if (!csurq) return;
+    $('#btn-l2tp-csurq-send').disabled = true;
+    setL2tpCsurqStatus('info', 'Sending CSURQ…');
+    let sent = 0;
+    let requests = 0;
+    let error = null;
+    try {
+      const ids = (await fetchL2tp('l2tp-sessions', { 'tunnel-id': csurq.tunnelId }))
+        .filter(l2tpEstablished).map((session) => session['session-id']);
+      for (let i = 0; i < ids.length; i += L2TP_CSURQ_MAX_SESSIONS) {
+        const chunk = ids.slice(i, i + L2TP_CSURQ_MAX_SESSIONS);
+        await API.command(csurq.instance, 'l2tp-csurq', { 'tunnel-id': csurq.tunnelId, sessions: chunk });
+        sent += chunk.length;
+        requests++;
+      }
+    } catch (e) {
+      error = e.status === 404 ? 'tunnel has no sessions' : e.message;
+    }
+    if (state.l2tp.csurq !== csurq) return;
+    $('#btn-l2tp-csurq-send').disabled = false;
+    const sessions = (n) => n.toLocaleString() + ' session' + (n === 1 ? '' : 's');
+    if (error) {
+      setL2tpCsurqStatus('error', 'CSURQ failed' + (sent ? ' after ' + sessions(sent) : '') + ': ' + error);
+    } else if (!sent) {
+      setL2tpCsurqStatus('error', 'The tunnel has no established sessions.');
+    } else {
+      setL2tpCsurqStatus('success', 'CSURQ sent for ' + sessions(sent) + ' in ' + requests + ' request' + (requests === 1 ? '' : 's') +
+        '. The LAC reports the connect speeds with CSUN, shown as the peer TX / RX bps of the sessions in the tunnel detail.');
+    }
+  }
+
+  $('#btn-l2tp-csurq-send').addEventListener('click', sendL2tpCsurq);
+  $('#dialog-l2tp-csurq').addEventListener('close', () => { state.l2tp.csurq = null; });
+
+  //= ========================================================================
   // 3b5. Generate (lspgen, bgpupdate, ldpupdate)
   //= ========================================================================
   // The generators and their options come from /api/v1/generators, so the
@@ -5276,7 +5542,7 @@
   //= ========================================================================
   // Boot
   //= ========================================================================
-  ['#streams-empty', '#sessions-empty', '#bgp-empty', '#isis-empty', '#ospf-empty', '#lag-empty', '#command-output-empty'].forEach((sel) => {
+  ['#streams-empty', '#sessions-empty', '#bgp-empty', '#isis-empty', '#ospf-empty', '#lag-empty', '#l2tp-empty', '#command-output-empty'].forEach((sel) => {
     DEFAULT_EMPTY_TEXT[sel] = $(sel).textContent;
   });
   initJSONEditorDOM();
