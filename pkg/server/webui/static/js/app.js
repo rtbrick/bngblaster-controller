@@ -709,6 +709,14 @@
     startProgress.aborted = false;
     setStartDialogBusy(true);
     startProgress.timer = schedulePoll(pollStartProgress, 500);
+    // Follow the instance being started in the log dock, so its startup
+    // output is visible right away. This wins over a manual selection (the
+    // user just asked for this instance) but leaves the dock size alone.
+    const logSelect = $('#logdock-instance-select');
+    if (logSelect.value !== name && Array.from(logSelect.options).some((o) => o.value === name)) {
+      logSelect.value = name;
+      onLogInstanceChange();
+    }
     try {
       await API.start(name, cfg);
       announce('Started ' + name, 'success');
