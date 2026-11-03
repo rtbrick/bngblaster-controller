@@ -1002,7 +1002,14 @@
     const wrap = fieldWrap(id, label, required, hint, select);
     return {
       el: wrap,
-      getValue: () => (touched && select.value !== '' ? select.value : undefined),
+      // <option> values are always strings, so map the selection back to the
+      // original enum member - otherwise integer enums like igmp.version
+      // would be written to the config as "2" instead of 2.
+      getValue: () => {
+        if (!touched || select.value === '') return undefined;
+        const match = schema.enum.find((e) => String(e) === select.value);
+        return match === undefined ? select.value : match;
+      },
       setValue: (v) => {
         const has = v !== undefined && v !== null && schema.enum.some((e) => String(e) === String(v));
         touched = has || !!required;
