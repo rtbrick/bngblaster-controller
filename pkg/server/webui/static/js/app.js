@@ -2189,6 +2189,7 @@
     // Commands tab: the command list is per instance (it is discovered from
     // the instance itself), as is any response already shown.
     $('#command-select').innerHTML = '';
+    $('#command-filter').value = '';
     $('#command-args-fieldset').innerHTML = '';
     currentCommandArgFields = [];
     $('#command-output').hidden = true;
@@ -5255,12 +5256,35 @@
 
   function renderCommandSelect() {
     const name = state.currentInstance;
-    const list = state.instanceCommands[name] || [];
+    const all = state.instanceCommands[name] || [];
+    // bngblaster exposes well over a hundred commands, so the filter matches
+    // a case-insensitive substring of the raw name, its pretty label and the
+    // description - "isis db" finds isis-database just like "isis-database".
+    const terms = $('#command-filter').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const list = all.filter((c) => {
+      const hay = (c.name + ' ' + prettyLabel(c.name) + ' ' + (c.description || '')).toLowerCase();
+      return terms.every((t) => hay.includes(t));
+    });
     const select = $('#command-select');
+    const previous = select.value;
     select.innerHTML = '';
     list.forEach((c) => select.appendChild(el('option', { value: c.name, text: prettyLabel(c.name) + (c.description ? ' — ' + c.description : '') })));
-    if (list.length) renderCommandArgs(list[0]);
+    if (!list.length) {
+      select.appendChild(el('option', { value: '', text: all.length ? 'No matching command' : '(no commands)' }));
+      $('#command-args-fieldset').innerHTML = '';
+      currentCommandArgFields = [];
+      return;
+    }
+    // Keep the current command (and the arguments typed for it) while it
+    // still matches; only switch when the filter hides it.
+    const keep = list.find((c) => c.name === previous);
+    if (keep && $('#command-args-fieldset').childElementCount) {
+      select.value = previous;
+      return;
+    }
+    renderCommandArgs(keep || list[0]);
   }
+  $('#command-filter').addEventListener('input', renderCommandSelect);
   $('#command-select').addEventListener('change', () => {
     const name = state.currentInstance;
     const cmd = (state.instanceCommands[name] || []).find((c) => c.name === $('#command-select').value);
