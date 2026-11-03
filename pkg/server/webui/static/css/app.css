@@ -827,19 +827,24 @@ dialog > form[method="dialog"] {
 .detail-grid dt { font-weight: 600; color: var(--color-text-muted); white-space: nowrap; }
 .detail-grid dd { margin: 0; overflow-wrap: anywhere; }
 .detail-value-wide { grid-column: 1 / -1; }
-.detail-value-json {
-  margin: 0.25rem 0 0;
+/* Nested objects and list items (see detailValueNode): one box per object,
+   two grey tones alternating by depth so a box always stands out from the
+   one it is nested in. */
+.detail-list { display: grid; gap: var(--space-2); }
+.detail-box {
   padding: var(--space-2) var(--space-3);
-  background: #0f1115;
-  color: #d8dee6;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 0.85rem;
-  overflow: auto;
-  max-height: 240px;
-  white-space: pre-wrap;
-  word-break: break-word;
 }
+.detail-box-0 { background: var(--color-surface-alt); }
+.detail-box-1 { background: #e1e6eb; }
+.detail-box-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-1);
+}
+.detail-empty { color: var(--color-text-muted); font-style: italic; }
 
 /* ---------- Host view ---------- */
 .host-name { color: var(--color-text-muted); font-weight: 400; }

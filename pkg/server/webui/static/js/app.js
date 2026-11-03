@@ -3305,17 +3305,75 @@
   function renderDetailFields(dlId, fields) {
     const dl = $(dlId);
     dl.innerHTML = '';
-    Object.entries(fields).forEach(([k, v]) => {
-      const isComplex = typeof v === 'object' && v !== null;
+    fillDetailGrid(dl, fields, 0);
+  }
+
+  // Nested values are rendered structurally instead of as a JSON dump: each
+  // object becomes its own key/value box and each object in a list gets one
+  // box, so e.g. a session-info interface list reads like the top level.
+  // Box tones alternate with nesting depth so a box always differs from the
+  // one it sits in. A list of plain scalars stays a single comma-joined line.
+  const DETAIL_LIST_CHUNK = 100;
+  const isScalar = (v) => v === null || typeof v !== 'object';
+  const isBoxed = (v) => !isScalar(v) && !(Array.isArray(v) && v.every(isScalar));
+
+  function fillDetailGrid(dl, obj, depth) {
+    Object.entries(obj).forEach(([k, v]) => {
       dl.appendChild(el('dt', { text: k }));
-      const dd = el('dd', { class: isComplex ? 'detail-value-wide' : null });
-      if (isComplex) {
-        dd.appendChild(el('pre', { class: 'detail-value-json', text: JSON.stringify(v, null, 2) }));
-      } else {
-        dd.textContent = String(v);
-      }
+      const dd = el('dd', { class: isBoxed(v) ? 'detail-value-wide' : null });
+      dd.appendChild(detailValueNode(v, depth));
       dl.appendChild(dd);
     });
+  }
+
+  function detailBox(depth, children) {
+    return el('div', { class: 'detail-box detail-box-' + (depth % 2) }, children);
+  }
+
+  function detailValueNode(v, depth) {
+    if (isScalar(v)) return document.createTextNode(String(v));
+    if (Array.isArray(v)) {
+      if (!v.length) return el('span', { class: 'detail-empty', text: '(empty list)' });
+      if (v.every(isScalar)) return document.createTextNode(v.map(String).join(', '));
+      return detailList(v, depth);
+    }
+    if (!Object.keys(v).length) return el('span', { class: 'detail-empty', text: '(empty)' });
+    const dl = el('dl', { class: 'detail-grid' });
+    fillDetailGrid(dl, v, depth + 1);
+    return detailBox(depth, [dl]);
+  }
+
+  // One numbered box per list item. Long lists (e.g. a session list on a
+  // big test) are rendered in chunks behind a "Show more" button, since one
+  // box per item would otherwise build hundreds of thousands of nodes.
+  function detailList(items, depth) {
+    const list = el('div', { class: 'detail-list' });
+    let shown = 0;
+    const more = el('button', { type: 'button', class: 'btn btn-sm' });
+    const renderChunk = () => {
+      const end = Math.min(items.length, shown + DETAIL_LIST_CHUNK);
+      for (; shown < end; shown++) {
+        const item = items[shown];
+        const title = el('div', { class: 'detail-box-title', text: '#' + (shown + 1) });
+        let body;
+        if (item && typeof item === 'object' && !Array.isArray(item)) {
+          body = el('dl', { class: 'detail-grid' });
+          fillDetailGrid(body, item, depth + 1);
+        } else {
+          body = el('div', {}, [detailValueNode(item, depth + 1)]);
+        }
+        list.insertBefore(detailBox(depth, [title, body]), more.isConnected ? more : null);
+      }
+      if (shown < items.length) {
+        more.textContent = 'Show more (' + (items.length - shown) + ' remaining)';
+        if (!more.isConnected) list.appendChild(more);
+      } else {
+        more.remove();
+      }
+    };
+    more.addEventListener('click', renderChunk);
+    renderChunk();
+    return list;
   }
 
   // Renders a *-info / ad-hoc command result via renderDetailFields: a
