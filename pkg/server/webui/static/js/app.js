@@ -1073,6 +1073,8 @@
     details.appendChild(body);
     return {
       el: details,
+      // Exposed for buildFormSectionNav's sub-section links.
+      children: children,
       getValue: () => {
         const obj = {};
         let any = false;
@@ -1870,23 +1872,39 @@
   }
 
   // Builds the left-side "jump to section" index for the schema-driven form,
-  // one entry per top-level property. Clicking an entry opens that section
-  // (if it collapses into a <details>) and scrolls it into view.
+  // one entry per top-level property, plus an indented entry for each of its
+  // sub-sections (an object or list child such as interfaces -> links, lag,
+  // network, access, a10nsp). Plain leaf fields are left out to keep the
+  // index short. Clicking an entry opens that section and every <details>
+  // around it, then scrolls it into view.
   function buildFormSectionNav(fields, properties, schema, requiredTop) {
     const nav = $('#schema-form-nav');
     nav.innerHTML = '';
     if (fields.length < 2) { nav.hidden = true; return; }
+    const isSection = (field) => field.el.tagName === 'DETAILS' || field.el.tagName === 'FIELDSET';
+    const jumpTo = (target) => {
+      for (let n = target; n; n = n.parentElement) {
+        if (n.tagName === 'DETAILS') n.open = true;
+      }
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
     fields.forEach(([k, field]) => {
-      const label = labelFor(k, resolveSchema(properties[k], schema));
+      const propSchema = resolveSchema(properties[k], schema);
       nav.appendChild(el('button', {
         type: 'button',
         class: 'schema-form-nav-link',
-        text: label + (requiredTop.includes(k) ? ' *' : ''),
-        onclick: () => {
-          if (field.el.tagName === 'DETAILS') field.el.open = true;
-          field.el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        },
+        text: labelFor(k, propSchema) + (requiredTop.includes(k) ? ' *' : ''),
+        onclick: () => jumpTo(field.el),
       }));
+      (field.children || []).filter(([, child]) => isSection(child)).forEach(([childKey, child]) => {
+        const childSchema = resolveSchema((propSchema.properties || {})[childKey] || {}, schema);
+        nav.appendChild(el('button', {
+          type: 'button',
+          class: 'schema-form-nav-link schema-form-nav-sublink',
+          text: labelFor(childKey, childSchema),
+          onclick: () => jumpTo(child.el),
+        }));
+      });
     });
     nav.hidden = false;
   }

@@ -466,6 +466,7 @@ dialog > form[method="dialog"] {
   cursor: pointer;
   font-size: 0.88rem;
 }
+.schema-form-nav-sublink { padding-left: 1.4rem; font-size: 0.82rem; }
 .schema-form-nav-link:hover,
 .schema-form-nav-link:focus-visible {
   background: var(--color-surface-alt);
