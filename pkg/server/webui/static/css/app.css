@@ -466,6 +466,18 @@ dialog > form[method="dialog"] {
   cursor: pointer;
   font-size: 0.88rem;
 }
+/* A column picker in a table header (session identifier column): sized
+   and styled like the header text so the row height stays unchanged. */
+.th-select {
+  font: inherit;
+  font-weight: 600;
+  max-width: 100%;
+  padding: 0.1rem 0.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: inherit;
+}
 .schema-form-nav-sublink { padding-left: 1.4rem; font-size: 0.82rem; }
 .schema-form-nav-link:hover,
 .schema-form-nav-link:focus-visible {

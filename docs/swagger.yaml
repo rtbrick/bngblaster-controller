@@ -1403,6 +1403,10 @@ components:
           type: string
         ipv4-address:
           type: string
+        agent-circuit-id:
+          type: string
+        agent-remote-id:
+          type: string
         lcp-state:
           type: string
         ipcp-state:
@@ -1429,6 +1433,8 @@ components:
           "server-mac": "ff:ee:dd:cc:bb:aa",
           "username": "user1@rtbrick.com",
           "ipv4-address": "10.100.128.0",
+          "agent-circuit-id": "0.0.0.0/0.0.0.0 eth 0:1",
+          "agent-remote-id": "DEU.RTBRICK.1",
           "lcp-state": "Opened",
           "ipcp-state": "Opened",
           "ip6cp-state": "Opened",

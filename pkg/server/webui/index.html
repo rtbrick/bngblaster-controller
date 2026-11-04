@@ -302,7 +302,14 @@
                   <th scope="col">State</th>
                   <th scope="col">Interface</th>
                   <th scope="col">VLAN</th>
-                  <th scope="col">Username</th>
+                  <th scope="col">
+                    <select id="session-id-column" class="th-select" aria-label="Identifier column">
+                      <option value="username">Username</option>
+                      <option value="mac">MAC</option>
+                      <option value="agent-remote-id">Agent-Remote-Id</option>
+                      <option value="agent-circuit-id">Agent-Circuit-Id</option>
+                    </select>
+                  </th>
                   <th scope="col">IPv4 Address</th>
                   <th scope="col">TX Packets</th>
                   <th scope="col">RX Packets</th>

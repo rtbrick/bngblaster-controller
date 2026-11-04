@@ -3584,6 +3584,24 @@
     }
   }
 
+  // The identifier column of the session table shows one of these
+  // session-summary fields, picked in its header. Kept per browser like the
+  // instance filter; re-rendering the current window is enough to switch,
+  // since every summary item already carries all of them.
+  const SESSION_ID_COLUMN_KEY = 'bngblaster.sessionIdColumn';
+  const SESSION_ID_COLUMNS = ['username', 'mac', 'agent-remote-id', 'agent-circuit-id'];
+  let sessionIdColumn = 'username';
+  try {
+    const saved = localStorage.getItem(SESSION_ID_COLUMN_KEY);
+    if (SESSION_ID_COLUMNS.includes(saved)) sessionIdColumn = saved;
+  } catch (e) { /* storage unavailable */ }
+  $('#session-id-column').value = sessionIdColumn;
+  $('#session-id-column').addEventListener('change', (ev) => {
+    sessionIdColumn = ev.target.value;
+    try { localStorage.setItem(SESSION_ID_COLUMN_KEY, sessionIdColumn); } catch (e) { /* ignore */ }
+    if (state.currentInstance) fetchSessionWindow();
+  });
+
   function renderSessionWindow(offset, items, total) {
     const tbody = $('#session-tbody');
     tbody.innerHTML = '';
@@ -3600,7 +3618,7 @@
         el('td', { text: item['session-state'] || '' }),
         el('td', { text: item.interface || '' }),
         el('td', { text: vlan }),
-        el('td', { text: item.username || '' }),
+        el('td', { text: item[sessionIdColumn] || '' }),
         el('td', { text: item['ipv4-address'] || '' }),
         el('td', { text: (item['tx-packets'] || 0).toLocaleString() }),
         el('td', { text: (item['rx-packets'] || 0).toLocaleString() }),

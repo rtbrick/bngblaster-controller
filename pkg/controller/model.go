@@ -337,6 +337,8 @@ type SessionSummarySession struct {
 	ServerMAC      string `json:"server-mac"`
 	Username       string `json:"username"`
 	IPv4Address    string `json:"ipv4-address"`
+	AgentCircuitID string `json:"agent-circuit-id"`
+	AgentRemoteID  string `json:"agent-remote-id"`
 	LCPState       string `json:"lcp-state"`
 	IPCPState      string `json:"ipcp-state"`
 	IP6CPState     string `json:"ip6cp-state"`
