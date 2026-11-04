@@ -1888,6 +1888,19 @@
       }
       target.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
+    // Closes every section at every depth - including required ones, which
+    // start open - and returns to the top, so a long, deeply expanded form
+    // can be folded back to its section list in one go.
+    nav.appendChild(el('button', {
+      type: 'button',
+      class: 'btn btn-sm schema-form-nav-collapse',
+      text: 'Collapse all',
+      onclick: () => {
+        const root = $('#schema-form-root');
+        root.querySelectorAll('details[open]').forEach((d) => { d.open = false; });
+        root.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
+    }));
     fields.forEach(([k, field]) => {
       const propSchema = resolveSchema(properties[k], schema);
       nav.appendChild(el('button', {

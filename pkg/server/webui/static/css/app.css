@@ -478,6 +478,7 @@ dialog > form[method="dialog"] {
   background: var(--color-surface);
   color: inherit;
 }
+.schema-form-nav-collapse { align-self: flex-start; margin-bottom: var(--space-2); }
 .schema-form-nav-sublink { padding-left: 1.4rem; font-size: 0.82rem; }
 .schema-form-nav-link:hover,
 .schema-form-nav-link:focus-visible {
