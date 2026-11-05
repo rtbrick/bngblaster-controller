@@ -314,9 +314,11 @@ BNGBLASTERCTRL_WAIT_INTERFACES=2        # once two data interfaces are attached
   Docker kills a container 10s after `docker stop` by default: set a stop
   timeout above `-stop-timeout` plus 10s, e.g. `docker stop -t 40` or
   `docker run --stop-timeout 40` with the default. `containerlab destroy
-  --graceful` waits up to its runtime timeout (`--timeout`, 10m by
-  default); without `--graceful`, containerlab removes the container at
-  once and no report can be written.
+  --graceful` waits up to its `--timeout` (2m by default with Docker or
+  Podman), which is enough for the default `-stop-timeout`; raise it
+  together with `-stop-timeout`, e.g. `--timeout 6m` for
+  `-stop-timeout 5m`. Without `--graceful`, containerlab removes the
+  container at once and no report can be written.
 * `-health` checks a running controller and exits: no server is started. It
   queries the API on the local address derived from `-addr` (2s timeout)
   and resolves the instance from `-autostart`, so in a container with the
