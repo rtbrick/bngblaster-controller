@@ -528,6 +528,39 @@ func TestServer_command(t *testing.T) {
 			wantCode:    404,
 			want:        http.StatusNotFound,
 		}, {
+			name:        "highest final code",
+			resultStart: []byte(`{"code": 599}`),
+			body:        &controller.SocketCommand{},
+			wantCode:    599,
+			want:        599,
+		}, {
+			// WriteHeader panics outside 100-999, and a 1xx would only be an
+			// interim response: an invalid code of bngblaster is a bad
+			// gateway, with its response still in the body.
+			name:        "code below 100",
+			resultStart: []byte(`{"code": 42}`),
+			body:        &controller.SocketCommand{},
+			wantCode:    42,
+			want:        http.StatusBadGateway,
+		}, {
+			name:        "informational code",
+			resultStart: []byte(`{"code": 102}`),
+			body:        &controller.SocketCommand{},
+			wantCode:    102,
+			want:        http.StatusBadGateway,
+		}, {
+			name:        "code above 999",
+			resultStart: []byte(`{"code": 1000}`),
+			body:        &controller.SocketCommand{},
+			wantCode:    1000,
+			want:        http.StatusBadGateway,
+		}, {
+			name:        "negative code",
+			resultStart: []byte(`{"code": -1}`),
+			body:        &controller.SocketCommand{},
+			wantCode:    -1,
+			want:        http.StatusBadGateway,
+		}, {
 			name:        "error",
 			resultError: fmt.Errorf("other error"),
 			body:        &controller.SocketCommand{},
@@ -558,7 +591,7 @@ func TestServer_command(t *testing.T) {
 			if tt.want == http.StatusBadRequest {
 				return
 			}
-			if tt.wantCode > 0 {
+			if tt.wantCode != 0 {
 				response.JSON().Object().ContainsKey("code").Value("code").Equal(tt.wantCode)
 			} else if tt.wantBody == "" {
 				response.NoContent()

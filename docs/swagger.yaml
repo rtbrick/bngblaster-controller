@@ -1021,6 +1021,12 @@ paths:
             text/plain:
               schema:
                 type: string
+        502:
+          description: bad gateway, bngblaster answered with a code that is no valid HTTP status; the body is its response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/commandResponse'
         500:
           description: internal server error
           content:

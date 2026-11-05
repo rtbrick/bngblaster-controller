@@ -654,8 +654,17 @@ func (s *Server) command() http.HandlerFunc {
 			JSONError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if cr.Code != 0 {
+		// The response code of bngblaster becomes the HTTP status, but only
+		// a final one: WriteHeader panics outside 100-999, and a 1xx would
+		// only send an interim response, followed by a 200 for the body.
+		// Anything else is an invalid answer from the backend; its body is
+		// still passed on.
+		switch {
+		case cr.Code == 0:
+		case cr.Code >= 200 && cr.Code <= 599:
 			status = cr.Code
+		default:
+			status = http.StatusBadGateway
 		}
 
 		w.Header().Set(contentType, applicationJSON)
