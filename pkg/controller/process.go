@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -60,7 +61,7 @@ func RunCommand(dir string, pidFile string, stdFile string, errFile string, args
 	pid := cmd.Process.Pid
 	started := time.Now()
 	log.Info().Str("instance", instance).Int("pid", pid).Str("executable", filepath.Base(args[0])).Msg("process started")
-	_ = os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", pid)), permission)
+	_ = writePidFile(pidFile, pid)
 
 	done := make(chan error, 1)
 	go func() {
@@ -83,4 +84,31 @@ func RunCommand(dir string, pidFile string, stdFile string, errFile string, args
 			Str("runtime", time.Since(started).Round(time.Second).String()).Msg("process exited")
 	}()
 	return done, nil
+}
+
+// pidFilePermission makes run.pid readable, not writable, by others: its pid
+// decides what _stop and _kill signal.
+const pidFilePermission = 0o644
+
+// writePidFile writes pid to file atomically: into a temporary file next to
+// it, which is then renamed into place. Running reads run.pid at any time
+// (status polls, metrics scrapes) and removes a file without a valid pid;
+// written in place, a read between creating and filling the file saw it
+// empty, removed it, and the instance looked stopped for good while
+// bngblaster kept running.
+func writePidFile(file string, pid int) error {
+	tmp := filepath.Join(filepath.Dir(file), runPidTempFilename)
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, pidFilePermission)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(f, "%d", pid)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, file)
 }

@@ -54,6 +54,9 @@ const (
 	ConfigFilename = "config.json"
 	// runPidFilename file that contains the process id of the bngblaster instance if it is running.
 	runPidFilename = "run.pid"
+	// runPidTempFilename is the temporary file run.pid is written to
+	// before it is renamed into place (see writePidFile).
+	runPidTempFilename = ".run.pid.tmp"
 	// RunLogFilename file that contains the logs of the execution.
 	RunLogFilename = "run.log"
 	// RunConfigFilename configuration of one run.
@@ -92,11 +95,12 @@ func IsReservedFile(name string) bool {
 }
 
 // IsHiddenFile reports whether name is a file of an instance folder that is
-// neither listed nor downloadable: the pid file and control socket, which
-// are internal, and the temporary files of a running generator, which are
-// incomplete by definition.
+// neither listed nor downloadable: the pid file (and the temporary file it
+// is written to) and the control socket, which are internal, and the
+// temporary files of a running generator, which are incomplete by
+// definition.
 func IsHiddenFile(name string) bool {
-	return name == runPidFilename || name == RunSockFilename || generator.IsTempName(name)
+	return name == runPidFilename || name == runPidTempFilename || name == RunSockFilename || generator.IsTempName(name)
 }
 
 // make sure the DefaultRepository implements UseRepository.
@@ -389,11 +393,27 @@ func (r *DefaultRepository) Running(name string) bool {
 	if _, err := os.Stat(file); os.IsNotExist(err) {
 		return false
 	}
-	if _, ok := r.instancePid(name); ok {
+	pid, ok := r.pid(name)
+	if ok && isInstanceProcess(pid, path.Join(r.configFolder, name, RunSockFilename)) {
 		return true
+	}
+	// run.pid is only removed once its process is gone (or it holds no
+	// valid pid). A live process that is not recognized as the instance -
+	// a pid reused after a reboot, or a check that failed for a moment -
+	// counts as not running, but keeps the file: removing it would lose a
+	// running instance for good if the check was wrong, and the next start
+	// replaces the file anyway.
+	if ok && processAlive(pid) {
+		return false
 	}
 	_ = os.Remove(file)
 	return false
+}
+
+// processAlive reports whether a process with this pid exists.
+func processAlive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // instancePid returns the pid from the instance's run.pid if that process
@@ -417,11 +437,23 @@ var isInstanceProcess = procIsInstanceProcess
 // procIsInstanceProcess identifies the process by its command line: every
 // bngblaster the controller starts (see commandlineParameters) carries
 // "-S <instance folder>/run.sock", which no other process has. A process
-// that is gone, a zombie or one that cannot be read is not the instance.
+// that is gone or cannot be read is not the instance.
+//
+// The command line is empty right after the process was started, until
+// the kernel has set up the new program - and the controller checks the
+// instance just then. That takes microseconds on an idle host, but can
+// take much longer on one whose CPUs are busy with the I/O threads of
+// other instances. So an empty command line is not a mismatch: such a
+// process is still starting and counts as the instance, unless it is a
+// zombie or a kernel thread (which keep an empty one). A reused pid of
+// any other process has its command line.
 func procIsInstanceProcess(pid int, socket string) bool {
-	cmdline, err := procCmdline(pid)
+	cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
 	if err != nil {
 		return false
+	}
+	if len(cmdline) == 0 {
+		return procStarting(pid)
 	}
 	want, err := filepath.Abs(socket)
 	if err != nil {
@@ -439,41 +471,29 @@ func procIsInstanceProcess(pid int, socket string) bool {
 	return false
 }
 
-// cmdlineSettle bounds how long procCmdline waits for the command line
-// of a process that is still starting.
-const cmdlineSettle = 100 * time.Millisecond
+// pfKthread is the PF_KTHREAD flag of /proc/<pid>/stat: a kernel thread.
+const pfKthread = 0x00200000
 
-// cmdlinePoll is the interval at which procCmdline reads the command line again.
-const cmdlinePoll = 2 * time.Millisecond
-
-// procCmdline returns the NUL-separated command line of process pid. It is
-// empty for a moment right after the process was started, until the kernel
-// has set up the new program - and the controller checks the instance just
-// then, while waiting for its startup - so an empty command line of a
-// process that is not a zombie is read again for a short while. Kernel
-// threads keep an empty one and are then not the instance either.
-func procCmdline(pid int) ([]byte, error) {
-	file := fmt.Sprintf("/proc/%d/cmdline", pid)
-	deadline := time.Now().Add(cmdlineSettle)
-	for {
-		cmdline, err := os.ReadFile(file)
-		if err != nil || len(cmdline) > 0 || procZombie(pid) || time.Now().After(deadline) {
-			return cmdline, err
-		}
-		time.Sleep(cmdlinePoll)
-	}
-}
-
-// procZombie reports whether process pid has exited and only waits to be
-// reaped. A process whose state cannot be read counts as one.
-func procZombie(pid int) bool {
+// procStarting reports whether process pid, whose command line is empty,
+// is a process that is still starting: neither a zombie nor a kernel
+// thread. A process whose state cannot be read is not.
+func procStarting(pid int) bool {
 	stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {
-		return true
+		return false
 	}
-	// "pid (comm) state ...": comm may itself contain ") ".
+	// "pid (comm) state ppid pgrp session tty_nr tpgid flags ...": comm
+	// may itself contain ") ".
 	i := bytes.LastIndexByte(stat, ')')
-	return i < 0 || i+2 >= len(stat) || stat[i+2] == 'Z'
+	if i < 0 {
+		return false
+	}
+	fields := strings.Fields(string(stat[i+1:]))
+	if len(fields) < 7 || fields[0] == "Z" {
+		return false
+	}
+	flags, err := strconv.ParseUint(fields[6], 10, 64)
+	return err == nil && flags&pfKthread == 0
 }
 
 // Start implements Repository.
