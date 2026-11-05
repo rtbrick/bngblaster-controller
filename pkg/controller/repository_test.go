@@ -648,3 +648,53 @@ func TestDefaultRepository_invalidInstanceName(t *testing.T) {
 	require.FileExists(t, marker)
 	require.NoFileExists(t, filepath.Join(rootFolder, ConfigFilename))
 }
+
+// pcap-start makes bngblaster (root) create or truncate its "file" as
+// given, so it must stay a plain file name inside the instance folder.
+func TestCheckCommandFile(t *testing.T) {
+	pcap := func(file any) SocketCommand {
+		return SocketCommand{Command: "pcap-start", Arguments: map[string]any{"file": file}}
+	}
+	for _, tt := range []struct {
+		name    string
+		command SocketCommand
+		wantErr bool
+	}{
+		{"no arguments", SocketCommand{Command: "pcap-start"}, false},
+		{"plain name", pcap("capture.pcap"), false},
+		{"regular capture file", pcap(RunPcapFilename), false},
+		{"absolute path", pcap("/dev/sda"), true},
+		{"other instance", pcap("../other/run.pid"), true},
+		{"subdirectory", pcap("sub/capture.pcap"), true},
+		{"parent", pcap(".."), true},
+		{"hidden or generator temp file", pcap(".gen-x"), true},
+		{"empty", pcap(""), true},
+		{"nul", pcap("a\x00b"), true},
+		{"not a string", pcap(42), true},
+		{"config", pcap(ConfigFilename), true},
+		{"pid file", pcap(runPidFilename), true},
+		{"socket", pcap(RunSockFilename), true},
+		{"report", pcap(RunReportFilename), true},
+		// Commands that only read their file are not restricted.
+		{"read-only file command", SocketCommand{Command: "bgp-raw-update", Arguments: map[string]any{"file": "/home/lab/update.bgp"}}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkCommandFile(tt.command)
+			if tt.wantErr {
+				require.ErrorIs(t, err, ErrInvalidCommandFile)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestDefaultRepository_Command_checksFile(t *testing.T) {
+	const rootFolder = "td"
+	writePidFileForRunning(t, rootFolder)
+	defer cleanupPidFileForRunning(t, rootFolder)
+
+	r := NewDefaultRepository(WithConfigFolder(rootFolder))
+	_, err := r.Command("running", SocketCommand{Command: "pcap-start", Arguments: map[string]any{"file": "/dev/sda"}})
+	require.ErrorIs(t, err, ErrInvalidCommandFile)
+}

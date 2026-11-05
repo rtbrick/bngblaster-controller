@@ -704,7 +704,41 @@ func (r *DefaultRepository) Command(name string, command SocketCommand) ([]byte,
 	if !r.Running(name) {
 		return nil, ErrBlasterNotRunning
 	}
+	if err := checkCommandFile(command); err != nil {
+		return nil, err
+	}
 	return socketCommand(path.Join(r.configFolder, name, RunSockFilename), command)
+}
+
+// writeFileCommands are the bngblaster control commands whose "file"
+// argument names a file bngblaster creates or truncates. bngblaster runs as
+// root and opens it as given, so unchecked it would overwrite any path on
+// the host (e.g. a block device, or another instance's run.pid). The other
+// commands taking a "file" (bgp-raw-update, isis-load-mrt, ...) only read
+// it.
+var writeFileCommands = map[string]bool{"pcap-start": true}
+
+// checkCommandFile checks the "file" argument of a command that writes it:
+// it must be a plain name, which bngblaster resolves against its working
+// directory, the instance folder (see Start). It must not be hidden
+// (generator temp files start with a dot) nor one of the files the
+// controller relies on; run.pcap stays allowed, it is the regular capture
+// file. Without a "file", bngblaster reuses its pcap file from the command
+// line, which is in the folder already.
+func checkCommandFile(command SocketCommand) error {
+	if !writeFileCommands[command.Command] {
+		return nil
+	}
+	value, ok := command.Arguments["file"]
+	if !ok {
+		return nil
+	}
+	file, ok := value.(string)
+	if !ok || file == "" || strings.HasPrefix(file, ".") || strings.ContainsAny(file, "/\x00") ||
+		file == ConfigFilename || (IsReservedFile(file) && file != RunPcapFilename) {
+		return ErrInvalidCommandFile
+	}
+	return nil
 }
 
 // socketCommand sends one command to the control socket at file and returns

@@ -502,6 +502,12 @@ func TestServer_command(t *testing.T) {
 			wantBody:    &message{Message: "instance is not running"},
 			want:        http.StatusPreconditionFailed,
 		}, {
+			name:        "file outside the instance folder",
+			resultError: controller.ErrInvalidCommandFile,
+			body:        &controller.SocketCommand{},
+			wantBody:    &message{Message: controller.ErrInvalidCommandFile.Error()},
+			want:        http.StatusBadRequest,
+		}, {
 			name:        "null returned or not json",
 			resultStart: nil,
 			body:        &controller.SocketCommand{},

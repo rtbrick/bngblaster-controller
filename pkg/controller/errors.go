@@ -17,6 +17,9 @@ var (
 	// folder name, so it would address the config folder or a path
 	// outside of it.
 	ErrInvalidInstanceName = &BlasterControllerError{"invalid instance name"}
+	// ErrInvalidCommandFile a control command names a file to write that
+	// is not a plain file name inside the instance folder.
+	ErrInvalidCommandFile = &BlasterControllerError{"command file must be a plain file name inside the instance folder"}
 	// ErrBlasterRunning there is one BlasterInstance running.
 	ErrBlasterRunning = &BlasterControllerError{"blaster instance is running"}
 	// ErrBlasterNotRunning there is no BlasterInstance running.

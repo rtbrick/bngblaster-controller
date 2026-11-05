@@ -640,6 +640,10 @@ func (s *Server) command() http.HandlerFunc {
 			JSONError(w, "instance is not running", http.StatusPreconditionFailed)
 			return
 		}
+		if errors.Is(err, controller.ErrInvalidCommandFile) {
+			JSONError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if err != nil {
 			JSONError(w, "not able to send command", http.StatusInternalServerError)
 			return

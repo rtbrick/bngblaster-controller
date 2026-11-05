@@ -955,6 +955,10 @@ paths:
       description: >-
         The result of the command is a JSON datagram with a specific code field.
         This code field, if set, specifies the http response code.
+        The "file" argument of pcap-start, which bngblaster creates or
+        truncates, must be a plain file name in the instance folder (no
+        directory, not hidden, not config.json or a run file other than
+        run.pcap).
       parameters:
         - name: instance_name
           description: >-
@@ -1000,7 +1004,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/commandResponse'
         400:
-          description: bad request, body not parsable
+          description: bad request, body not parsable or file argument not allowed
           content:
             text/plain:
               schema:
