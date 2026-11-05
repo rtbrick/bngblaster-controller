@@ -469,6 +469,11 @@ tunnel through SSH). On top of that, the controller:
   rejects uploads larger than the free disk space;
 * logs the client address of every request and of each lifecycle change.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development work flow,
+coding conventions and the release steps.
+
 ## License
 
 BNG Blaster is licensed under the BSD 3-Clause License, which means that you are free to get and use it for
