@@ -27,6 +27,18 @@ func writePidFileForRunning(t *testing.T, rootFolder string) {
 	pidFile := path.Join(rootFolder, "running", runPidFilename)
 	err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), permission)
 	require.NoError(t, err)
+	ownProcessIsInstance(t)
+}
+
+// ownProcessIsInstance makes the test process count as the bngblaster of
+// any instance whose run.pid holds its pid, for tests that fake a running
+// instance that way; other pids still get the real check.
+func ownProcessIsInstance(t *testing.T) {
+	t.Helper()
+	isInstanceProcess = func(pid int, socket string) bool {
+		return pid == os.Getpid() || procIsInstanceProcess(pid, socket)
+	}
+	t.Cleanup(func() { isInstanceProcess = procIsInstanceProcess })
 }
 
 func cleanupPidFileForRunning(t *testing.T, rootFolder string) {
@@ -697,4 +709,62 @@ func TestDefaultRepository_Command_checksFile(t *testing.T) {
 	r := NewDefaultRepository(WithConfigFolder(rootFolder))
 	_, err := r.Command("running", SocketCommand{Command: "pcap-start", Arguments: map[string]any{"file": "/dev/sda"}})
 	require.ErrorIs(t, err, ErrInvalidCommandFile)
+}
+
+// startProcess starts a process that lives until the test ends, with args
+// on its command line, and returns its pid. sh -c runs two commands, so it
+// does not exec sleep in its place and keeps its own command line.
+func startProcess(t *testing.T, args ...string) int {
+	t.Helper()
+	cmd := exec.Command("sh", append([]string{"-c", "sleep 30; :"}, args...)...)
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	return cmd.Process.Pid
+}
+
+func TestProcIsInstanceProcess(t *testing.T) {
+	folder := t.TempDir()
+	socket := path.Join(folder, "test", RunSockFilename)
+	pid := startProcess(t, "-S", socket)
+
+	require.True(t, procIsInstanceProcess(pid, socket))
+	// A relative and an absolute spelling of the same path match.
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	relative, err := filepath.Rel(wd, socket)
+	require.NoError(t, err)
+	require.True(t, procIsInstanceProcess(pid, relative))
+	// Another instance's socket, a process without -S, and a gone process
+	// are not the instance.
+	require.False(t, procIsInstanceProcess(pid, path.Join(folder, "other", RunSockFilename)))
+	require.False(t, procIsInstanceProcess(startProcess(t), socket))
+	require.False(t, procIsInstanceProcess(os.Getpid(), socket))
+	require.False(t, procIsInstanceProcess(1<<22+1, socket))
+}
+
+// A run.pid left behind by a reboot or a container restart may hold the
+// pid of an unrelated process by now: the instance must count as stopped,
+// and _stop/_kill must not signal that process.
+func TestDefaultRepository_stalePidOfOtherProcess(t *testing.T) {
+	folder := t.TempDir()
+	require.NoError(t, os.MkdirAll(path.Join(folder, "test"), permission))
+	pidFile := path.Join(folder, "test", runPidFilename)
+	other := startProcess(t)
+	r := NewDefaultRepository(WithConfigFolder(folder))
+
+	require.NoError(t, os.WriteFile(pidFile, []byte(strconv.Itoa(other)), permission))
+	r.Kill("test")
+	r.Stop("test")
+	require.NoError(t, syscall.Kill(other, 0), "unrelated process was signalled")
+
+	require.False(t, r.Running("test"))
+	require.NoFileExists(t, pidFile, "stale run.pid not removed")
+
+	// The real bngblaster of the instance is still recognised.
+	own := startProcess(t, "-S", path.Join(folder, "test", RunSockFilename))
+	require.NoError(t, os.WriteFile(pidFile, []byte(strconv.Itoa(own)), permission))
+	require.True(t, r.Running("test"))
 }

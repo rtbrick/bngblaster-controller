@@ -3,6 +3,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -388,18 +389,88 @@ func (r *DefaultRepository) Running(name string) bool {
 	if _, err := os.Stat(file); os.IsNotExist(err) {
 		return false
 	}
-	if pid, ok := r.pid(name); ok {
-		// Look for the pid in the process list.
-		if process, err := os.FindProcess(pid); err == nil {
-			// Send the process a signal zero kill.
-			if err := process.Signal(syscall.Signal(0)); err == nil {
-				// We only get an error if the pid isn't running, or it's not ours.
-				return true
-			}
-		}
+	if _, ok := r.instancePid(name); ok {
+		return true
 	}
 	_ = os.Remove(file)
 	return false
+}
+
+// instancePid returns the pid from the instance's run.pid if that process
+// is the bngblaster started for this instance. A live pid alone proves
+// nothing: run.pid survives a reboot or container restart in the
+// persistent config folder, and its pid may since belong to any other
+// process - which, the controller running as root, Kill would then
+// SIGKILL.
+func (r *DefaultRepository) instancePid(name string) (int, bool) {
+	pid, ok := r.pid(name)
+	if !ok || !isInstanceProcess(pid, path.Join(r.configFolder, name, RunSockFilename)) {
+		return 0, false
+	}
+	return pid, true
+}
+
+// isInstanceProcess reports whether process pid is the bngblaster serving
+// socket. A variable so tests can stand in their own process for one.
+var isInstanceProcess = procIsInstanceProcess
+
+// procIsInstanceProcess identifies the process by its command line: every
+// bngblaster the controller starts (see commandlineParameters) carries
+// "-S <instance folder>/run.sock", which no other process has. A process
+// that is gone, a zombie or one that cannot be read is not the instance.
+func procIsInstanceProcess(pid int, socket string) bool {
+	cmdline, err := procCmdline(pid)
+	if err != nil {
+		return false
+	}
+	want, err := filepath.Abs(socket)
+	if err != nil {
+		return false
+	}
+	args := strings.Split(strings.TrimSuffix(string(cmdline), "\x00"), "\x00")
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] != "-S" {
+			continue
+		}
+		if got, err := filepath.Abs(args[i+1]); err == nil && got == want {
+			return true
+		}
+	}
+	return false
+}
+
+// cmdlineSettle bounds how long procCmdline waits for the command line
+// of a process that is still starting.
+const cmdlineSettle = 100 * time.Millisecond
+
+// procCmdline returns the NUL-separated command line of process pid. It is
+// empty for a moment right after the process was started, until the kernel
+// has set up the new program - and the controller checks the instance just
+// then, while waiting for its startup - so an empty command line of a
+// process that is not a zombie is read again for a short while. Kernel
+// threads keep an empty one and are then not the instance either.
+func procCmdline(pid int) ([]byte, error) {
+	file := fmt.Sprintf("/proc/%d/cmdline", pid)
+	deadline := time.Now().Add(cmdlineSettle)
+	for {
+		cmdline, err := os.ReadFile(file)
+		if err != nil || len(cmdline) > 0 || procZombie(pid) || time.Now().After(deadline) {
+			return cmdline, err
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+// procZombie reports whether process pid has exited and only waits to be
+// reaped. A process whose state cannot be read counts as one.
+func procZombie(pid int) bool {
+	stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return true
+	}
+	// "pid (comm) state ...": comm may itself contain ") ".
+	i := bytes.LastIndexByte(stat, ')')
+	return i < 0 || i+2 >= len(stat) || stat[i+2] == 'Z'
 }
 
 // Start implements Repository.
@@ -590,7 +661,7 @@ func (r *DefaultRepository) Kill(name string) {
 }
 
 func (r *DefaultRepository) sendSignal(name string, signal os.Signal) {
-	if pid, ok := r.pid(name); ok {
+	if pid, ok := r.instancePid(name); ok {
 		// Look for the pid in the process list.
 		if process, err := os.FindProcess(pid); err == nil {
 			// Send the process a signal.

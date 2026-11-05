@@ -45,6 +45,7 @@ func TestDefaultRepository_Generate(t *testing.T) {
 	require.Equal(t, []string{"u.ldp"}, result.Files)
 
 	// Running: the existing file must not be replaced.
+	ownProcessIsInstance(t)
 	require.NoError(t, os.WriteFile(path.Join(instance, runPidFilename), []byte(strconv.Itoa(os.Getpid())), permission))
 	_, err = r.Generate(t.Context(), "test", tool, job)
 	require.ErrorIs(t, err, generator.ErrOutputExists)
