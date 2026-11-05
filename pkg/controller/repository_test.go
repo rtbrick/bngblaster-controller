@@ -649,7 +649,7 @@ func TestDefaultRepository_invalidInstanceName(t *testing.T) {
 	rootFolder := t.TempDir()
 	marker := filepath.Join(rootFolder, "other", ConfigFilename)
 	require.NoError(t, os.MkdirAll(filepath.Dir(marker), 0o755))
-	require.NoError(t, os.WriteFile(marker, []byte("{}"), 0o644))
+	require.NoError(t, os.WriteFile(marker, []byte("{}"), 0o600))
 
 	r := NewDefaultRepository(WithConfigFolder(rootFolder))
 	for _, name := range []string{"", ".", "..", "a/b", "a\x00b"} {
@@ -716,7 +716,7 @@ func TestDefaultRepository_Command_checksFile(t *testing.T) {
 // does not exec sleep in its place and keeps its own command line.
 func startProcess(t *testing.T, args ...string) int {
 	t.Helper()
-	cmd := exec.Command("sh", append([]string{"-c", "sleep 30; :"}, args...)...)
+	cmd := exec.CommandContext(t.Context(), "sh", append([]string{"-c", "sleep 30; :"}, args...)...) //nolint:gosec // fixed test command
 	require.NoError(t, cmd.Start())
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()

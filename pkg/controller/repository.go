@@ -443,6 +443,9 @@ func procIsInstanceProcess(pid int, socket string) bool {
 // of a process that is still starting.
 const cmdlineSettle = 100 * time.Millisecond
 
+// cmdlinePoll is the interval at which procCmdline reads the command line again.
+const cmdlinePoll = 2 * time.Millisecond
+
 // procCmdline returns the NUL-separated command line of process pid. It is
 // empty for a moment right after the process was started, until the kernel
 // has set up the new program - and the controller checks the instance just
@@ -457,7 +460,7 @@ func procCmdline(pid int) ([]byte, error) {
 		if err != nil || len(cmdline) > 0 || procZombie(pid) || time.Now().After(deadline) {
 			return cmdline, err
 		}
-		time.Sleep(2 * time.Millisecond)
+		time.Sleep(cmdlinePoll)
 	}
 }
 
