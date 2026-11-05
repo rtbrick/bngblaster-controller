@@ -135,6 +135,8 @@ Usage of /usr/local/bin/bngblasterctrl:
     	lspgen executable (default "/usr/bin/lspgen")
   -schema string
     	path to the bngblaster configuration JSON schema served on /api/v1/schema (default "/usr/share/bngblaster/bngblaster-config.json")
+  -stop-timeout duration
+    	on shutdown, give the -autostart instance this long for its graceful teardown (SIGINT) before stopping it at once with SIGTERM, which still writes the report (right away if data interfaces it was started with are gone); SIGKILL follows 10s later (0: SIGTERM at once) (default 30s)
   -ui
     	enable the embedded web UI (disable with -ui=false) (default true)
   -upload
@@ -246,6 +248,7 @@ variable.
 | `-log-ui` | `BNGBLASTERCTRL_LOG_UI` |
 | `-lspgen` | `BNGBLASTERCTRL_LSPGEN` |
 | `-schema` | `BNGBLASTERCTRL_SCHEMA` |
+| `-stop-timeout` | `BNGBLASTERCTRL_STOP_TIMEOUT` |
 | `-ui` | `BNGBLASTERCTRL_UI` |
 | `-upload` | `BNGBLASTERCTRL_UPLOAD` |
 | `-wait-interfaces` | `BNGBLASTERCTRL_WAIT_INTERFACES` |
@@ -284,9 +287,36 @@ BNGBLASTERCTRL_WAIT_INTERFACES=2        # once two data interfaces are attached
   bngblaster sets the links up itself. If they do not show up within
   `-wait-interfaces-timeout` (default 5m, 0 for no limit), the instance is
   not started and the autostart fails.
-* The API is served while the controller waits. On `SIGTERM` (e.g.
-  `docker stop`) the controller stops the autostarted instance like `_stop`
-  does and waits up to 30s for it to exit, so it can write its report.
+* The API is served while the controller waits.
+* On `SIGTERM` (e.g. `docker stop`, `containerlab destroy --graceful`) the
+  controller stops the autostarted instance and waits for it to exit, so it
+  can write its report, in up to three steps:
+  1. `SIGINT`, like `_stop`: bngblaster starts its graceful teardown
+     (PPPoE: LCP Terminate-Request and PADT; routing sessions are closed).
+  2. `SIGTERM` if the instance is still running after `-stop-timeout`
+     (default 30s): bngblaster stops at once, even in the middle of the
+     teardown, and still writes its report (exit code 0).
+  3. `SIGKILL` if it is still running 10s later, without a report.
+
+  A teardown cannot finish once data interfaces are gone. If there are
+  fewer data interfaces (counted like for `-wait-interfaces`) than when the
+  instance was started, the controller sends `SIGTERM` right away instead
+  of waiting for `-stop-timeout`. This is the case in containerlab, which
+  removes the links of a node before it stops the container, so the report
+  is written within a second there.
+
+  `-stop-timeout 0` skips the graceful teardown and sends `SIGTERM` at
+  once. The teardown of many sessions takes a while (minutes for hundreds
+  of thousands of PPPoE sessions); raise `-stop-timeout` for such tests if
+  the device under test should see every session closed.
+
+  The container runtime must give the controller enough time for this.
+  Docker kills a container 10s after `docker stop` by default: set a stop
+  timeout above `-stop-timeout` plus 10s, e.g. `docker stop -t 40` or
+  `docker run --stop-timeout 40` with the default. `containerlab destroy
+  --graceful` waits up to its runtime timeout (`--timeout`, 10m by
+  default); without `--graceful`, containerlab removes the container at
+  once and no report can be written.
 * `-health` checks a running controller and exits: no server is started. It
   queries the API on the local address derived from `-addr` (2s timeout)
   and resolves the instance from `-autostart`, so in a container with the

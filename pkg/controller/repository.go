@@ -678,6 +678,11 @@ func (r *DefaultRepository) Stop(name string) {
 	r.sendSignal(name, os.Interrupt)
 }
 
+// Terminate implements Repository.
+func (r *DefaultRepository) Terminate(name string) {
+	r.sendSignal(name, syscall.SIGTERM)
+}
+
 // Kill implements Repository.
 func (r *DefaultRepository) Kill(name string) {
 	r.sendSignal(name, os.Kill)

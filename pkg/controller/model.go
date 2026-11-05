@@ -43,6 +43,9 @@ type Repository interface {
 	Start(ctx context.Context, name string, runningConfig RunningConfig) error
 	// Stop sends a SIGINT to the instance
 	Stop(name string)
+	// Terminate sends a SIGTERM to the instance: bngblaster stops at once,
+	// even during the teardown a Stop started, but still writes its report.
+	Terminate(name string)
 	// Kill sends a SIGKILL to the instance
 	Kill(name string)
 	// Command sends a request to the unix socket.

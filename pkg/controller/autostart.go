@@ -36,6 +36,16 @@ const (
 	// stopPollInterval is how often StopInstance checks whether the
 	// instance has exited.
 	stopPollInterval = 100 * time.Millisecond
+
+	// DefaultStopTimeout is how long StopInstance gives the instance for
+	// its graceful teardown by default; large tests need longer, see
+	// WithStopTimeout. Where the teardown cannot finish because the data
+	// interfaces are gone (containerlab removes them before it stops the
+	// container), StopInstance does not wait for it.
+	DefaultStopTimeout = 30 * time.Second
+	// TerminateTimeout is how long StopInstance waits after SIGTERM, for
+	// bngblaster to write its report and exit, before it kills it.
+	TerminateTimeout = 10 * time.Second
 )
 
 // ignoredInterfaces are never counted as data interfaces: loopback, the
@@ -69,6 +79,15 @@ func WithWaitInterfaces(n int, timeout time.Duration) AutostartOption {
 	}
 }
 
+// WithStopTimeout sets how long StopInstance gives the instance for its
+// graceful teardown (SIGINT) before it stops it at once (SIGTERM); 0 skips
+// the graceful teardown. A teardown of many sessions can take minutes.
+func WithStopTimeout(timeout time.Duration) AutostartOption {
+	return func(a *Autostart) {
+		a.stopTimeout = timeout
+	}
+}
+
 // Autostart starts one instance once, when the controller starts, e.g. to
 // run a test at container start. It keeps its state in memory only: after
 // a controller restart, a state found in a persistent instance folder
@@ -81,6 +100,14 @@ type Autostart struct {
 	// sysClassNet lists the network interfaces; replaced in tests.
 	sysClassNet  string
 	pollInterval time.Duration
+	// stopTimeout is the graceful teardown time of StopInstance, and
+	// stopPoll how often it checks for the exit; the latter is replaced in
+	// tests.
+	stopTimeout time.Duration
+	stopPoll    time.Duration
+	// startInterfaces is the number of data interfaces when the instance
+	// was started; StopInstance takes fewer for links that are gone.
+	startInterfaces int
 
 	// changed is called after each start and stop of the instance, see
 	// OnLifecycleChange.
@@ -98,6 +125,8 @@ func NewAutostart(repository Repository, instance string, opts ...AutostartOptio
 		instance:     instance,
 		sysClassNet:  DefaultSysClassNet,
 		pollInterval: interfacePollInterval,
+		stopTimeout:  DefaultStopTimeout,
+		stopPoll:     stopPollInterval,
 		// Run begins with the interface wait (which ends at once without
 		// interfaces to wait for), so that is also the state until then.
 		status: AutostartStatus{State: AutostartWaitingInterfaces},
@@ -164,6 +193,9 @@ func (a *Autostart) Run(ctx context.Context) {
 		}
 	}
 	a.setState(AutostartStarting, nil)
+	// Without data interfaces (or /sys/class/net), StopInstance has none
+	// to miss later.
+	a.startInterfaces, _ = countInterfaces(a.sysClassNet)
 	runningConfig, err := a.runningConfig()
 	if err == nil {
 		logger.Info().Msg("autostart: starting instance")
@@ -251,26 +283,79 @@ func countInterfaces(dir string) (int, error) {
 	return n, nil
 }
 
-// StopInstance stops the instance the way the _stop API does, if it is
-// running, and waits until it has exited or ctx is done, so that it can
-// write its report before the controller (and with it a container) exits.
-// Call it only after Run has returned, or the instance could be started
-// right after.
+// StopDeadline is how long StopInstance takes at most: the graceful
+// teardown time plus TerminateTimeout. Give it a ctx with this deadline.
+func (a *Autostart) StopDeadline() time.Duration {
+	return a.stopTimeout + TerminateTimeout
+}
+
+// StopInstance stops the instance, if it is running, and waits until it has
+// exited, so that it can write its report before the controller (and with
+// it a container) exits. Call it only after Run has returned, or the
+// instance could be started right after.
+//
+// It first asks for a graceful teardown (SIGINT, like the _stop API). If
+// the instance is still running after the stop timeout - a teardown of
+// many sessions takes long - it stops it at once with SIGTERM, with which
+// bngblaster still writes its report. A teardown cannot finish once data
+// interfaces the instance was started with are gone (containerlab removes
+// the links before it stops the container), so then it sends SIGTERM right
+// away. If the instance is still running when ctx is done, it kills it
+// (SIGKILL).
 func (a *Autostart) StopInstance(ctx context.Context) {
 	if !a.repository.Running(a.instance) {
 		return
 	}
-	log.Info().Str("instance", a.instance).Msg("autostart: stopping instance")
-	a.repository.Stop(a.instance)
+	logger := log.With().Str("instance", a.instance).Logger()
+	terminated := false
+	terminate := func() {
+		if !terminated {
+			terminated = true
+			a.repository.Terminate(a.instance)
+		}
+	}
+	logger.Info().Dur("stop_timeout", a.stopTimeout).Msg("autostart: stopping instance")
+	if found, gone := a.interfacesGone(); gone {
+		logger.Warn().Int("interfaces", found).Int("started_with", a.startInterfaces).
+			Msg("autostart: data interfaces are gone, terminating instance")
+		terminate()
+	} else if a.stopTimeout > 0 {
+		a.repository.Stop(a.instance)
+	} else {
+		terminate()
+	}
 	a.lifecycleChanged()
-	ticker := time.NewTicker(stopPollInterval)
+	graceful := time.NewTimer(a.stopTimeout)
+	defer graceful.Stop()
+	ticker := time.NewTicker(a.stopPoll)
 	defer ticker.Stop()
 	for a.repository.Running(a.instance) {
 		select {
+		case <-graceful.C:
+			if !terminated {
+				logger.Warn().Dur("stop_timeout", a.stopTimeout).Msg("autostart: instance did not stop in time, terminating it")
+				terminate()
+			}
 		case <-ctx.Done():
-			log.Warn().Str("instance", a.instance).Msg("autostart: instance did not stop in time")
+			logger.Warn().Msg("autostart: instance did not terminate in time, killing it")
+			a.repository.Kill(a.instance)
 			return
 		case <-ticker.C:
+			if found, gone := a.interfacesGone(); gone && !terminated {
+				logger.Warn().Int("interfaces", found).Int("started_with", a.startInterfaces).
+					Msg("autostart: data interfaces are gone, terminating instance")
+				terminate()
+			}
 		}
 	}
+}
+
+// interfacesGone reports whether fewer data interfaces exist than the
+// instance was started with, and how many there are.
+func (a *Autostart) interfacesGone() (int, bool) {
+	if a.startInterfaces == 0 {
+		return 0, false
+	}
+	found, err := countInterfaces(a.sysClassNet)
+	return found, err == nil && found < a.startInterfaces
 }

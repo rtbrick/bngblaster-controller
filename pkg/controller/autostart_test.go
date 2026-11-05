@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -177,6 +178,11 @@ func TestAutostart_Run(t *testing.T) {
 			}
 			// Every start attempt counts as a change, failed or not.
 			require.Equal(t, len(started), changed)
+			// The data interfaces the instance was started with (eth1),
+			// for StopInstance.
+			if tt.interfaces == 0 {
+				require.Equal(t, 1, a.startInterfaces)
+			}
 		})
 	}
 }
@@ -192,23 +198,131 @@ func TestAutostart_Run_cancelled(t *testing.T) {
 }
 
 func TestAutostart_StopInstance(t *testing.T) {
-	var running atomic.Bool
-	running.Store(true)
-	repository := &RepositoryMock{
-		RunningFunc: func(string) bool { return running.Load() },
-		StopFunc: func(string) {
-			// bngblaster takes a moment for its teardown.
-			time.AfterFunc(200*time.Millisecond, func() { running.Store(false) })
-		},
+	tests := []struct {
+		name        string
+		stopTimeout time.Duration
+		// deadline stands in for the shutdown deadline (StopDeadline),
+		// which ends the wait with SIGKILL.
+		deadline time.Duration
+		// exitOn is the signal the instance exits on; "" never exits.
+		exitOn string
+		want   []string
+	}{
+		{name: "exits after SIGINT", stopTimeout: time.Minute, deadline: 2 * time.Minute, exitOn: "SIGINT", want: []string{"SIGINT"}},
+		{name: "exits after SIGTERM", stopTimeout: 50 * time.Millisecond, deadline: time.Minute, exitOn: "SIGTERM", want: []string{"SIGINT", "SIGTERM"}},
+		{name: "never exits", stopTimeout: 50 * time.Millisecond, deadline: 200 * time.Millisecond, want: []string{"SIGINT", "SIGTERM", "SIGKILL"}},
+		{name: "stop timeout 0", deadline: time.Minute, exitOn: "SIGTERM", want: []string{"SIGTERM"}},
+		{name: "stop timeout 0, never exits", deadline: 200 * time.Millisecond, want: []string{"SIGTERM", "SIGKILL"}},
 	}
-	a := NewAutostart(repository, "test")
-	a.StopInstance(t.Context())
-	require.False(t, running.Load())
-	require.Len(t, repository.StopCalls(), 1)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var running atomic.Bool
+			running.Store(true)
+			var mu sync.Mutex
+			var signals []string
+			signal := func(name string) func(string) {
+				return func(string) {
+					mu.Lock()
+					signals = append(signals, name)
+					mu.Unlock()
+					if name == tt.exitOn || name == "SIGKILL" {
+						// bngblaster takes a moment to exit.
+						time.AfterFunc(20*time.Millisecond, func() { running.Store(false) })
+					}
+				}
+			}
+			repository := &RepositoryMock{
+				RunningFunc:   func(string) bool { return running.Load() },
+				StopFunc:      signal("SIGINT"),
+				TerminateFunc: signal("SIGTERM"),
+				KillFunc:      signal("SIGKILL"),
+			}
+			a := NewAutostart(repository, "test", WithStopTimeout(tt.stopTimeout))
+			a.stopPoll = 5 * time.Millisecond
 
-	// Nothing to stop.
-	a.StopInstance(t.Context())
-	require.Len(t, repository.StopCalls(), 1)
+			ctx, cancel := context.WithTimeout(t.Context(), tt.deadline)
+			defer cancel()
+			a.StopInstance(ctx)
+
+			mu.Lock()
+			defer mu.Unlock()
+			require.Equal(t, tt.want, signals)
+		})
+	}
+}
+
+// A teardown cannot finish once data interfaces are gone; containerlab
+// removes the links before it stops the container. Then StopInstance does
+// not wait the stop timeout for it, but sends SIGTERM right away.
+func TestAutostart_StopInstance_interfacesGone(t *testing.T) {
+	tests := []struct {
+		name string
+		// remove is when eth2 goes: "before" the stop, "during" the
+		// teardown, or "" not at all.
+		remove string
+		want   []string
+	}{
+		{name: "gone before the stop", remove: "before", want: []string{"SIGTERM"}},
+		{name: "gone during the teardown", remove: "during", want: []string{"SIGINT", "SIGTERM"}},
+		{name: "all there", want: []string{"SIGINT"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sysClassNet := fakeSysClassNet(t, "lo", "eth0", "eth1", "eth2")
+			removeLink := func() { require.NoError(t, os.Remove(path.Join(sysClassNet, "eth2"))) }
+			var running atomic.Bool
+			running.Store(true)
+			var mu sync.Mutex
+			var signals []string
+			record := func(name string) {
+				mu.Lock()
+				defer mu.Unlock()
+				signals = append(signals, name)
+			}
+			repository := &RepositoryMock{
+				RunningFunc: func(string) bool { return running.Load() },
+				StopFunc: func(string) {
+					record("SIGINT")
+					if tt.remove == "during" {
+						// The teardown hangs; the link goes meanwhile.
+						time.AfterFunc(30*time.Millisecond, removeLink)
+					} else {
+						time.AfterFunc(20*time.Millisecond, func() { running.Store(false) })
+					}
+				},
+				TerminateFunc: func(string) {
+					record("SIGTERM")
+					time.AfterFunc(20*time.Millisecond, func() { running.Store(false) })
+				},
+				KillFunc: func(string) { record("SIGKILL") },
+			}
+			a := NewAutostart(repository, "test", WithStopTimeout(time.Minute))
+			a.sysClassNet = sysClassNet
+			a.stopPoll = 5 * time.Millisecond
+			a.startInterfaces = 2
+			if tt.remove == "before" {
+				removeLink()
+			}
+
+			start := time.Now()
+			a.StopInstance(t.Context())
+			require.Less(t, time.Since(start), 10*time.Second, "waited for the stop timeout")
+			mu.Lock()
+			defer mu.Unlock()
+			require.Equal(t, tt.want, signals)
+		})
+	}
+}
+
+func TestAutostart_StopInstance_notRunning(t *testing.T) {
+	// No signal at all: the mock panics on any.
+	repository := &RepositoryMock{RunningFunc: func(string) bool { return false }}
+	NewAutostart(repository, "test").StopInstance(t.Context())
+}
+
+func TestAutostart_StopDeadline(t *testing.T) {
+	require.Equal(t, DefaultStopTimeout+TerminateTimeout, NewAutostart(nil, "test").StopDeadline())
+	require.Equal(t, 6*time.Minute+TerminateTimeout, NewAutostart(nil, "test", WithStopTimeout(6*time.Minute)).StopDeadline())
 }
 
 func TestExitCode(t *testing.T) {

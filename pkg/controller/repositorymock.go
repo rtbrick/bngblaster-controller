@@ -66,6 +66,9 @@ var _ Repository = &RepositoryMock{}
 //			StopFunc: func(name string)  {
 //				panic("mock out the Stop method")
 //			},
+//			TerminateFunc: func(name string)  {
+//				panic("mock out the Terminate method")
+//			},
 //		}
 //
 //		// use mockedRepository in code that requires Repository
@@ -117,6 +120,9 @@ type RepositoryMock struct {
 
 	// StopFunc mocks the Stop method.
 	StopFunc func(name string)
+
+	// TerminateFunc mocks the Terminate method.
+	TerminateFunc func(name string)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -201,6 +207,11 @@ type RepositoryMock struct {
 			// Name is the name argument value.
 			Name string
 		}
+		// Terminate holds details about calls to the Terminate method.
+		Terminate []struct {
+			// Name is the name argument value.
+			Name string
+		}
 	}
 	lockAllowUpload  sync.RWMutex
 	lockCommand      sync.RWMutex
@@ -217,6 +228,7 @@ type RepositoryMock struct {
 	lockRunning      sync.RWMutex
 	lockStart        sync.RWMutex
 	lockStop         sync.RWMutex
+	lockTerminate    sync.RWMutex
 }
 
 // AllowUpload calls AllowUploadFunc.
@@ -704,5 +716,37 @@ func (mock *RepositoryMock) StopCalls() []struct {
 	mock.lockStop.RLock()
 	calls = mock.calls.Stop
 	mock.lockStop.RUnlock()
+	return calls
+}
+
+// Terminate calls TerminateFunc.
+func (mock *RepositoryMock) Terminate(name string) {
+	if mock.TerminateFunc == nil {
+		panic("RepositoryMock.TerminateFunc: method is nil but Repository.Terminate was just called")
+	}
+	callInfo := struct {
+		Name string
+	}{
+		Name: name,
+	}
+	mock.lockTerminate.Lock()
+	mock.calls.Terminate = append(mock.calls.Terminate, callInfo)
+	mock.lockTerminate.Unlock()
+	mock.TerminateFunc(name)
+}
+
+// TerminateCalls gets all the calls that were made to Terminate.
+// Check the length with:
+//
+//	len(mockedRepository.TerminateCalls())
+func (mock *RepositoryMock) TerminateCalls() []struct {
+	Name string
+} {
+	var calls []struct {
+		Name string
+	}
+	mock.lockTerminate.RLock()
+	calls = mock.calls.Terminate
+	mock.lockTerminate.RUnlock()
 	return calls
 }

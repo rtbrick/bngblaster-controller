@@ -102,6 +102,7 @@ type containerFlags struct {
 	autostart             *string
 	waitInterfaces        *int
 	waitInterfacesTimeout *time.Duration
+	stopTimeout           *time.Duration
 	health                *bool
 }
 
@@ -115,6 +116,11 @@ func defineContainerFlags() containerFlags {
 			"before -autostart, wait until at least this many network interfaces besides lo and eth0 exist (0: no wait)"),
 		waitInterfacesTimeout: flag.Duration("wait-interfaces-timeout", defaultWaitInterfacesTimeout,
 			"give up -wait-interfaces after this time and do not start the instance (0: no limit)"),
+		stopTimeout: flag.Duration("stop-timeout", controller.DefaultStopTimeout,
+			"on shutdown, give the -autostart instance this long for its graceful teardown (SIGINT) before "+
+				"stopping it at once with SIGTERM, which still writes the report (right away if data interfaces "+
+				"it was started with are gone); SIGKILL follows "+controller.TerminateTimeout.String()+
+				" later (0: SIGTERM at once)"),
 		health: flag.Bool("health", false,
 			"check the health of the controller running on -addr and of its -autostart instance, "+
 				"then exit with 0 if healthy and 1 otherwise (for container health checks)"),
@@ -127,7 +133,8 @@ func (f containerFlags) newAutostart(repo controller.Repository) *controller.Aut
 		return nil
 	}
 	return controller.NewAutostart(repo, *f.autostart,
-		controller.WithWaitInterfaces(*f.waitInterfaces, *f.waitInterfacesTimeout))
+		controller.WithWaitInterfaces(*f.waitInterfaces, *f.waitInterfacesTimeout),
+		controller.WithStopTimeout(*f.stopTimeout))
 }
 
 // parseFlags parses the command line and completes it from the
@@ -136,11 +143,8 @@ func parseFlags(f containerFlags) {
 	flag.CommandLine.Usage = usage(flag.CommandLine)
 	flag.Parse()
 	err := applyEnv(flag.CommandLine, os.LookupEnv)
-	if err == nil && *f.autostart != "" &&
-		(strings.ContainsAny(*f.autostart, "/.") || strings.TrimSpace(*f.autostart) != *f.autostart) {
-		// The API strips dots and slashes from instance names, so such an
-		// instance could not be reached through it.
-		err = fmt.Errorf("invalid -autostart instance %q: must not contain '/' or '.'", *f.autostart)
+	if err == nil {
+		err = f.validate()
 	}
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
@@ -150,6 +154,20 @@ func parseFlags(f containerFlags) {
 		}
 		os.Exit(exitUsage)
 	}
+}
+
+// validate checks the values of the container flags.
+func (f containerFlags) validate() error {
+	if *f.autostart != "" &&
+		(strings.ContainsAny(*f.autostart, "/.") || strings.TrimSpace(*f.autostart) != *f.autostart) {
+		// The API strips dots and slashes from instance names, so such an
+		// instance could not be reached through it.
+		return fmt.Errorf("invalid -autostart instance %q: must not contain '/' or '.'", *f.autostart)
+	}
+	if *f.stopTimeout < 0 {
+		return fmt.Errorf("invalid -stop-timeout %s: must not be negative", *f.stopTimeout)
+	}
+	return nil
 }
 
 // runHealth runs the -health check and returns the exit code.
@@ -218,15 +236,22 @@ func serve(addr string, handler http.Handler, autostart *controller.Autostart) {
 
 	// Let in-flight requests (e.g. a start/stop call or a running download)
 	// finish instead of cutting them off; systemd's default stop timeout is
-	// 90s, so stay well below it.
-	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	// 90s, so stay well below it - unless stopping the autostarted
+	// instance is configured to take longer.
+	timeout := shutdownTimeout
+	if autostart != nil {
+		timeout = max(timeout, autostart.StopDeadline())
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	// A container ends with the controller, killing what still runs in it:
 	// stop the autostarted instance first, so it can write its report.
 	cancelAutostart()
 	<-autostartDone
 	if autostart != nil {
-		autostart.StopInstance(ctx)
+		stopCtx, cancelStop := context.WithTimeout(ctx, autostart.StopDeadline())
+		autostart.StopInstance(stopCtx)
+		cancelStop()
 	}
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Warn().Err(err).Msg("graceful shutdown incomplete")

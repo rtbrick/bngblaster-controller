@@ -29,7 +29,9 @@ Run locally without root by pointing at a writable folder:
 - `cmd/bngblasterctrl/` – flag parsing (every flag falls back to `BNGBLASTERCTRL_<FLAG>`, `env.go`),
   zerolog setup (warn+ goes to stderr, rest to stdout), HTTP server, `-health` check (`health.go`).
   `-autostart` (`controller.Autostart`) starts one instance at startup for containers; its state is
-  in memory only and reported in the instance status.
+  in memory only and reported in the instance status. On shutdown `Autostart.StopInstance` sends
+  SIGINT, SIGTERM after `-stop-timeout` (bngblaster still writes its report) or at once when data
+  interfaces it was started with are gone (containerlab), and SIGKILL 10s later.
 - `pkg/controller/` – instance lifecycle on disk and process management.
   - `Repository` interface (`model.go`) is the seam between HTTP and the file system/processes;
     `DefaultRepository` (`repository.go`) is the real implementation.

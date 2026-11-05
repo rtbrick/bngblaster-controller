@@ -27,22 +27,26 @@ func TestApplyEnv(t *testing.T) {
 	}{
 		{
 			name: "defaults",
-			want: map[string]string{"d": "/var/bngblaster", "ui": "true", "wait-interfaces": "0", "autostart": ""},
+			want: map[string]string{"d": "/var/bngblaster", "ui": "true", "wait-interfaces": "0", "autostart": "", "stop-timeout": "30s"},
 		}, {
 			name: "env",
 			env: map[string]string{
 				"BNGBLASTERCTRL_D": "/tmp/x", "BNGBLASTERCTRL_UI": "false", "BNGBLASTERCTRL_AUTOSTART": "test",
 				"BNGBLASTERCTRL_WAIT_INTERFACES": "2", "BNGBLASTERCTRL_WAIT_INTERFACES_TIMEOUT": "90s",
+				"BNGBLASTERCTRL_STOP_TIMEOUT": "6m",
 			},
 			want: map[string]string{
 				"d": "/tmp/x", "ui": "false", "autostart": "test",
-				"wait-interfaces": "2", "wait-interfaces-timeout": "1m30s",
+				"wait-interfaces": "2", "wait-interfaces-timeout": "1m30s", "stop-timeout": "6m0s",
 			},
 		}, {
 			name: "flag_wins",
-			args: []string{"-d", "/flag", "-ui=true", "-wait-interfaces", "3"},
-			env:  map[string]string{"BNGBLASTERCTRL_D": "/env", "BNGBLASTERCTRL_UI": "false", "BNGBLASTERCTRL_WAIT_INTERFACES": "x"},
-			want: map[string]string{"d": "/flag", "ui": "true", "wait-interfaces": "3"},
+			args: []string{"-d", "/flag", "-ui=true", "-wait-interfaces", "3", "-stop-timeout", "0"},
+			env: map[string]string{
+				"BNGBLASTERCTRL_D": "/env", "BNGBLASTERCTRL_UI": "false", "BNGBLASTERCTRL_WAIT_INTERFACES": "x",
+				"BNGBLASTERCTRL_STOP_TIMEOUT": "1m",
+			},
+			want: map[string]string{"d": "/flag", "ui": "true", "wait-interfaces": "3", "stop-timeout": "0s"},
 		}, {
 			name: "booleans",
 			env:  map[string]string{"BNGBLASTERCTRL_UI": "0", "BNGBLASTERCTRL_DEBUG": "TRUE", "BNGBLASTERCTRL_LOG_UI": "t"},
@@ -55,6 +59,10 @@ func TestApplyEnv(t *testing.T) {
 			name:    "invalid_bool",
 			env:     map[string]string{"BNGBLASTERCTRL_UI": "yes"},
 			wantErr: `invalid value "yes" for BNGBLASTERCTRL_UI`,
+		}, {
+			name:    "invalid_stop_timeout",
+			env:     map[string]string{"BNGBLASTERCTRL_STOP_TIMEOUT": "20"},
+			wantErr: `invalid value "20" for BNGBLASTERCTRL_STOP_TIMEOUT`,
 		}, {
 			name:    "invalid_int",
 			env:     map[string]string{"BNGBLASTERCTRL_WAIT_INTERFACES": "two"},
@@ -91,6 +99,7 @@ func TestApplyEnv(t *testing.T) {
 			fs.String("autostart", "", "")
 			fs.Int("wait-interfaces", 0, "")
 			fs.Duration("wait-interfaces-timeout", 5*time.Minute, "")
+			fs.Duration("stop-timeout", 30*time.Second, "")
 			fs.Bool("health", false, "")
 			require.NoError(t, fs.Parse(tt.args))
 
@@ -108,4 +117,14 @@ func TestApplyEnv(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestContainerFlags_validate(t *testing.T) {
+	flags := func(autostart string, stopTimeout time.Duration) containerFlags {
+		return containerFlags{autostart: &autostart, stopTimeout: &stopTimeout}
+	}
+	require.NoError(t, flags("", 30*time.Second).validate())
+	require.NoError(t, flags("test", 0).validate(), "0 stops at once with SIGTERM")
+	require.ErrorContains(t, flags("test", -time.Second).validate(), "invalid -stop-timeout -1s")
+	require.ErrorContains(t, flags("a.b", time.Second).validate(), "invalid -autostart instance")
 }
