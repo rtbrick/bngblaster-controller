@@ -10,5 +10,5 @@ package docs
 
 import "embed"
 
-//go:embed swagger.yaml index.html
+//go:embed swagger.yaml index.html swagger-initializer.js swagger-ui/swagger-ui-bundle.js swagger-ui/swagger-ui.css
 var Assets embed.FS

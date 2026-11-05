@@ -4,6 +4,7 @@ package server
 
 import (
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -90,4 +91,29 @@ func TestServer_apiDocsAreServedIndependentlyOfTheUI(t *testing.T) {
 		"expected the embedded OpenAPI document")
 
 	require.Equal(t, http.StatusOK, doGet(t, handler, "/docs/").Code)
+}
+
+// The API docs page must load nothing from third parties and run no
+// inline script (apiDocsCSP forbids both), and every asset it references
+// must be served with a type the browser accepts under nosniff.
+func TestServer_apiDocsPageIsSelfContained(t *testing.T) {
+	handler := NewServer(&controller.RepositoryMock{
+		ConfigFolderFunc: func() string { return configFolder },
+	})
+	page := doGet(t, handler, "/docs/").Body.String()
+	require.NotContains(t, page, "://", "the docs page references an external URL")
+	require.NotRegexp(t, `<script>|<script [^>]*>[^<]`, page, "the docs page has an inline script")
+
+	assets := regexp.MustCompile(`(?:src|href)="([^"]+)"`).FindAllStringSubmatch(page, -1)
+	require.Len(t, assets, 3)
+	for _, asset := range assets {
+		response := doGet(t, handler, "/docs/"+asset[1])
+		require.Equal(t, http.StatusOK, response.Code, asset[1])
+		want := "text/javascript; charset=utf-8"
+		if strings.HasSuffix(asset[1], ".css") {
+			want = "text/css; charset=utf-8"
+		}
+		require.Equal(t, want, response.Header().Get("Content-Type"), asset[1])
+		require.NotEmpty(t, response.Body.Len(), asset[1])
+	}
 }

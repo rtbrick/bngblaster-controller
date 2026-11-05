@@ -15,6 +15,14 @@ func (s *Server) registerAPIDocsRoutes() {
 	s.router.Path("/docs").Methods(http.MethodGet).Handler(http.RedirectHandler("/docs/", http.StatusMovedPermanently))
 	s.router.Path("/docs/").Methods(http.MethodGet).Handler(withCSP(apiDocsCSP, s.apiDocsAsset("index.html", "text/html; charset=utf-8")))
 	s.router.Path("/docs/swagger.yaml").Methods(http.MethodGet).Handler(s.apiDocsAsset("swagger.yaml", "application/yaml"))
+	// The vendored Swagger UI and its bootstrap: served from the binary, so
+	// the page loads no third-party script (see apiDocsCSP).
+	s.router.Path("/docs/swagger-initializer.js").Methods(http.MethodGet).
+		Handler(s.apiDocsAsset("swagger-initializer.js", "text/javascript; charset=utf-8"))
+	s.router.Path("/docs/swagger-ui/swagger-ui-bundle.js").Methods(http.MethodGet).
+		Handler(s.apiDocsAsset("swagger-ui/swagger-ui-bundle.js", "text/javascript; charset=utf-8"))
+	s.router.Path("/docs/swagger-ui/swagger-ui.css").Methods(http.MethodGet).
+		Handler(s.apiDocsAsset("swagger-ui/swagger-ui.css", "text/css; charset=utf-8"))
 }
 
 func (s *Server) apiDocsAsset(name, ct string) http.HandlerFunc {

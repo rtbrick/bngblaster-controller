@@ -36,11 +36,12 @@ const (
 	// since the markup uses style attributes; inline scripts do not.
 	uiCSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; " +
 		"connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
-	// apiDocsCSP allows the Swagger UI bundle loaded from unpkg and its
-	// inline bootstrap script.
-	apiDocsCSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; " +
-		"style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https:; " +
-		"connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+	// apiDocsCSP allows only the embedded Swagger UI: no inline or
+	// third-party script, which would run with full access to the
+	// unauthenticated API. Swagger UI sets inline styles and uses data:
+	// URIs for its icons.
+	apiDocsCSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
+		"connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 )
 
 // securityHeadersMiddleware sets the headers every response carries.
