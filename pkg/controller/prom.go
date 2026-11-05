@@ -751,17 +751,17 @@ func (p *Prom) collectInstanceStreams(instance string, ch chan<- prometheus.Metr
 func (p *Prom) collectInstance(wg *sync.WaitGroup, instance string, ch chan<- prometheus.Metric) {
 	defer wg.Done()
 
-	folder := path.Join(p.repository.ConfigFolder(), instance)
-	path := path.Join(folder, RunConfigFilename)
-	file, err := os.Open(path)
+	// ReadFile closes the file again: /metrics is scraped periodically and
+	// needs no authentication, so a descriptor left open per running
+	// instance and scrape would add up until the garbage collector ran.
+	data, err := os.ReadFile(path.Join(p.repository.ConfigFolder(), instance, RunConfigFilename))
 	if err != nil {
 		log.Warn().Str("instance", instance).Err(err).Msg("metrics: run config not readable")
 		return
 	}
 
 	var runningConfig RunningConfig
-	err = json.NewDecoder(file).Decode(&runningConfig)
-	if err != nil {
+	if err := json.Unmarshal(data, &runningConfig); err != nil {
 		log.Warn().Str("instance", instance).Err(err).Msg("metrics: invalid run config")
 		return
 	}

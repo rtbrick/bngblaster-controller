@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path"
+	"runtime/debug"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -72,4 +73,31 @@ func TestProm_Collect(t *testing.T) {
 			require.Len(t, repository.CommandCalls(), 2*collections)
 		})
 	}
+}
+
+// Every scrape reads run.json of each running instance; the file must be
+// closed again, not left to the garbage collector (which is turned off
+// here so a finalizer cannot hide a leak).
+func TestProm_Collect_closesRunConfig(t *testing.T) {
+	configFolder := t.TempDir()
+	folder := path.Join(configFolder, "x")
+	require.NoError(t, os.Mkdir(folder, 0o700))
+	require.NoError(t, os.WriteFile(path.Join(folder, RunConfigFilename), []byte(`{}`), 0o600))
+	p := NewProm(&RepositoryMock{
+		ConfigFolderFunc: func() string { return configFolder },
+		RunningFunc:      func(string) bool { return true },
+	})
+	openFiles := func() int {
+		entries, err := os.ReadDir("/proc/self/fd")
+		require.NoError(t, err)
+		return len(entries)
+	}
+
+	defer debug.SetGCPercent(debug.SetGCPercent(-1))
+	testutil.CollectAndCount(p)
+	before := openFiles()
+	for range 50 {
+		testutil.CollectAndCount(p)
+	}
+	require.LessOrEqual(t, openFiles(), before+2, "run.json left open by Collect")
 }
