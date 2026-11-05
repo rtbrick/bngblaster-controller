@@ -178,3 +178,37 @@ func TestServer_uploadFile_leavesNoTemporaryFile(t *testing.T) {
 	require.Len(t, entries, 1)
 	require.Equal(t, "streams.json", entries[0].Name())
 }
+
+// An instance name that sanitizes to "" ("...", which mux leaves alone)
+// addresses the config folder itself; DELETE used to remove it with every
+// instance in it. No handler may be reached: the mock has no functions,
+// so any repository call would panic.
+func TestServer_rejectsEmptyInstanceName(t *testing.T) {
+	handler := NewServer(&controller.RepositoryMock{
+		ConfigFolderFunc: func() string { return configFolder },
+	})
+
+	routes := []struct{ method, path string }{
+		{http.MethodDelete, ""},
+		{http.MethodPut, ""},
+		{http.MethodGet, ""},
+		{http.MethodPost, "/_start"},
+		{http.MethodPost, "/_stop"},
+		{http.MethodPost, "/_kill"},
+		{http.MethodPost, "/_command"},
+		{http.MethodPost, "/_upload"},
+		{http.MethodGet, "/_files"},
+		{http.MethodGet, "/_logs"},
+		{http.MethodGet, "/config.json"},
+	}
+	for _, name := range []string{"...", "....", "%2e%2e%2e"} {
+		for _, route := range routes {
+			t.Run(route.method+" "+name+route.path, func(t *testing.T) {
+				request := httptest.NewRequestWithContext(t.Context(), route.method, "/api/v1/instances/"+name+route.path, strings.NewReader("{}"))
+				recorder := httptest.NewRecorder()
+				handler.ServeHTTP(recorder, request)
+				require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
+			})
+		}
+	}
+}

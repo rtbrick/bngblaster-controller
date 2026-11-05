@@ -187,6 +187,7 @@ func (s *Server) routes() {
 	s.router.Use(securityHeadersMiddleware)
 	s.router.Use(hostAllowlistMiddleware(s.allowedHosts))
 	s.router.Use(crossOriginMiddleware())
+	s.router.Use(instanceNameMiddleware)
 	// authMiddleware is a no-op unless WithAuthMiddleware(...) was supplied.
 	// It sits in front of both the UI and the API so a future login system
 	// can be introduced here without touching individual handlers.

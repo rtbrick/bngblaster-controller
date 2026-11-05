@@ -630,3 +630,21 @@ func TestDefaultRepository_cleanupRunFiles_removesRotatedLogs(t *testing.T) {
 		require.FileExists(t, path.Join(folder, name))
 	}
 }
+
+// The repository must never act on the config folder itself, whatever
+// name a caller passes: Delete("") used to remove the whole folder.
+func TestDefaultRepository_invalidInstanceName(t *testing.T) {
+	rootFolder := t.TempDir()
+	marker := filepath.Join(rootFolder, "other", ConfigFilename)
+	require.NoError(t, os.MkdirAll(filepath.Dir(marker), 0o755))
+	require.NoError(t, os.WriteFile(marker, []byte("{}"), 0o644))
+
+	r := NewDefaultRepository(WithConfigFolder(rootFolder))
+	for _, name := range []string{"", ".", "..", "a/b", "a\x00b"} {
+		require.ErrorIs(t, r.Delete(name), ErrInvalidInstanceName, "Delete(%q)", name)
+		require.ErrorIs(t, r.Create(name, []byte("{}")), ErrInvalidInstanceName, "Create(%q)", name)
+		require.ErrorIs(t, r.Start(t.Context(), name, RunningConfig{}), ErrInvalidInstanceName, "Start(%q)", name)
+	}
+	require.FileExists(t, marker)
+	require.NoFileExists(t, filepath.Join(rootFolder, ConfigFilename))
+}

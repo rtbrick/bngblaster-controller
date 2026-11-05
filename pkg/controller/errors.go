@@ -13,6 +13,10 @@ func (pe *BlasterControllerError) Error() string { return pe.ErrorString }
 var (
 	// ErrBlasterNotExists there is not blaster instance.
 	ErrBlasterNotExists = &BlasterControllerError{"blaster instance does not exist"}
+	// ErrInvalidInstanceName the instance name is empty or not a plain
+	// folder name, so it would address the config folder or a path
+	// outside of it.
+	ErrInvalidInstanceName = &BlasterControllerError{"invalid instance name"}
 	// ErrBlasterRunning there is one BlasterInstance running.
 	ErrBlasterRunning = &BlasterControllerError{"blaster instance is running"}
 	// ErrBlasterNotRunning there is no BlasterInstance running.

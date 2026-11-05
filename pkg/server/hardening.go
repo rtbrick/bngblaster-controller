@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/gorilla/mux"
 )
 
 // Request body limits. The controller runs as root without authentication,
@@ -76,6 +78,21 @@ func crossOriginMiddleware() func(http.Handler) http.Handler {
 		JSONError(w, "cross-origin request rejected", http.StatusForbidden)
 	}))
 	return protection.Handler
+}
+
+// instanceNameMiddleware rejects requests whose instance name is empty
+// once sanitized by cleanPathVariable, e.g. "..." (mux only cleans "." and
+// ".." segments, so it reaches the handler): an empty name addresses the
+// config folder itself, and DELETE would remove it together with every
+// instance in it, running ones included.
+func instanceNameMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if name, ok := mux.Vars(r)[instanceNameParameter]; ok && cleanPathVariable(name) == "" {
+			JSONError(w, "invalid instance name", http.StatusBadRequest)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // hostAllowlistMiddleware rejects requests whose Host header names a host

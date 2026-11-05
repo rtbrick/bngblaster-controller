@@ -136,8 +136,20 @@ func (r DefaultRepository) Executable() string {
 	return r.executable
 }
 
+// validInstanceName reports whether name is a plain folder name below the
+// config folder. The server already sanitizes names; this keeps the
+// methods that write, start or remove an instance from ever acting on the
+// config folder itself (an empty name) or outside of it, whatever the
+// caller passes.
+func validInstanceName(name string) bool {
+	return name != "" && name != "." && name != ".." && !strings.ContainsAny(name, "/\x00")
+}
+
 // Create implements Repository.
 func (r *DefaultRepository) Create(name string, config []byte) error {
+	if !validInstanceName(name) {
+		return ErrInvalidInstanceName
+	}
 	if r.Running(name) {
 		return ErrBlasterRunning
 	}
@@ -158,6 +170,9 @@ func (r *DefaultRepository) Create(name string, config []byte) error {
 
 // Delete implements Repository.
 func (r *DefaultRepository) Delete(name string) error {
+	if !validInstanceName(name) {
+		return ErrInvalidInstanceName
+	}
 	if r.Running(name) {
 		return ErrBlasterRunning
 	}
@@ -389,6 +404,9 @@ func (r *DefaultRepository) Running(name string) bool {
 
 // Start implements Repository.
 func (r *DefaultRepository) Start(ctx context.Context, name string, runningConfig RunningConfig) error {
+	if !validInstanceName(name) {
+		return ErrInvalidInstanceName
+	}
 	if !r.Exists(name) {
 		return ErrBlasterNotExists
 	}

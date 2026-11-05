@@ -256,7 +256,9 @@ paths:
         e.g. while waiting for interfaces.
       parameters:
         - name: instance_name
-          description: instance name of the bngblaster
+          description: >-
+            instance name of the bngblaster; dots and slashes are removed, and
+            a name that is empty after that (e.g. "...") is rejected with 400
           in: path
           required: true
           example: sample
@@ -325,7 +327,9 @@ paths:
         The instance will not be started only prepared.
       parameters:
         - name: instance_name
-          description: instance name of the bngblaster
+          description: >-
+            instance name of the bngblaster; dots and slashes are removed, and
+            a name that is empty after that (e.g. "...") is rejected with 400
           in: path
           required: true
           example: sample
@@ -396,7 +400,9 @@ paths:
         Deletes an instance. This does not stop a running instance, only cleans up everything if the instance is already stopped.
       parameters:
         - name: instance_name
-          description: instance name of the bngblaster
+          description: >-
+            instance name of the bngblaster; dots and slashes are removed, and
+            a name that is empty after that (e.g. "...") is rejected with 400
           in: path
           required: true
           example: sample
@@ -405,6 +411,8 @@ paths:
       responses:
         204:
           description: no content, the instance was deleted
+        400:
+          description: bad request, invalid instance name
         409:
           description: conflict, a generator is running in the instance folder
         412:
@@ -431,7 +439,9 @@ paths:
         for this instance yields null.
       parameters:
         - name: instance_name
-          description: instance name of the bngblaster
+          description: >-
+            instance name of the bngblaster; dots and slashes are removed, and
+            a name that is empty after that (e.g. "...") is rejected with 400
           in: path
           required: true
           example: sample
@@ -516,7 +526,9 @@ paths:
         currently in (or near) its viewport.
       parameters:
         - name: instance_name
-          description: instance name of the bngblaster
+          description: >-
+            instance name of the bngblaster; dots and slashes are removed, and
+            a name that is empty after that (e.g. "...") is rejected with 400
           in: path
           required: true
           example: sample
@@ -623,7 +635,9 @@ paths:
         currently in (or near) its viewport.
       parameters:
         - name: instance_name
-          description: instance name of the bngblaster
+          description: >-
+            instance name of the bngblaster; dots and slashes are removed, and
+            a name that is empty after that (e.g. "...") is rejected with 400
           in: path
           required: true
           example: sample
@@ -702,7 +716,9 @@ paths:
         rather than an error.
       parameters:
         - name: instance_name
-          description: instance name of the bngblaster
+          description: >-
+            instance name of the bngblaster; dots and slashes are removed, and
+            a name that is empty after that (e.g. "...") is rejected with 400
           in: path
           required: true
           example: sample
@@ -767,7 +783,9 @@ paths:
         test-stop, or with _stop or _kill; the pending request is then answered with 409.
       parameters:
         - name: instance_name
-          description: instance name of the bngblaster
+          description: >-
+            instance name of the bngblaster; dots and slashes are removed, and
+            a name that is empty after that (e.g. "...") is rejected with 400
           in: path
           required: true
           example: sample
@@ -902,7 +920,9 @@ paths:
         Sends a stop signal to the instance
       parameters:
         - name: instance_name
-          description: instance name of the bngblaster
+          description: >-
+            instance name of the bngblaster; dots and slashes are removed, and
+            a name that is empty after that (e.g. "...") is rejected with 400
           in: path
           required: true
           example: sample
@@ -918,7 +938,9 @@ paths:
         Sends a kill signal to the instance
       parameters:
         - name: instance_name
-          description: instance name of the bngblaster
+          description: >-
+            instance name of the bngblaster; dots and slashes are removed, and
+            a name that is empty after that (e.g. "...") is rejected with 400
           in: path
           required: true
           example: sample
@@ -935,7 +957,9 @@ paths:
         This code field, if set, specifies the http response code.
       parameters:
         - name: instance_name
-          description: instance name of the bngblaster
+          description: >-
+            instance name of the bngblaster; dots and slashes are removed, and
+            a name that is empty after that (e.g. "...") is rejected with 400
           in: path
           required: true
           example: sample
@@ -1007,7 +1031,9 @@ paths:
         download view.
       parameters:
         - name: instance_name
-          description: instance name of the parsable
+          description: >-
+            instance name of the bngblaster; dots and slashes are removed, and
+            a name that is empty after that (e.g. "...") is rejected with 400
           in: path
           required: true
           example: sample
@@ -1034,7 +1060,9 @@ paths:
         endpoint itself just listed.
       parameters:
         - name: instance_name
-          description: instance name of the parsable
+          description: >-
+            instance name of the bngblaster; dots and slashes are removed, and
+            a name that is empty after that (e.g. "...") is rejected with 400
           in: path
           required: true
           example: sample
@@ -1059,7 +1087,9 @@ paths:
         This allows to download the output but also the config files of an instance.
       parameters:
         - name: instance_name
-          description: instance name of the parsable
+          description: >-
+            instance name of the bngblaster; dots and slashes are removed, and
+            a name that is empty after that (e.g. "...") is rejected with 400
           in: path
           required: true
           example: sample
@@ -1101,7 +1131,9 @@ paths:
         `curl --location --request POST 'http://<host>:<port>/api/v1/instances/<instance_name>/_upload' --form 'file=@<local-filename>'`
       parameters:
         - name: instance_name
-          description: instance name of the parsable
+          description: >-
+            instance name of the bngblaster; dots and slashes are removed, and
+            a name that is empty after that (e.g. "...") is rejected with 400
           in: path
           required: true
           example: sample
@@ -1171,7 +1203,9 @@ paths:
         -d '{"next-hop-base": "10.0.0.1", "prefix-base": "11.0.0.0/24", "prefix-num": 1000, "file": "start.bgp"}'`
       parameters:
         - name: instance_name
-          description: instance name of the bngblaster
+          description: >-
+            instance name of the bngblaster; dots and slashes are removed, and
+            a name that is empty after that (e.g. "...") is rejected with 400
           in: path
           required: true
           example: sample
