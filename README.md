@@ -5,10 +5,57 @@
 [![Documentation](https://img.shields.io/badge/Documentation-lightgrey)](https://rtbrick.github.io/bngblaster/controller.html)
 [![API](https://img.shields.io/badge/API-green)](https://rtbrick.github.io/bngblaster-controller)
 
-The [BNG Blaster](https://github.com/rtbrick/bngblaster) controller provides
-a REST API to start and stop multiple test instances. It exposes the
-BNG Blaster [JSON RPC API](https://rtbrick.github.io/bngblaster/api/index.html)
-as REST API and provides endpoints to download logs and reports. 
+The [BNG Blaster](https://github.com/rtbrick/bngblaster) controller manages
+multiple BNG Blaster test instances on one host, through a web UI in the
+browser or a REST API. The embedded web UI configures, starts and stops
+tests and shows their sessions, streams, routing protocols and logs live.
+The REST API exposes the BNG Blaster
+[JSON RPC API](https://rtbrick.github.io/bngblaster/api/index.html) and
+provides endpoints to download logs and reports.
+
+The BNG Blaster itself is a command line tool: each run is one process with
+its own configuration, control socket and output files on the host where it
+runs. The controller (`bngblasterctrl`) is a small daemon on that host that
+turns this into a service. It keeps any number of named test instances,
+starts and stops them on request and makes everything about them reachable
+over HTTP, so tests can be driven from a CI pipeline, a test framework
+such as Robot Framework or pytest, or a browser, without shell access to
+the test host.
+
+Each test instance is a folder below the controller's storage directory
+(`/var/bngblaster` by default) holding its configuration, start arguments
+and all files of its runs. The controller derives an instance's state from
+these files rather than keeping it in memory, so instances and the results
+of past runs survive a controller restart.
+
+Main features:
+
+* **Instance lifecycle** – create, update, start, stop, kill and delete test
+  instances, each with its own BNG Blaster configuration and start options
+  (logging, PCAP capture, report, ...)
+* **REST access to the BNG Blaster API** – run any BNG Blaster
+  [control command](https://rtbrick.github.io/bngblaster/api/index.html)
+  (sessions, streams, BGP, ISIS, OSPF, LDP, L2TP, ...) on a running instance
+  with a plain HTTP request
+* **Results and files** – download the log, report, PCAP capture,
+  stdout/stderr and any other file of an instance, and upload files such as
+  MRT or BGP update files into it
+* **File generators** – create ISIS/OSPF topologies and BGP/LDP update files
+  with `lspgen`, `bgpupdate` and `ldpupdate` directly in an instance folder
+* **Web UI** – an embedded browser interface to configure instances with a
+  schema-driven form or JSON editor, start and stop them, follow their logs
+  and inspect interfaces, sessions, streams, routing protocols, LAG and L2TP
+  live, and to view the test host (CPU, NUMA, memory, network interfaces)
+* **Monitoring** – Prometheus metrics of all running instances on `/metrics`
+* **Container and service ready** – a Debian package with a systemd service,
+  configuration through flags or environment variables, an `-autostart`
+  option to run one instance at container startup and a `-health` check
+
+The complete REST API is described in the
+[API documentation](https://rtbrick.github.io/bngblaster-controller), which is
+also served by the controller itself on `/docs/`. See
+[Installation](#installation) to get started and [Web UI](#web-ui) for the
+browser interface.
 
 ![BNG Blaster Controller](docs/controller.png "BNG Blaster Controller")
 
