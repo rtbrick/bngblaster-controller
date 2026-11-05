@@ -30,6 +30,13 @@ ProtectSystem=full
 # from config.json or stream_config, but they cannot be written.
 ProtectHome=read-only
 PrivateTmp=yes
+# Kernel tunables stay read-only: neither the controller nor bngblaster
+# writes them. Not ProtectKernelTunables=, which would also make
+# /sys/fs/bpf read-only, where AF_XDP pins its BPF objects.
+ReadOnlyPaths=/proc/sys
+# Neither the controller nor bngblaster needs to gain privileges (setuid
+# binaries, file capabilities).
+NoNewPrivileges=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=yes

@@ -364,8 +364,9 @@ service is enabled and only restart it if it was running.
 
 The unit applies a conservative systemd sandbox: `/usr`, `/boot`, `/efi` and
 `/etc` are read-only, `/home` and `/root` are read-only, `/tmp` is private to
-the service, and kernel modules, kernel logs, cgroups, the clock and the
-hostname cannot be changed. Home directories remain readable, so
+the service, and kernel modules, kernel logs, kernel tunables (`/proc/sys`),
+cgroups, the clock and the hostname cannot be changed. The service cannot
+gain privileges (`NoNewPrivileges`). Home directories remain readable, so
 configurations may reference stream, BGP or MRT files kept there. The config
 folder (`-d`) must live outside the read-only paths and `/tmp` (the default
 `/var/bngblaster` is fine). If a setup needs more, relax individual settings
