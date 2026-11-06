@@ -36,8 +36,8 @@ func writePidFileForRunning(t *testing.T, rootFolder string) {
 // instance that way; other pids still get the real check.
 func ownProcessIsInstance(t *testing.T) {
 	t.Helper()
-	isInstanceProcess = func(pid int, socket string) bool {
-		return pid == os.Getpid() || procIsInstanceProcess(pid, socket)
+	isInstanceProcess = func(pid int, socket string, executable string) bool {
+		return pid == os.Getpid() || procIsInstanceProcess(pid, socket, executable)
 	}
 	t.Cleanup(func() { isInstanceProcess = procIsInstanceProcess })
 }
@@ -558,10 +558,10 @@ func TestDefaultRepository_Start_returnsWhenTheCallerGivesUp(t *testing.T) {
 func TestDefaultRepository_ignoresPidsThatCannotBeAnInstance(t *testing.T) {
 	// 0 and negative pids address process groups in kill(2) and 1 is init;
 	// a pid file holding one of them (corrupt, or planted) must never be
-	// signalled. The negated pgid of the test itself is the case that is
-	// observable without root: kill(-pgid, 0) succeeds for our own group.
-	// Stop and Kill share pid(), but are not exercised with it here since a
-	// regression would interrupt the whole test run instead of failing it.
+	// signalled. The negated pgid of the test itself stands for a value that
+	// would reach real processes. Stop and Kill are not exercised with it
+	// here since a regression would interrupt the whole test run instead of
+	// failing it.
 	ownGroup := strconv.Itoa(-syscall.Getpgrp())
 	for _, content := range []string{"0", "1", "-1", ownGroup, "", "abc"} {
 		t.Run(content, func(t *testing.T) {
@@ -572,7 +572,7 @@ func TestDefaultRepository_ignoresPidsThatCannotBeAnInstance(t *testing.T) {
 
 			r := NewDefaultRepository(WithConfigFolder(folder))
 			require.False(t, r.Running("test"))
-			require.NoFileExists(t, pidFile, "a stale pid file is cleaned up")
+			require.FileExists(t, pidFile, "Running only reads")
 		})
 	}
 }
@@ -714,8 +714,7 @@ func TestDefaultRepository_Command_checksFile(t *testing.T) {
 
 // startProcess starts a process that lives until the test ends, with args
 // on its command line, and returns its pid once that command line is set
-// (it is empty for a moment after the start, which procIsInstanceProcess
-// treats as a starting instance). sh -c runs two commands, so it does not
+// (it is empty for a moment after the start). sh -c runs two commands, so it does not
 // exec sleep in its place and keeps its own command line.
 func startProcess(t *testing.T, args ...string) int {
 	t.Helper()
@@ -733,24 +732,34 @@ func startProcess(t *testing.T, args ...string) int {
 	return cmd.Process.Pid
 }
 
+// requireNotKilled fails if process pid, a child of the test, got killed.
+// It would stay a zombie, which kill(pid, 0) cannot tell from a live process.
+func requireNotKilled(t *testing.T, pid int) {
+	t.Helper()
+	time.Sleep(50 * time.Millisecond)
+	stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	require.NoError(t, err)
+	require.NotContains(t, string(stat), ") Z ", "the process was killed")
+}
+
 func TestProcIsInstanceProcess(t *testing.T) {
 	folder := t.TempDir()
 	socket := path.Join(folder, "test", RunSockFilename)
 	pid := startProcess(t, "-S", socket)
 
-	require.True(t, procIsInstanceProcess(pid, socket))
+	require.True(t, procIsInstanceProcess(pid, socket, DefaultExecutable))
 	// A relative and an absolute spelling of the same path match.
 	wd, err := os.Getwd()
 	require.NoError(t, err)
 	relative, err := filepath.Rel(wd, socket)
 	require.NoError(t, err)
-	require.True(t, procIsInstanceProcess(pid, relative))
+	require.True(t, procIsInstanceProcess(pid, relative, DefaultExecutable))
 	// Another instance's socket, a process without -S, and a gone process
 	// are not the instance.
-	require.False(t, procIsInstanceProcess(pid, path.Join(folder, "other", RunSockFilename)))
-	require.False(t, procIsInstanceProcess(startProcess(t), socket))
-	require.False(t, procIsInstanceProcess(os.Getpid(), socket))
-	require.False(t, procIsInstanceProcess(1<<22+1, socket))
+	require.False(t, procIsInstanceProcess(pid, path.Join(folder, "other", RunSockFilename), DefaultExecutable))
+	require.False(t, procIsInstanceProcess(startProcess(t), socket, DefaultExecutable))
+	require.False(t, procIsInstanceProcess(os.Getpid(), socket, DefaultExecutable))
+	require.False(t, procIsInstanceProcess(1<<22+1, socket, DefaultExecutable))
 }
 
 // A run.pid left behind by a reboot or a container restart may hold the
@@ -766,10 +775,9 @@ func TestDefaultRepository_stalePidOfOtherProcess(t *testing.T) {
 	require.NoError(t, os.WriteFile(pidFile, []byte(strconv.Itoa(other)), permission))
 	r.Kill("test")
 	r.Stop("test")
-	require.NoError(t, syscall.Kill(other, 0), "unrelated process was signalled")
+	requireNotKilled(t, other)
 
-	// Not running, but run.pid stays while its process lives: if the check
-	// was wrong, removing it would lose a running instance for good.
+	// Not running, but Running never touches run.pid.
 	require.False(t, r.Running("test"))
 	require.FileExists(t, pidFile)
 
@@ -779,8 +787,9 @@ func TestDefaultRepository_stalePidOfOtherProcess(t *testing.T) {
 	require.True(t, r.Running("test"))
 }
 
-// A run.pid whose process has exited is removed.
-func TestDefaultRepository_Running_removesPidOfExitedProcess(t *testing.T) {
+// A run.pid whose process has exited is ignored, and left to the next
+// Start, Create or Delete: Running only reads, see Running.
+func TestDefaultRepository_Running_ignoresPidOfExitedProcess(t *testing.T) {
 	folder := t.TempDir()
 	require.NoError(t, os.MkdirAll(path.Join(folder, "test"), permission))
 	pidFile := path.Join(folder, "test", runPidFilename)
@@ -790,12 +799,11 @@ func TestDefaultRepository_Running_removesPidOfExitedProcess(t *testing.T) {
 
 	r := NewDefaultRepository(WithConfigFolder(folder))
 	require.False(t, r.Running("test"))
-	require.NoFileExists(t, pidFile)
+	require.FileExists(t, pidFile)
 }
 
-// Running may read run.pid at any time while it is written. Written in
-// place, a read between creating and filling the file saw it empty and
-// removed it, so a running instance looked stopped for good.
+// run.pid is replaced atomically: a reader never sees it missing or partly
+// written.
 func TestWritePidFile_neverVisibleEmpty(t *testing.T) {
 	folder := t.TempDir()
 	pidFile := path.Join(folder, runPidFilename)
@@ -824,25 +832,6 @@ func TestWritePidFile_neverVisibleEmpty(t *testing.T) {
 	}
 }
 
-// An empty command line (a process still being set up by the kernel)
-// counts as the instance, except for zombies and kernel threads.
-func TestProcStarting(t *testing.T) {
-	require.True(t, procStarting(os.Getpid()), "a running process")
-	require.False(t, procStarting(2), "kthreadd is a kernel thread")
-	require.False(t, procIsInstanceProcess(2, "/x/run.sock"), "kernel thread with an empty command line")
-	require.False(t, procStarting(1<<22+1), "no such process")
-
-	cmd := exec.CommandContext(t.Context(), "true")
-	require.NoError(t, cmd.Start())
-	t.Cleanup(func() { _ = cmd.Wait() })
-	stat := fmt.Sprintf("/proc/%d/stat", cmd.Process.Pid)
-	require.Eventually(t, func() bool {
-		data, err := os.ReadFile(stat)
-		return err == nil && strings.Contains(string(data), ") Z ")
-	}, 5*time.Second, 10*time.Millisecond, "process did not become a zombie")
-	require.False(t, procStarting(cmd.Process.Pid), "a zombie")
-}
-
 // After a reboot, a stale run.pid may name a kernel thread (low pids):
 // the instance is not running, and it must not stay "started" for good.
 func TestDefaultRepository_Running_kernelThreadPid(t *testing.T) {
@@ -852,18 +841,169 @@ func TestDefaultRepository_Running_kernelThreadPid(t *testing.T) {
 	require.False(t, NewDefaultRepository(WithConfigFolder(folder)).Running("test"))
 }
 
-// Right after the start, mostly while the command line is still empty,
-// the new process must already count as the instance: the controller
-// checks it just then, and a host busy with other instances can keep the
-// command line empty for a long time.
-func TestProcIsInstanceProcess_rightAfterStart(t *testing.T) {
-	socket := path.Join(t.TempDir(), RunSockFilename)
-	for range 500 {
-		cmd := exec.CommandContext(t.Context(), "sh", "-c", "sleep 30; :", "-S", socket)
-		require.NoError(t, cmd.Start())
-		ok := procIsInstanceProcess(cmd.Process.Pid, socket)
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		require.True(t, ok, "a just started instance was not recognized")
+// A started process counts as the instance for as long as the controller
+// has not reaped it, whatever its command line says: Running must not end
+// before the exit code is recorded and run.pid is gone, or a new run could
+// start and have both overwritten by the end of the old one.
+func TestDefaultRepository_Running_untilReaped(t *testing.T) {
+	folder := t.TempDir()
+	dir := path.Join(folder, "test")
+	require.NoError(t, os.MkdirAll(dir, permission))
+	r := NewDefaultRepository(WithConfigFolder(folder))
+
+	done, err := RunCommand(dir, path.Join(dir, runPidFilename), path.Join(dir, RunStdOut), path.Join(dir, RunStdErr), "sleep", "30")
+	require.NoError(t, err)
+	require.True(t, r.Running("test"), "started process without -S on its command line")
+
+	// Not waiting for done, which comes after all of this: the moment the
+	// instance is stopped, the run has to be over.
+	r.Kill("test")
+	for r.Running("test") {
+		time.Sleep(100 * time.Microsecond)
 	}
+	code, ok := r.ExitCode("test")
+	require.True(t, ok)
+	require.Equal(t, exitSignalBase+int(syscall.SIGKILL), code)
+	require.NoFileExists(t, path.Join(dir, runPidFilename))
+	<-done
+}
+
+// startZombie starts a process from executable and kills it without
+// reaping it, as a dying bngblaster looks until all its threads are gone.
+func startZombie(t *testing.T, executable string) *exec.Cmd {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), executable, "30")
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() { _ = cmd.Wait() })
+	require.NoError(t, cmd.Process.Kill())
+	stat := fmt.Sprintf("/proc/%d/stat", cmd.Process.Pid)
+	require.Eventually(t, func() bool {
+		data, err := os.ReadFile(stat)
+		return err == nil && strings.Contains(string(data), ") Z ")
+	}, 5*time.Second, time.Millisecond, "process did not become a zombie")
+	return cmd
+}
+
+// A killed bngblaster stays a zombie with an empty command line until it
+// is reaped, and keeps its interface locks until then: the instance must
+// not be reported stopped before, or a restart fails with "interface in
+// use". A child of the controller is known by its entry in children.
+func TestDefaultRepository_Running_zombieChild(t *testing.T) {
+	folder := t.TempDir()
+	dir := path.Join(folder, "test")
+	require.NoError(t, os.MkdirAll(dir, permission))
+	r := NewDefaultRepository(WithConfigFolder(folder))
+	cmd := startZombie(t, "sleep")
+	require.NoError(t, writePidFile(path.Join(dir, runPidFilename), cmd.Process.Pid))
+
+	require.False(t, r.Running("test"), "zombie that is not known as a child")
+	children.add(dir, cmd.Process)
+	t.Cleanup(func() { children.remove(dir) })
+	require.True(t, r.Running("test"))
+	require.ErrorIs(t, r.Delete("test"), ErrBlasterRunning)
+	require.ErrorIs(t, r.Create("test", []byte("{}")), ErrBlasterRunning)
+}
+
+// After a controller restart the instance is no child any more, and its
+// dying bngblaster is only known by its name, which the kernel cuts off.
+func TestDefaultRepository_Running_zombieAfterRestart(t *testing.T) {
+	folder := t.TempDir()
+	dir := path.Join(folder, "test")
+	require.NoError(t, os.MkdirAll(dir, permission))
+	sleep, err := exec.LookPath("sleep")
+	require.NoError(t, err)
+	executable := path.Join(t.TempDir(), "bngblaster-with-a-long-name")
+	require.NoError(t, os.Symlink(sleep, executable))
+	cmd := startZombie(t, executable)
+	require.NoError(t, writePidFile(path.Join(dir, runPidFilename), cmd.Process.Pid))
+
+	r := NewDefaultRepository(WithConfigFolder(folder), WithExecutable(executable))
+	require.True(t, r.Running("test"), "dying bngblaster")
+	r.Kill("test") // A zombie takes no signal, and this must not fail.
+	other := NewDefaultRepository(WithConfigFolder(folder))
+	require.False(t, other.Running("test"), "zombie of another program")
+
+	_ = cmd.Wait()
+	require.False(t, r.Running("test"), "reaped")
+}
+
+// The pid of a child is free from the moment it is reaped, while the child
+// is still tracked until the run is over. A signal in that moment must not
+// reach a process that got the pid: the reused pid is simulated here by
+// pointing the handle of a reaped child at a live process.
+func TestDefaultRepository_sendSignal_reapedChild(t *testing.T) {
+	folder := t.TempDir()
+	dir := path.Join(folder, "test")
+	require.NoError(t, os.MkdirAll(dir, permission))
+	r := NewDefaultRepository(WithConfigFolder(folder))
+	reused := startProcess(t)
+
+	cmd := exec.CommandContext(t.Context(), "true")
+	require.NoError(t, cmd.Run())
+	cmd.Process.Pid = reused
+	children.add(dir, cmd.Process)
+	t.Cleanup(func() { children.remove(dir) })
+	require.NoError(t, writePidFile(path.Join(dir, runPidFilename), reused))
+
+	r.Kill("test")
+	requireNotKilled(t, reused)
+}
+
+// Of concurrent starts of an instance only one may spawn a process: the
+// exit of a second one would end the tracking of the first.
+func TestDefaultRepository_Start_concurrent(t *testing.T) {
+	defaultExecCommand := ExecCommand
+	ExecCommand = func(_ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(context.Background(), "sleep", "30")
+	}
+	defer func() { ExecCommand = defaultExecCommand }()
+	r := NewDefaultRepository(WithConfigFolder(t.TempDir()))
+	require.NoError(t, r.Create("test", []byte("{}")))
+
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	const starts = 8
+	results := make(chan error, starts)
+	for range starts {
+		go func() { results <- r.Start(ctx, "test", RunningConfig{}) }()
+	}
+	var started int
+	for range starts {
+		if err := <-results; err == nil {
+			started++
+		} else {
+			require.ErrorIs(t, err, ErrBlasterRunning)
+		}
+	}
+	require.Equal(t, 1, started)
+
+	r.Kill("test")
+	require.Eventually(t, func() bool { return !r.Running("test") }, 5*time.Second, time.Millisecond)
+}
+
+// Running leaves a stale run.pid in place, so the next run has to replace it,
+// even if the pid is alive and belongs to something else by now.
+func TestDefaultRepository_Start_replacesStalePid(t *testing.T) {
+	defaultExecCommand := ExecCommand
+	ExecCommand = func(_ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(context.Background(), "sleep", "30")
+	}
+	defer func() { ExecCommand = defaultExecCommand }()
+	folder := t.TempDir()
+	r := NewDefaultRepository(WithConfigFolder(folder))
+	require.NoError(t, r.Create("test", []byte("{}")))
+	pidFile := path.Join(folder, "test", runPidFilename)
+	other := startProcess(t)
+	require.NoError(t, os.WriteFile(pidFile, []byte(strconv.Itoa(other)), permission))
+
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	require.NoError(t, r.Start(ctx, "test", RunningConfig{}))
+	data, err := os.ReadFile(pidFile)
+	require.NoError(t, err)
+	require.NotEqual(t, strconv.Itoa(other), string(data))
+
+	r.Kill("test")
+	require.Eventually(t, func() bool { return !r.Running("test") }, 5*time.Second, time.Millisecond)
+	requireNotKilled(t, other)
 }

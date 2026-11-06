@@ -49,6 +49,7 @@ func RunCommand(dir string, pidFile string, stdFile string, errFile string, args
 	}
 	stderr, err := os.OpenFile(errFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, permission)
 	if err != nil {
+		_ = stdout.Close()
 		return nil, err
 	}
 
@@ -56,24 +57,32 @@ func RunCommand(dir string, pidFile string, stdFile string, errFile string, args
 	cmd.Stderr = stderr
 
 	if err := cmd.Start(); err != nil {
+		_ = stdout.Close()
+		_ = stderr.Close()
 		return nil, err
 	}
+	// From here on the instance counts as running, see children.
+	children.add(dir, cmd.Process)
 	pid := cmd.Process.Pid
 	started := time.Now()
 	log.Info().Str("instance", instance).Int("pid", pid).Str("executable", filepath.Base(args[0])).Msg("process started")
-	_ = writePidFile(pidFile, pid)
+	// Only needed to find the instance again after a controller restart.
+	if err := writePidFile(pidFile, pid); err != nil {
+		log.Warn().Err(err).Str("instance", instance).Int("pid", pid).Msg("process id not stored")
+	}
 
 	done := make(chan error, 1)
 	go func() {
 		waitErr := cmd.Wait()
 		_ = stdout.Close()
 		_ = stderr.Close()
-		// Recorded before the pid file goes, so that an instance is never
-		// seen as stopped without the exit code of its run.
+		// The run ends with the removal from children, as that lets the next
+		// run start: everything of this run has to be done by then.
 		if code, ok := exitCode(waitErr); ok {
 			exits.set(dir, code)
 		}
 		_ = os.Remove(pidFile)
+		children.remove(dir)
 		done <- waitErr
 		close(done)
 		level := zerolog.InfoLevel
@@ -91,11 +100,9 @@ func RunCommand(dir string, pidFile string, stdFile string, errFile string, args
 const pidFilePermission = 0o644
 
 // writePidFile writes pid to file atomically: into a temporary file next to
-// it, which is then renamed into place. Running reads run.pid at any time
-// (status polls, metrics scrapes) and removes a file without a valid pid;
-// written in place, a read between creating and filling the file saw it
-// empty, removed it, and the instance looked stopped for good while
-// bngblaster kept running.
+// it, which is then renamed into place, so that a controller restart never
+// finds a half-written file and a link planted in its place is replaced
+// instead of followed.
 func writePidFile(file string, pid int) error {
 	tmp := filepath.Join(filepath.Dir(file), runPidTempFilename)
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, pidFilePermission)

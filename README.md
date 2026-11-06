@@ -24,9 +24,9 @@ the test host.
 
 Each test instance is a folder below the controller's storage directory
 (`/var/bngblaster` by default) holding its configuration, start arguments
-and all files of its runs. The controller derives an instance's state from
-these files rather than keeping it in memory, so instances and the results
-of past runs survive a controller restart.
+and all files of its runs. Everything needed to find an instance again is
+kept in these files, so instances and the results of past runs survive a
+controller restart. Only the exit code of a run is lost with it.
 
 Main features:
 
@@ -407,6 +407,20 @@ with `systemctl edit rtbrick-bngblasterctrl`.
 Note that the `bngblaster` instances run inside the service's control group,
 so stopping or restarting the service (including through a package upgrade)
 also stops every running test instance.
+
+To keep instances running across a service restart, set `KillMode=process`
+with `systemctl edit rtbrick-bngblasterctrl`:
+
+```ini
+[Service]
+KillMode=process
+```
+
+The restarted controller takes over the running instances, except that the
+exit code of their run is not known to it. With this setting, stopping the
+service or removing the package no longer stops the instances. The setting
+is a drop-in below `/etc/systemd/system`, so it survives package upgrades,
+which then keep the instances running as well.
 
 ## Web UI
 

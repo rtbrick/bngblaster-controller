@@ -37,7 +37,9 @@ Run locally without root by pointing at a writable folder:
     `DefaultRepository` (`repository.go`) is the real implementation.
   - Each instance is a folder `<config-dir>/<name>/` holding `config.json`, `run.json`, `run.pid`,
     `run.sock`, `run.log`, `run_report.json`, `run.pcap`, `run.stdout`, `run.stderr`
-    (filename constants in `repository.go`). "Running" is derived from these files, not from in-memory state.
+    (filename constants in `repository.go`). "Running" is decided by `children` (the unreaped processes this
+    controller started) and, only for instances from before a controller restart, by `run.pid` plus the process's
+    command line. `Running` only reads; signals go through process handles (see `sendSignal`).
   - `prom.go` – Prometheus metrics collected from running instances via the control socket.
 - `pkg/server/` – gorilla/mux router (`server.go` `routes()`), one file per feature
   (streams, sessions, overview, logs, files, generate, ui, apidocs). `cache.go` is a short-TTL,

@@ -3,7 +3,6 @@
 package controller
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -155,6 +154,8 @@ func (r *DefaultRepository) Create(name string, config []byte) error {
 	if !validInstanceName(name) {
 		return ErrInvalidInstanceName
 	}
+	lifecycle.Lock()
+	defer lifecycle.Unlock()
 	if r.Running(name) {
 		return ErrBlasterRunning
 	}
@@ -178,6 +179,8 @@ func (r *DefaultRepository) Delete(name string) error {
 	if !validInstanceName(name) {
 		return ErrInvalidInstanceName
 	}
+	lifecycle.Lock()
+	defer lifecycle.Unlock()
 	if r.Running(name) {
 		return ErrBlasterRunning
 	}
@@ -192,6 +195,13 @@ func (r *DefaultRepository) Delete(name string) error {
 	exits.clear(folder)
 	return nil
 }
+
+// lifecycle serializes the steps that check that an instance is not running
+// and then act on its folder: Start up to the spawn, Create and Delete. Without
+// it, two concurrent starts would both spawn a process for the same folder,
+// and a delete could remove the folder of an instance just started. Never
+// held while waiting for an instance to come up or exit.
+var lifecycle sync.Mutex
 
 // generating holds the instance folders a generator currently runs in.
 // It is keyed by folder rather than kept per repository since the folder
@@ -254,6 +264,47 @@ func (r *DefaultRepository) RemoveGeneratorTempFiles() {
 // It is deliberately not persisted: after a controller restart, a code
 // found in a (persistent) instance folder could belong to any earlier run.
 var exits = exitCodes{codes: map[string]int{}}
+
+// children holds the processes this controller started and has not reaped
+// yet, by instance folder. It is what decides whether such an instance runs:
+// an entry exists from right after the start until the run is completely
+// over, whatever the process looks like in between. A dying bngblaster is a
+// zombie with an empty command line until all its threads are gone, which
+// takes a moment while its packet rings and sockets are torn down, and it
+// holds its interface locks until then.
+//
+// Like exits, it is shared by all repository values and not persisted: after
+// a controller restart it is empty, and run.pid is all that is left (see
+// Running).
+var children = childProcesses{processes: map[string]*os.Process{}}
+
+// childProcesses maps instance folders to their unreaped child process. It
+// holds the process handle rather than the pid since only the handle stays
+// tied to the process once it is reaped: its Signal then fails, while a
+// signal to the pid would hit whichever process got that pid next.
+type childProcesses struct {
+	mu        sync.Mutex
+	processes map[string]*os.Process
+}
+
+func (c *childProcesses) add(folder string, process *os.Process) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.processes[folder] = process
+}
+
+func (c *childProcesses) remove(folder string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.processes, folder)
+}
+
+func (c *childProcesses) get(folder string) (*os.Process, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	process, ok := c.processes[folder]
+	return process, ok
+}
 
 // exitCodes maps instance folders to the exit code of their last run.
 type exitCodes struct {
@@ -371,10 +422,9 @@ func (r *DefaultRepository) Exists(name string) bool {
 
 // pid returns the process id recorded in the instance's pid file.
 //
-// Only values above 1 are accepted: the pid is handed straight to kill(2),
-// where 0 and negative values address whole process groups (-1 is every
-// process) and 1 is init - none of which can ever be a bngblaster instance,
-// whatever ended up in the file.
+// Only values above 1 are accepted: in kill(2), 0 and negative values address
+// whole process groups (-1 is every process) and 1 is init - none of which
+// can ever be a bngblaster instance, whatever ended up in the file.
 func (r *DefaultRepository) pid(name string) (int, bool) {
 	piddata, err := os.ReadFile(path.Join(r.configFolder, name, runPidFilename))
 	if err != nil {
@@ -388,46 +438,28 @@ func (r *DefaultRepository) pid(name string) (int, bool) {
 }
 
 // Running implements Repository.
+//
+// An instance runs if this controller has a child for it, or else, for an
+// instance started before a controller restart, if run.pid names its
+// bngblaster. It only ever reads: run.pid is written by RunCommand and
+// removed when the run ends, or by the next Start, Create or Delete if the
+// controller was not around for that. A stale file is harmless, as its pid is
+// checked on every use, whereas removing it here could hit the file of a run
+// started in the meantime and lose that instance.
 func (r *DefaultRepository) Running(name string) bool {
-	file := path.Join(r.configFolder, name, runPidFilename)
-	if _, err := os.Stat(file); os.IsNotExist(err) {
-		return false
-	}
-	pid, ok := r.pid(name)
-	if ok && isInstanceProcess(pid, path.Join(r.configFolder, name, RunSockFilename)) {
+	if _, ok := children.get(path.Join(r.configFolder, name)); ok {
 		return true
 	}
-	// run.pid is only removed once its process is gone (or it holds no
-	// valid pid). A live process that is not recognized as the instance -
-	// a pid reused after a reboot, or a check that failed for a moment -
-	// counts as not running, but keeps the file: removing it would lose a
-	// running instance for good if the check was wrong, and the next start
-	// replaces the file anyway.
-	if ok && processAlive(pid) {
-		return false
-	}
-	_ = os.Remove(file)
-	return false
-}
-
-// processAlive reports whether a process with this pid exists.
-func processAlive(pid int) bool {
-	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
-}
-
-// instancePid returns the pid from the instance's run.pid if that process
-// is the bngblaster started for this instance. A live pid alone proves
-// nothing: run.pid survives a reboot or container restart in the
-// persistent config folder, and its pid may since belong to any other
-// process - which, the controller running as root, Kill would then
-// SIGKILL.
-func (r *DefaultRepository) instancePid(name string) (int, bool) {
 	pid, ok := r.pid(name)
-	if !ok || !isInstanceProcess(pid, path.Join(r.configFolder, name, RunSockFilename)) {
-		return 0, false
-	}
-	return pid, true
+	return ok && r.isInstance(name, pid)
+}
+
+// isInstance reports whether process pid is the bngblaster of instance name.
+// A live pid alone proves nothing: run.pid survives a reboot or container
+// restart in the persistent config folder, and its pid may since belong to
+// any other process.
+func (r *DefaultRepository) isInstance(name string, pid int) bool {
+	return isInstanceProcess(pid, path.Join(r.configFolder, name, RunSockFilename), r.executable)
 }
 
 // isInstanceProcess reports whether process pid is the bngblaster serving
@@ -439,21 +471,19 @@ var isInstanceProcess = procIsInstanceProcess
 // "-S <instance folder>/run.sock", which no other process has. A process
 // that is gone or cannot be read is not the instance.
 //
-// The command line is empty right after the process was started, until
-// the kernel has set up the new program - and the controller checks the
-// instance just then. That takes microseconds on an idle host, but can
-// take much longer on one whose CPUs are busy with the I/O threads of
-// other instances. So an empty command line is not a mismatch: such a
-// process is still starting and counts as the instance, unless it is a
-// zombie or a kernel thread (which keep an empty one). A reused pid of
-// any other process has its command line.
-func procIsInstanceProcess(pid int, socket string) bool {
+// A dying bngblaster has lost its command line while it still holds its
+// interface locks, so an empty one is accepted if the process has the name of
+// executable. Kernel threads and other zombies have an empty one as well, but
+// not that name; which instance a dying bngblaster belonged to cannot be told
+// any more, but it is gone a moment later and takes no signal. The children of
+// this controller do not depend on any of this, see children.
+func procIsInstanceProcess(pid int, socket string, executable string) bool {
 	cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
 	if err != nil {
 		return false
 	}
 	if len(cmdline) == 0 {
-		return procStarting(pid)
+		return procHasName(pid, executable)
 	}
 	want, err := filepath.Abs(socket)
 	if err != nil {
@@ -471,29 +501,21 @@ func procIsInstanceProcess(pid int, socket string) bool {
 	return false
 }
 
-// pfKthread is the PF_KTHREAD flag of /proc/<pid>/stat: a kernel thread.
-const pfKthread = 0x00200000
+// maxProcNameLength is how much of its name the kernel keeps for a process.
+const maxProcNameLength = 15
 
-// procStarting reports whether process pid, whose command line is empty,
-// is a process that is still starting: neither a zombie nor a kernel
-// thread. A process whose state cannot be read is not.
-func procStarting(pid int) bool {
-	stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+// procHasName reports whether process pid was started from executable. The
+// name in /proc/<pid>/comm outlives the command line, also in a zombie.
+func procHasName(pid int, executable string) bool {
+	comm, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
 	if err != nil {
 		return false
 	}
-	// "pid (comm) state ppid pgrp session tty_nr tpgid flags ...": comm
-	// may itself contain ") ".
-	i := bytes.LastIndexByte(stat, ')')
-	if i < 0 {
-		return false
+	name := filepath.Base(executable)
+	if len(name) > maxProcNameLength {
+		name = name[:maxProcNameLength]
 	}
-	fields := strings.Fields(string(stat[i+1:]))
-	if len(fields) < 7 || fields[0] == "Z" {
-		return false
-	}
-	flags, err := strconv.ParseUint(fields[6], 10, 64)
-	return err == nil && flags&pfKthread == 0
+	return strings.TrimSuffix(string(comm), "\n") == name
 }
 
 // Start implements Repository.
@@ -501,40 +523,47 @@ func (r *DefaultRepository) Start(ctx context.Context, name string, runningConfi
 	if !validInstanceName(name) {
 		return ErrInvalidInstanceName
 	}
+	done, err := r.spawn(name, runningConfig)
+	if err != nil {
+		return err
+	}
+	return waitForStartup(ctx, path.Join(r.configFolder, name), done)
+}
+
+// spawn replaces the files of the previous run and starts the process. The
+// returned channel is the one of RunCommand.
+func (r *DefaultRepository) spawn(name string, runningConfig RunningConfig) (chan error, error) {
+	lifecycle.Lock()
+	defer lifecycle.Unlock()
 	if !r.Exists(name) {
-		return ErrBlasterNotExists
+		return nil, ErrBlasterNotExists
 	}
 	if r.Running(name) {
-		return ErrBlasterRunning
+		return nil, ErrBlasterRunning
 	}
 	// Validate before touching any run file, so a rejected request leaves
 	// the previous run's report and logs in place.
 	params, err := r.commandlineParameters(name, runningConfig)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := r.cleanupRunFiles(name, true); err != nil {
-		return err
+		return nil, err
 	}
 	folder := path.Join(r.configFolder, name)
 	if err := writeRunConfig(path.Join(folder, RunConfigFilename), runningConfig); err != nil {
-		return err
+		return nil, err
 	}
 	// folder as the working directory lets bngblaster resolve any relative
 	// file reference in config.json (e.g. an isis mrt-file or a bgp
 	// raw-update-file) against the instance directory, which is also where
 	// uploaded files are stored.
-	done, err := RunCommand(
+	return RunCommand(
 		folder,
 		path.Join(folder, runPidFilename),
 		path.Join(folder, RunStdOut),
 		path.Join(folder, RunStdErr),
 		params...)
-	if err != nil {
-		return err
-	}
-
-	return waitForStartup(ctx, folder, done)
 }
 
 // writeRunConfig stores the start arguments of a run as run.json, unless
@@ -688,13 +717,29 @@ func (r *DefaultRepository) Kill(name string) {
 	r.sendSignal(name, os.Kill)
 }
 
+// sendSignal signals the bngblaster of instance name. The controller runs as
+// root, so the signal goes through a process handle, as a bare pid could be
+// reused between the check and the signal: the handle of the child, whose
+// Signal fails once it is reaped, or else one taken before the check, which
+// pins the process checked. The latter takes pidfd support (Linux 5.4); without
+// it, FindProcess falls back to the pid and that gap remains, which takes the
+// pids to wrap around between two system calls.
 func (r *DefaultRepository) sendSignal(name string, signal os.Signal) {
-	if pid, ok := r.instancePid(name); ok {
-		// Look for the pid in the process list.
-		if process, err := os.FindProcess(pid); err == nil {
-			// Send the process a signal.
-			_ = process.Signal(signal)
-		}
+	if process, ok := children.get(path.Join(r.configFolder, name)); ok {
+		_ = process.Signal(signal)
+		return
+	}
+	pid, ok := r.pid(name)
+	if !ok {
+		return
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return
+	}
+	defer func() { _ = process.Release() }()
+	if r.isInstance(name, pid) {
+		_ = process.Signal(signal)
 	}
 }
 
@@ -841,8 +886,8 @@ func checkCommandFile(command SocketCommand) error {
 }
 
 // socketCommand sends one command to the control socket at file and returns
-// the raw response. Unlike Command it does not check the pid file, so the
-// startup wait can use it while the instance is still coming up.
+// the raw response. Unlike Command it does not check that the instance is
+// running, which the startup wait, polling the socket itself, does not need.
 func socketCommand(file string, command SocketCommand) ([]byte, error) {
 	// Open Socket
 	c, err := net.Dial("unix", file)
